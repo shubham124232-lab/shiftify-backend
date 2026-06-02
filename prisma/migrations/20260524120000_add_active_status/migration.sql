@@ -1,0 +1,6 @@
+DO $$
+BEGIN
+  ALTER TYPE "UserStatus" ADD VALUE IF NOT EXISTS 'ACTIVE';
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;

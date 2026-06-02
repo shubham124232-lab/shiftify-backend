@@ -1,0 +1,720 @@
+{
+  "info": {
+    "name": "Shiftify Auth API",
+    "_postman_id": "b1f2a3c4-5d6e-47f8-9a0b-1c2d3e4f5a6b",
+    "description": "Shiftify multi-role auth endpoints (P0 + P1). Login/Register/Switch-Role auto-save the access token to {{accessToken}}. Refresh/Logout use the HttpOnly cookie. P1 adds OTP verify, password reset, and managed-account linking. Set {{baseUrl}} if your API isn't on http://localhost:5000.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl",     "value": "http://localhost:5000" },
+    { "key": "accessToken", "value": "" },
+    { "key": "regEmail",    "value": "" },
+    { "key": "otpCode",     "value": "" },
+    { "key": "resetCode",   "value": "" },
+    { "key": "workerUsername",      "value": "" },
+    { "key": "participantUsername", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "── P0 Auth ──",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+          }
+        },
+        {
+          "name": "Register (new SELF account)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('regEmail', 'smoke+' + Date.now() + '@shiftify.local');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('201 Created', function () { pm.expect(pm.response.code).to.eql(201); });",
+                  "pm.test('status PENDING + role assigned', function () {",
+                  "  pm.expect(j.data.user.status).to.eql('PENDING');",
+                  "  pm.expect(j.data.user.roles).to.include('SUPPORT_WORKER');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Smoke Test User\",\n  \"email\": \"{{regEmail}}\",\n  \"password\": \"Password@123\",\n  \"role\": \"SUPPORT_WORKER\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] }
+          }
+        },
+        {
+          "name": "Login - Alice (by email, multi-role)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });",
+                  "pm.test('has roles + activeRole', function () {",
+                  "  pm.expect(j.data.user.roles).to.include('PARTICIPANT');",
+                  "  pm.expect(j.data.user.activeRole).to.be.a('string');",
+                  "});",
+                  "console.log('roles:', j.data.user.roles, 'active:', j.data.user.activeRole);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"alice.participant@shiftify.local\",\n  \"password\": \"Password@123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Login - Dana (managed, by username)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });",
+                  "pm.test('managed account', function () { pm.expect(j.data.user.accountType).to.eql('MANAGED'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"dana.worker\",\n  \"password\": \"Password@123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Get Me (Bearer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });",
+                  "const j = pm.response.json();",
+                  "console.log('me roles:', (j.data.user.roles || []).map(function (r) { return r.role; }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"] }
+          }
+        },
+        {
+          "name": "Add Role (COORDINATOR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 or 409 (already holds)', function () { pm.expect([201, 409]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"COORDINATOR\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/roles", "host": ["{{baseUrl}}"], "path": ["auth", "roles"] }
+          }
+        },
+        {
+          "name": "Switch Role (SUPPORT_WORKER)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });",
+                  "pm.test('active role switched', function () { pm.expect(j.data.activeRole).to.eql('SUPPORT_WORKER'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"SUPPORT_WORKER\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/switch-role", "host": ["{{baseUrl}}"], "path": ["auth", "switch-role"] }
+          }
+        },
+        {
+          "name": "Refresh (uses HttpOnly cookie)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/auth/refresh", "host": ["{{baseUrl}}"], "path": ["auth", "refresh"] }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/auth/logout", "host": ["{{baseUrl}}"], "path": ["auth", "logout"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "── P1 OTP / Verification ──",
+      "item": [
+        {
+          "name": "1. Login as Alice (save token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"alice.participant@shiftify.local\",\n  \"password\": \"Password@123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "2. Request OTP (email)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });",
+                  "if (j.data._dev_code) {",
+                  "  pm.collectionVariables.set('otpCode', j.data._dev_code);",
+                  "  console.log('_dev_code:', j.data._dev_code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"channel\": \"email\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/verify/request", "host": ["{{baseUrl}}"], "path": ["auth", "verify", "request"] }
+          }
+        },
+        {
+          "name": "3. Confirm OTP (email) — uses {{otpCode}}",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK + verified', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(pm.response.json().data.verified).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"channel\": \"email\",\n  \"code\": \"{{otpCode}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/verify/confirm", "host": ["{{baseUrl}}"], "path": ["auth", "verify", "confirm"] }
+          }
+        },
+        {
+          "name": "4. Confirm OTP - wrong code (expect 401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', function () { pm.expect(pm.response.code).to.eql(401); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"channel\": \"email\",\n  \"code\": \"000000\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/verify/confirm", "host": ["{{baseUrl}}"], "path": ["auth", "verify", "confirm"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "── P1 Password Reset ──",
+      "item": [
+        {
+          "name": "1. Forgot Password (Alice by email)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });",
+                  "if (j.data._dev_code) {",
+                  "  pm.collectionVariables.set('resetCode', j.data._dev_code);",
+                  "  console.log('reset _dev_code:', j.data._dev_code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"alice.participant@shiftify.local\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/password/forgot", "host": ["{{baseUrl}}"], "path": ["auth", "password", "forgot"] }
+          }
+        },
+        {
+          "name": "2. Forgot Password - unknown user (no enumeration, 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK (no enumeration)', function () { pm.expect(pm.response.code).to.eql(200); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"nobody@nowhere.invalid\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/password/forgot", "host": ["{{baseUrl}}"], "path": ["auth", "password", "forgot"] }
+          }
+        },
+        {
+          "name": "3. Reset Password — uses {{resetCode}}",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"alice.participant@shiftify.local\",\n  \"code\": \"{{resetCode}}\",\n  \"newPassword\": \"NewPass@456\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/password/reset", "host": ["{{baseUrl}}"], "path": ["auth", "password", "reset"] }
+          }
+        },
+        {
+          "name": "4. Login with new password (expect 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('200 OK with new password', function () { pm.expect(pm.response.code).to.eql(200); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"alice.participant@shiftify.local\",\n  \"password\": \"NewPass@456\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "5. Reset code replay (expect 401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 on consumed code', function () { pm.expect(pm.response.code).to.eql(401); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"alice.participant@shiftify.local\",\n  \"code\": \"{{resetCode}}\",\n  \"newPassword\": \"AnotherPass@789\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/password/reset", "host": ["{{baseUrl}}"], "path": ["auth", "password", "reset"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "── P1 Managed Accounts (Linking) ──",
+      "item": [
+        {
+          "name": "1. Login as Bob (PROVIDER)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('workerUsername', 'managed.worker.' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"bob.provider@shiftify.local\",\n  \"password\": \"Password@123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "2. Switch Bob to PROVIDER role",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('200 OK, active=PROVIDER', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(j.data.activeRole).to.eql('PROVIDER');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"PROVIDER\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/switch-role", "host": ["{{baseUrl}}"], "path": ["auth", "switch-role"] }
+          }
+        },
+        {
+          "name": "3. Create Managed Worker (Provider)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "pm.test('201 Created, MANAGED SUPPORT_WORKER', function () {",
+                  "  pm.expect(pm.response.code).to.eql(201);",
+                  "  pm.expect(j.data.user.accountType).to.eql('MANAGED');",
+                  "  pm.expect(j.data.user.roles).to.include('SUPPORT_WORKER');",
+                  "});",
+                  "console.log('worker:', j.data.user.username, j.data.user.status);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{workerUsername}}\",\n  \"password\": \"Password@123\",\n  \"name\": \"Managed Worker (Postman)\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/linking/workers", "host": ["{{baseUrl}}"], "path": ["linking", "workers"] }
+          }
+        },
+        {
+          "name": "4. List Managed Workers (Provider)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });",
+                  "console.log('worker count:', pm.response.json().data.users.length);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/linking/workers", "host": ["{{baseUrl}}"], "path": ["linking", "workers"] }
+          }
+        },
+        {
+          "name": "5. Login as Managed Worker (by username)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('200 OK, MANAGED', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(j.data.user.accountType).to.eql('MANAGED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{workerUsername}}\",\n  \"password\": \"Password@123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "6. Login as Carol (COORDINATOR)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('participantUsername', 'managed.participant.' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('200 OK', function () { pm.expect(pm.response.code).to.eql(200); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"carol.coordinator@shiftify.local\",\n  \"password\": \"Password@123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "7. Switch Carol to COORDINATOR role",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "if (j && j.data && j.data.accessToken) { pm.collectionVariables.set('accessToken', j.data.accessToken); }",
+                  "pm.test('200 OK, active=COORDINATOR', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(j.data.activeRole).to.eql('COORDINATOR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"COORDINATOR\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/switch-role", "host": ["{{baseUrl}}"], "path": ["auth", "switch-role"] }
+          }
+        },
+        {
+          "name": "8. Create Managed Participant (Coordinator)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let j; try { j = pm.response.json(); } catch (e) {}",
+                  "pm.test('201 Created, MANAGED PARTICIPANT', function () {",
+                  "  pm.expect(pm.response.code).to.eql(201);",
+                  "  pm.expect(j.data.user.accountType).to.eql('MANAGED');",
+                  "  pm.expect(j.data.user.roles).to.include('PARTICIPANT');",
+                  "});",
+                  "console.log('participant:', j.data.user.username, j.data.user.status);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{participantUsername}}\",\n  \"password\": \"Password@123\",\n  \"name\": \"Managed Participant (Postman)\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/linking/participants", "host": ["{{baseUrl}}"], "path": ["linking", "participants"] }
+          }
+        },
+        {
+          "name": "9. Forbidden — non-PROVIDER tries /linking/workers (expect 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden (COORDINATOR active, not PROVIDER)', function () {",
+                  "  pm.expect(pm.response.code).to.eql(403);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"should.fail\",\n  \"password\": \"Password@123\",\n  \"name\": \"Should Fail\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/linking/workers", "host": ["{{baseUrl}}"], "path": ["linking", "workers"] }
+          }
+        }
+      ]
+    }
+  ]
+}

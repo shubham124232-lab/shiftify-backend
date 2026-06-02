@@ -1,0 +1,137 @@
+// subscription.service.ts — Phase 1 subscription + plan management.
+//
+// Plans live in the Plan table (seeded rows). In Phase 2 the Stripe price ID
+// is populated and the activate flow calls Stripe instead of the mock path.
+//
+// activateAccount() is the SINGLE place that sets a user to APPROVED.
+
+import { randomUUID } from "crypto";
+import { prisma } from "../../lib/prisma";
+import { BadRequestError, NotFoundError } from "../../lib/errors";
+import type { UserRole } from "@prisma/client";
+
+export const PLAN_REQUIRED_ROLES: UserRole[] = [
+  "SUPPORT_WORKER",
+  "PROVIDER",
+  "COORDINATOR",
+];
+
+export const FREE_ROLES: UserRole[] = ["PARTICIPANT", "PLAN_MANAGER"];
+
+// ─── List plans ───────────────────────────────────────────────────────────────
+
+export async function listPlans(role?: UserRole) {
+  return (prisma as any).plan.findMany({
+    where: {
+      active: true,
+      ...(role ? { role } : {}),
+    },
+    orderBy: [{ role: "asc" }, { amountAud: "asc" }],
+    select: { id: true, key: true, role: true, name: true, amountAud: true },
+  });
+}
+
+// ─── Get active subscription for current user ─────────────────────────────────
+
+export async function getMySubscription(userId: string) {
+  return (prisma as any).userSubscription.findFirst({
+    where: { userId, status: "ACTIVE" },
+    include: { plan: { select: { id: true, key: true, name: true, role: true, amountAud: true } } },
+    orderBy: { activatedAt: "desc" },
+  });
+}
+
+// ─── activateAccount ──────────────────────────────────────────────────────────
+
+export interface ActivateResult {
+  message: string;
+  status: "APPROVED";
+  subscription?: {
+    id: string;
+    planKey: string;
+    planName: string;
+    amountAud: string;
+  };
+  _dev_payment?: {
+    plan: string;
+    amount: number;
+    currency: string;
+    receipt: string;
+  };
+}
+
+export async function activateAccount(
+  userId: string,
+  activeRole: UserRole,
+  planId?: string,
+): Promise<ActivateResult> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new NotFoundError("User not found");
+
+  const needsPlan = PLAN_REQUIRED_ROLES.includes(activeRole);
+
+  let subscriptionRow: { id: string; mockReceiptRef: string | null } | null = null;
+  let plan: { key: string; name: string; amountAud: unknown } | null = null;
+
+  if (needsPlan) {
+    if (!planId) {
+      throw new BadRequestError(
+        `A plan is required to activate a ${activeRole} account. Call GET /subscriptions/plans?role=${activeRole} to see options.`,
+      );
+    }
+
+    plan = await (prisma as any).plan.findFirst({
+      where: { id: planId, role: activeRole, active: true },
+    });
+    if (!plan) throw new NotFoundError(`Plan not found or not valid for role ${activeRole}`);
+
+    const mockReceiptRef = `DEV-${randomUUID().toUpperCase()}`;
+
+    subscriptionRow = await (prisma as any).userSubscription.create({
+      data: {
+        userId,
+        planId,
+        status:         "ACTIVE",
+        mockReceiptRef,
+        activatedAt:    new Date(),
+      },
+    });
+  }
+
+  await prisma.user.update({ where: { id: userId }, data: { status: "APPROVED" } });
+
+  const result: ActivateResult = {
+    message: "Account activated successfully",
+    status:  "APPROVED",
+  };
+
+  if (subscriptionRow && plan) {
+    result.subscription = {
+      id:        subscriptionRow.id,
+      planKey:   (plan as any).key,
+      planName:  (plan as any).name,
+      amountAud: String((plan as any).amountAud),
+    };
+    if (process.env.NODE_ENV !== "production") {
+      result._dev_payment = {
+        plan:     (plan as any).key,
+        amount:   Number((plan as any).amountAud),
+        currency: "AUD",
+        receipt:  subscriptionRow.mockReceiptRef!,
+      };
+    }
+  }
+
+  return result;
+}
+
+// ─── subscriptionGated ────────────────────────────────────────────────────────
+
+export async function subscriptionGated(userId: string, role: UserRole): Promise<boolean> {
+  if (FREE_ROLES.includes(role)) return true;
+
+  const sub = await (prisma as any).userSubscription.findFirst({
+    where: { userId, status: "ACTIVE", plan: { role } },
+  });
+  return sub !== null;
+}

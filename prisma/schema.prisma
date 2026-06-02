@@ -1,0 +1,838 @@
+// Shiftify Prisma schema — Phase 1 (revised marketplace model + multi-role identity)
+// Single source of truth for all database tables. Edit here, then run `npx prisma migrate dev`.
+//
+// Identity model (see PROJECT_CONTEXT.md §10):
+//   • A self-registered account holds ONE OR MANY roles (UserRoleAssignment). The active role
+//     is carried in the JWT, not stored as a column on User.
+//   • Two account types: SELF (email/phone/username + password, multi-role, OTP) and
+//     MANAGED (username + password only, created by a Provider/Coordinator, no email/OTP).
+//   • One phone + one address per user. Job location lives on SupportRequest, not the user.
+//   • Email/phone OTP and password reset are handled by VerificationCode (mock sender now,
+//     Twilio/email later). Magic-link has been retired in favour of OTP.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Neon: DATABASE_URL is the POOLED connection (used at runtime); DIRECT_URL is the
+  // DIRECT (non-pooled) connection used by `prisma migrate`. For a local non-Neon
+  // Postgres, set DIRECT_URL to the same value as DATABASE_URL.
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Enums
+// ───────────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  PARTICIPANT
+  SUPPORT_WORKER
+  PROVIDER
+  COORDINATOR
+  PLAN_MANAGER
+  ADMIN
+}
+
+// SELF  = self-registered (email/phone/username + password, multi-role, can verify via OTP)
+// MANAGED = created by a Provider/Coordinator; logs in with username + password only, no OTP
+enum AccountType {
+  SELF
+  MANAGED
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE      // live, operational — used for all approved/active states
+  APPROVED    // legacy value kept for Postgres enum compatibility; new code uses ACTIVE
+  REJECTED
+  SUSPENDED
+}
+
+enum AdminTier {
+  SUPER_ADMIN
+  REVIEWER
+}
+
+enum DocumentType {
+  POLICE_CHECK
+  NDIS_SCREENING
+  WWCC
+  FIRST_AID
+  CPR
+  MANUAL_HANDLING
+  INFECTION_CONTROL
+  DRIVERS_LICENCE
+  VEHICLE_INSURANCE
+  PUBLIC_LIABILITY_INSURANCE
+  PROFESSIONAL_INDEMNITY
+  WORKERS_COMP
+  NDIS_AUDIT
+  PERSONAL_ACCIDENT_INSURANCE
+  QUALIFICATION_CERTIFICATE
+  OTHER
+}
+
+enum DocumentStatus {
+  UPLOADED
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum JobCategory {
+  PERSONAL_CARE
+  COMMUNITY_ACCESS
+  DOMESTIC_ASSISTANCE
+  TRANSPORT
+  SOCIAL_RECREATIONAL
+  NURSING_COMPLEX_CARE
+  THERAPY_ASSISTANCE
+  OVERNIGHT_SUPPORT
+  BEHAVIOUR_SUPPORT
+  HIGH_INTENSITY
+  SIL_SUPPORT
+  RESPITE
+  COMPANIONSHIP
+  MEDICATION_ASSISTANCE
+  MEAL_PREPARATION
+  SHOPPING_ERRANDS
+  APPOINTMENT_SUPPORT
+  OTHER
+}
+
+// Revised: three tiers (was STANDARD/LAST_MINUTE/URGENT/EMERGENCY)
+enum JobUrgency {
+  EMERGENCY
+  SAME_DAY
+  SCHEDULED
+}
+
+// Revised flow: OPEN accumulates expressions of interest; poster selects → ASSIGNED.
+enum JobStatus {
+  DRAFT
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CONFIRMED
+  CANCELLED
+}
+
+// Expression-of-interest lifecycle
+enum ApplicationStatus {
+  INTERESTED
+  SHORTLISTED
+  SELECTED
+  DECLINED
+  WITHDRAWN
+}
+
+enum WeekDay {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
+}
+
+enum PmConnectionStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum PmInitiator {
+  CLIENT
+  PLAN_MANAGER
+}
+
+// OTP / verification channel + purpose (mock sender now, Twilio/email later)
+enum OtpChannel {
+  EMAIL
+  PHONE
+}
+
+enum OtpPurpose {
+  VERIFY_EMAIL
+  VERIFY_PHONE
+  PASSWORD_RESET
+}
+
+enum NotificationType {
+  REGISTRATION_APPROVED
+  REGISTRATION_REJECTED
+  DOC_VERIFIED
+  DOC_REJECTED
+  NEW_JOB_NEARBY
+  EMERGENCY_NEARBY
+  JOB_APPLICATION_RECEIVED
+  JOB_SHORTLISTED
+  JOB_SELECTED
+  JOB_ASSIGNED
+  JOB_PRESTART_REMINDER
+  JOB_STARTED
+  JOB_COMPLETED
+  JOB_CONFIRMED
+  JOB_CANCELLED
+  JOB_PROMOTED_EMERGENCY
+  NEW_MESSAGE
+  INVOICE_RECEIVED
+  PM_CONNECTION_REQUEST
+  PM_CONNECTION_ACCEPTED
+  GUEST_EXPIRY_REMINDER
+  GUEST_EXPIRED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+}
+
+enum AuditAction {
+  USER_APPROVED
+  USER_REJECTED
+  USER_SUSPENDED
+  USER_REACTIVATED
+  USER_EDITED
+  DOC_VERIFIED
+  DOC_REJECTED
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Core: User + roles + role profile extensions
+// ───────────────────────────────────────────────────────────────────────────
+
+model User {
+  id                      String       @id @default(uuid())
+
+  // Identity — all nullable. SELF accounts use email/phone (and may set a username);
+  // MANAGED accounts use username only. Unique where present (Postgres allows many NULLs).
+  email                   String?      @unique
+  phone                   String?      @unique   // single E.164 number per user
+  username                String?      @unique
+  passwordHash            String?
+  name                    String
+
+  accountType             AccountType  @default(SELF)
+  status                  UserStatus   @default(PENDING)
+  adminTier               AdminTier?
+  rejectionReason         String?
+  avatarUrl               String?
+
+  defaultSuburb           String?
+  defaultState            String?
+  defaultPostcode         String?
+
+  // MANAGED accounts (provider→worker, coordinator→participant) point at their creator.
+  parentUserId            String?
+  parent                  User?        @relation("ChildToParent", fields: [parentUserId], references: [id])
+  children                User[]       @relation("ChildToParent")
+
+  // Multi-role: a SELF account can hold many roles. The active role lives in the JWT,
+  // not here — UserRoleAssignment is the source of truth for which roles a user holds.
+  roles                   UserRoleAssignment[]
+
+  emailVerified           Boolean      @default(false)
+  phoneVerified           Boolean      @default(false)
+
+  // Guest window for self-registered participants — now keyed off email verification (OTP),
+  // not magic links.
+  guestUntil              DateTime?
+  lastGuestReminderAt     DateTime?
+
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+
+  // Relations
+  addresses               Address[]
+  documents               Document[]   @relation("UserDocuments")
+  verificationCodes       VerificationCode[]
+  participantProfile      ParticipantProfile?
+  workerProfile           WorkerProfile?
+  providerProfile         ProviderProfile?
+  coordinatorProfile      CoordinatorProfile?
+  planManagerProfile      PlanManagerProfile?
+
+  jobsPosted              SupportRequest[]  @relation("PostedBy")
+  jobsForMe               SupportRequest[]  @relation("ForParticipant")
+  jobsSelected            SupportRequest[]  @relation("SelectedApplicant")
+  jobsAssigned            SupportRequest[]  @relation("AssignedWorker")
+  jobsCancelled           SupportRequest[]  @relation("CancelledBy")
+  jobApplications         JobApplication[]
+
+  messagesSent            JobMessage[]
+  notifications           Notification[]
+  sessions                Session[]
+
+  auditLogActions         AuditLog[]   @relation("AdminAction")
+  auditLogTargets         AuditLog[]   @relation("AuditTarget")
+  documentsVerifiedByMe   Document[]   @relation("DocVerifier")
+
+  subscriptions           UserSubscription[]
+
+  invoicesSent            Invoice[]    @relation("InvoiceSender")
+  invoicesReceived        Invoice[]    @relation("InvoicePlanManager")
+  invoicesAsParticipant   Invoice[]    @relation("InvoiceParticipant")
+
+  pmConnectionsAsManager  PlanManagerConnection[] @relation("PmConnManager")
+  pmConnectionsAsClient   PlanManagerConnection[] @relation("PmConnClient")
+
+  @@index([status])
+  @@index([accountType])
+  @@index([parentUserId])
+  @@index([guestUntil])
+}
+
+// Multi-role mapping. One row per (user, role). `isActiveDefault` marks the role the
+// dashboard opens on after login; the in-session active role is carried in the JWT.
+model UserRoleAssignment {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role            UserRole
+  isActiveDefault Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  @@unique([userId, role])
+  @@index([role])
+}
+
+model ParticipantProfile {
+  id                            String   @id @default(uuid())
+  userId                        String   @unique
+  user                          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  profileStep                   Int      @default(0)
+
+  preferredName                 String?
+  ageGroup                      String?
+  gender                        String?
+  ndisNumber                    String?
+  fundingManagementType         String?  // SELF | PLAN | NDIA
+  primaryDisability             String?
+
+  mobilitySupportNeeds          Json?
+  communicationNeeds            Json?
+  behaviourSensoryNotes         Json?
+  medicalConsiderations         Json?
+  riskSafetyNotes               String?
+  supportPreferences            Json?
+
+  emergencyContactName          String?
+  emergencyContactPhone         String?
+  emergencyContactRelationship  String?
+
+  // PM linkage now lives in PlanManagerConnection. This flag drives discovery.
+  seekingPlanManager            Boolean  @default(false)
+
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+}
+
+model WorkerProfile {
+  id                       String   @id @default(uuid())
+  userId                   String   @unique
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  profileStep              Int      @default(0)
+
+  dob                      DateTime?
+  gender                   String?
+  rightToWork              String?
+  visaType                 String?
+  visaExpiry               DateTime?
+  workType                 String?
+  abn                      String?
+  gstRegistered            Boolean  @default(false)
+
+  servicesOffered          Json?
+  subServices              Json?
+  highIntensitySkills      Json?
+  experienceLevel          String?
+  disabilityExperience     Json?
+
+  availabilityType         String?
+  emergencyAvailability    Boolean  @default(false)
+
+  serviceAreas             Json?
+  travelRadiusKm           Int?
+  hasVehicle               Boolean  @default(false)
+  insuranceValid           Boolean  @default(false)
+
+  hourlyRate               Decimal? @db.Decimal(10, 2)
+  bio                      String?
+  isAvailableNow           Boolean  @default(false)
+  rating                   Float    @default(0)
+  totalReviews             Int      @default(0)
+
+  lat                      Float?
+  lng                      Float?
+
+  seekingPlanManager       Boolean  @default(false)
+
+  availability             WorkerAvailability[]
+  unavailability           WorkerUnavailability[]
+
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model ProviderProfile {
+  id                       String   @id @default(uuid())
+  userId                   String   @unique
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  profileStep              Int      @default(0)
+
+  businessName             String
+  legalEntityName          String?
+  abn                      String   @unique
+  businessStructure        String?
+  ndisRegistered           Boolean  @default(false)
+  ndisProviderNumber       String?
+  gstRegistered            Boolean  @default(false)
+  yearsInOperation         String?
+
+  primaryContactName       String?
+  primaryContactRole       String?
+  primaryContactPhone      String?
+  primaryContactEmail      String?
+  accountsContactName      String?
+  accountsContactEmail     String?
+
+  coreServices             Json?
+  offersSil                Boolean  @default(false)
+  offersSda                Boolean  @default(false)
+  silDetails               Json?
+  sdaDetails               Json?
+
+  serviceAreas             Json?
+  serviceMode              String?
+  workforceSize            String?
+  participantTypes         Json?
+  pricingModel             String?
+  billingMethod            String?
+  businessDescription      String?
+  logoUrl                  String?
+  websiteUrl               String?
+
+  seekingPlanManager       Boolean  @default(false)
+
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model CoordinatorProfile {
+  id                                   String   @id @default(uuid())
+  userId                               String   @unique
+  user                                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  profileStep                          Int      @default(0)
+
+  roleType                             String?
+  organisationName                     String?
+  abn                                  String?
+  ndisRegistered                       Boolean  @default(false)
+  ndisProviderNumber                   String?
+  yearsExperience                      String?
+
+  supportCoordinationLevel             Json?
+  participantComplexityExperience      Json?
+  servicesOfferedBeyondCoordination    Json?
+
+  serviceAreas                         Json?
+  serviceMode                          String?
+  currentCapacityStatus                String?
+  maxParticipantLoad                   Int?
+  participantTypesAccepted             Json?
+  billingMethodPreference              String?
+  hourlyRate                           Decimal? @db.Decimal(10, 2)
+  bio                                  String?
+
+  createdAt                            DateTime @default(now())
+  updatedAt                            DateTime @updatedAt
+}
+
+model PlanManagerProfile {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  profileStep         Int      @default(0)
+
+  businessName        String
+  abn                 String?
+  ndisRegistered      Boolean  @default(false)
+  yearsInOperation    String?
+  serviceAreas        Json?
+
+  // Whether this PM appears in the discovery directory for clients to find.
+  acceptingClients    Boolean  @default(true)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Contact: one address per user (1:1). Phone is a single field on User.
+// Job location is NOT here — it lives on SupportRequest.
+// ───────────────────────────────────────────────────────────────────────────
+
+model Address {
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isDefault       Boolean       @default(false)
+  label           String?       // "Home", "Work", etc.
+  unitApartment   String?
+  street          String?
+  suburb          String
+  state           String?
+  postcode        String?
+  lat             Float?
+  lng             Float?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([userId, isDefault])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Worker availability (weekly recurring slots + ad-hoc unavailable dates)
+// ───────────────────────────────────────────────────────────────────────────
+
+model WorkerAvailability {
+  id              String        @id @default(uuid())
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  dayOfWeek       WeekDay
+  startTime       String        // "09:00" 24h local
+  endTime         String        // "17:00"
+  createdAt       DateTime      @default(now())
+
+  @@index([workerProfileId, dayOfWeek])
+}
+
+model WorkerUnavailability {
+  id              String        @id @default(uuid())
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  date            DateTime      // a specific blocked date
+  reason          String?
+  createdAt       DateTime      @default(now())
+
+  @@index([workerProfileId, date])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Compliance documents
+// ───────────────────────────────────────────────────────────────────────────
+
+model Document {
+  id                 String          @id @default(uuid())
+  userId             String
+  user               User            @relation("UserDocuments", fields: [userId], references: [id], onDelete: Cascade)
+  docType            DocumentType
+  filePath           String
+  fileName           String
+  mimeType           String
+  sizeBytes          Int
+  referenceNumber    String?
+  issueDate          DateTime?
+  expiryDate         DateTime?
+  status             DocumentStatus  @default(UPLOADED)
+  rejectionReason    String?
+  verifiedByAdminId  String?
+  verifiedByAdmin    User?           @relation("DocVerifier", fields: [verifiedByAdminId], references: [id])
+  verifiedAt         DateTime?
+  uploadedAt         DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([expiryDate])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Marketplace: jobs (support_requests) + applications
+// ───────────────────────────────────────────────────────────────────────────
+
+model SupportRequest {
+  id                       String       @id @default(uuid())
+
+  postedByUserId           String
+  postedBy                 User         @relation("PostedBy", fields: [postedByUserId], references: [id])
+
+  forParticipantUserId     String
+  forParticipant           User         @relation("ForParticipant", fields: [forParticipantUserId], references: [id])
+
+  title                    String
+  description              String
+  category                 JobCategory
+  subcategory              String?
+  urgency                  JobUrgency   @default(SCHEDULED)
+  status                   JobStatus    @default(DRAFT)
+
+  // Job location (the place the work happens) — distinct from any user's home address.
+  suburb                   String
+  state                    String
+  postcode                 String?
+  serviceDeliveryMode      String?
+
+  scheduledStartAt         DateTime
+  scheduledEndAt           DateTime
+  totalHours               Decimal?     @db.Decimal(6, 2)
+  isRecurring              Boolean      @default(false)
+  recurrencePattern        Json?
+
+  workerPreferences        Json?
+
+  // The candidate (worker OR provider) the poster selected from the top-5.
+  selectedApplicantUserId  String?
+  selectedApplicant        User?        @relation("SelectedApplicant", fields: [selectedApplicantUserId], references: [id])
+  // For provider-selected jobs: the actual worker the provider assigns afterwards.
+  assignedWorkerUserId     String?
+  assignedWorker           User?        @relation("AssignedWorker", fields: [assignedWorkerUserId], references: [id])
+
+  selectedAt               DateTime?
+  startedAt                DateTime?
+  completedAt              DateTime?
+  confirmedAt              DateTime?
+  cancelledAt              DateTime?
+  cancelledByUserId        String?
+  cancelledBy              User?        @relation("CancelledBy", fields: [cancelledByUserId], references: [id])
+  cancelReason             String?
+
+  // True when this job was reopened+escalated to EMERGENCY by a near-start cancellation.
+  promotedFromCancellation Boolean      @default(false)
+  // Set to true once the 15-min pre-start notification has been sent to the assigned worker.
+  assignedWorkerNotified   Boolean      @default(false)
+
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+
+  applications             JobApplication[]
+  messages                 JobMessage[]
+  invoices                 Invoice[]
+
+  @@index([status])
+  @@index([urgency])
+  @@index([suburb])
+  @@index([category])
+  @@index([postedByUserId])
+  @@index([forParticipantUserId])
+  @@index([selectedApplicantUserId])
+  @@index([assignedWorkerUserId])
+}
+
+model JobApplication {
+  id              String            @id @default(uuid())
+  jobId           String
+  job             SupportRequest    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  applicantUserId String
+  applicant       User              @relation(fields: [applicantUserId], references: [id])
+  // Worker (solo) or Provider (business). Stored for convenience in ranking.
+  applicantRole   UserRole
+  score           Float             @default(0)  // multi-factor ranking score
+  status          ApplicationStatus @default(INTERESTED)
+  note            String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([jobId, applicantUserId])
+  @@index([jobId, status])
+  @@index([applicantUserId])
+}
+
+model JobMessage {
+  id            String         @id @default(uuid())
+  jobId         String
+  job           SupportRequest @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  senderUserId  String
+  sender        User           @relation(fields: [senderUserId], references: [id])
+  body          String
+  createdAt     DateTime       @default(now())
+
+  @@index([jobId, createdAt])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Invoice = in-app completion record (NOT a PDF, NOT a payment).
+// Sender manually sends it to the relevant Plan Manager, who coordinates by phone.
+// ───────────────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id                 String   @id @default(uuid())
+  jobId              String
+  job                SupportRequest @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  senderUserId       String   // who triggered the send (coordinator / provider / solo actor)
+  sender             User     @relation("InvoiceSender", fields: [senderUserId], references: [id])
+
+  planManagerUserId  String   // recipient PM
+  planManager        User     @relation("InvoicePlanManager", fields: [planManagerUserId], references: [id])
+
+  participantUserId  String   // the participant the work was for
+  participant        User     @relation("InvoiceParticipant", fields: [participantUserId], references: [id])
+
+  hours              Decimal? @db.Decimal(6, 2)
+  note               String?
+  sentAt             DateTime @default(now())
+  createdAt          DateTime @default(now())
+
+  @@index([planManagerUserId, sentAt])
+  @@index([senderUserId])
+  @@index([jobId])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Plan Manager discovery + connection (mutual accept, either side initiates)
+// ───────────────────────────────────────────────────────────────────────────
+
+model PlanManagerConnection {
+  id                 String             @id @default(uuid())
+  planManagerUserId  String
+  planManager        User               @relation("PmConnManager", fields: [planManagerUserId], references: [id], onDelete: Cascade)
+  clientUserId       String             // participant / worker / provider
+  client             User               @relation("PmConnClient", fields: [clientUserId], references: [id], onDelete: Cascade)
+  status             PmConnectionStatus @default(PENDING)
+  initiatedBy        PmInitiator
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@unique([planManagerUserId, clientUserId])
+  @@index([planManagerUserId, status])
+  @@index([clientUserId, status])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// In-app notifications
+// ───────────────────────────────────────────────────────────────────────────
+
+model Notification {
+  id         String           @id @default(uuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       NotificationType
+  title      String
+  body       String?
+  data       Json?
+  read       Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Admin audit log
+// ───────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id               String       @id @default(uuid())
+  adminUserId      String
+  admin            User         @relation("AdminAction", fields: [adminUserId], references: [id])
+  action           AuditAction
+  targetUserId     String?
+  targetUser       User?        @relation("AuditTarget", fields: [targetUserId], references: [id])
+  targetDocumentId String?
+  reason           String?
+  metadata         Json?
+  createdAt        DateTime     @default(now())
+
+  @@index([adminUserId, createdAt])
+  @@index([targetUserId])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Subscription plans (seeded rows — Stripe prices added in Phase 2)
+// ───────────────────────────────────────────────────────────────────────────
+
+model Plan {
+  id              String   @id @default(uuid())
+  // Machine key, e.g. WORKER_BASIC, PROVIDER_PRO
+  key             String   @unique
+  // The role this plan applies to
+  role            UserRole
+  name            String
+  amountAud       Decimal  @db.Decimal(10, 2)
+  // Stripe price ID — null until Phase 2 swap-in
+  stripePriceId   String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  subscriptions   UserSubscription[]
+
+  @@index([role, active])
+}
+
+model UserSubscription {
+  id                     String             @id @default(uuid())
+  userId                 String
+  user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId                 String
+  plan                   Plan               @relation(fields: [planId], references: [id])
+  status                 SubscriptionStatus @default(ACTIVE)
+  // Stripe subscription ID — null until Phase 2 swap-in
+  stripeSubscriptionId   String?
+  // Fake payment reference (Phase 1 mock)
+  mockReceiptRef         String?
+  activatedAt            DateTime           @default(now())
+  expiresAt              DateTime?
+  cancelledAt            DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  @@index([userId, status])
+  @@index([planId])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Auth: sessions + OTP / verification codes
+// ───────────────────────────────────────────────────────────────────────────
+
+model Session {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String   @unique
+  expiresAt        DateTime
+  userAgent        String?
+  ip               String?
+  // The active role this session is operating under. Set at login, preserved
+  // across refresh, updated by POST /auth/switch-role.
+  activeRole       UserRole?
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// One-time codes for email/phone verification AND password reset.
+// In non-prod the plaintext code is returned in the API response (mock sender);
+// production swaps in Twilio / an email provider. Codes are hashed at rest.
+model VerificationCode {
+  id          String     @id @default(uuid())
+  userId      String?
+  user        User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel     OtpChannel
+  purpose     OtpPurpose
+  destination String     // the email address or E.164 phone the code was sent to
+  codeHash    String
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int        @default(0)
+  createdAt   DateTime   @default(now())
+
+  @@index([userId])
+  @@index([destination, purpose])
+  @@index([expiresAt])
+}

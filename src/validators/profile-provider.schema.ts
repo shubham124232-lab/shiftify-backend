@@ -1,0 +1,36 @@
+import { z } from "zod";
+
+export const providerProfileSchema = z.object({
+  profileStep:          z.number().int().min(0).max(12).optional(),
+  businessName:         z.string().max(120).optional(),
+  legalEntityName:      z.string().max(120).optional(),
+  abn:                  z.string().max(20).optional(),
+  businessStructure:    z.enum(["SOLE_TRADER", "PARTNERSHIP", "COMPANY", "TRUST"]).optional(),
+  ndisRegistered:       z.boolean().optional(),
+  ndisProviderNumber:   z.string().max(40).optional(),
+  gstRegistered:        z.boolean().optional(),
+  yearsInOperation:     z.string().max(20).optional(),
+  primaryContactName:   z.string().max(120).optional(),
+  primaryContactRole:   z.string().max(80).optional(),
+  primaryContactPhone:  z.string().max(30).optional(),
+  primaryContactEmail:  z.string().email().optional(),
+  accountsContactName:  z.string().max(120).optional(),
+  accountsContactEmail: z.string().email().optional(),
+  coreServices:         z.array(z.string()).optional(),
+  offersSil:            z.boolean().optional(),
+  offersSda:            z.boolean().optional(),
+  silDetails:           z.record(z.unknown()).optional(),
+  sdaDetails:           z.record(z.unknown()).optional(),
+  serviceAreas:         z.array(z.string()).optional(),
+  serviceMode:          z.enum(["IN_PERSON", "REMOTE", "BOTH"]).optional(),
+  workforceSize:        z.string().max(40).optional(),
+  participantTypes:     z.array(z.string()).optional(),
+  pricingModel:         z.string().max(80).optional(),
+  billingMethod:        z.string().max(80).optional(),
+  businessDescription:  z.string().max(2000).optional(),
+  websiteUrl:           z.string().url().optional(),
+  logoUrl:              z.string().url().optional(),
+  seekingPlanManager:   z.boolean().optional(),
+});
+
+export type ProviderProfileInput = z.infer<typeof providerProfileSchema>;
