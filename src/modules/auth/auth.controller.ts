@@ -30,6 +30,10 @@ function publicUser(user: User, roles: UserRole[], activeRole: UserRole) {
     phone: user.phone,
     username: user.username,
     name: user.name,
+    avatarUrl: user.avatarUrl,
+    defaultSuburb: user.defaultSuburb,
+    emailVerified: user.emailVerified,
+    phoneVerified: user.phoneVerified,
     accountType: user.accountType,
     status: user.status,
     adminTier: user.adminTier,
@@ -44,7 +48,11 @@ export async function register(req: Request, res: Response): Promise<void> {
   setRefreshCookie(res, r.tokens.refreshToken, r.tokens.refreshTokenExpiresAt);
   success(
     res,
-    { user: publicUser(r.user, r.roles, r.activeRole), accessToken: r.tokens.accessToken },
+    {
+      user: publicUser(r.user, r.roles, r.activeRole),
+      accessToken: r.tokens.accessToken,
+      ...(r._dev_code ? { _dev_code: r._dev_code } : {}),
+    },
     201,
   );
 }

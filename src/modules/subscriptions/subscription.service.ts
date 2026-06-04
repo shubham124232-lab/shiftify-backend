@@ -14,9 +14,10 @@ export const PLAN_REQUIRED_ROLES: UserRole[] = [
   "SUPPORT_WORKER",
   "PROVIDER",
   "COORDINATOR",
+  "PLAN_MANAGER",
 ];
 
-export const FREE_ROLES: UserRole[] = ["PARTICIPANT", "PLAN_MANAGER"];
+export const FREE_ROLES: UserRole[] = ["PARTICIPANT"];
 
 // ─── List plans ───────────────────────────────────────────────────────────────
 

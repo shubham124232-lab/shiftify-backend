@@ -325,6 +325,12 @@ async function main() {
       name:      "Support Coordinator — Basic",
       amountAud: 49.99,
     },
+    {
+      key:       "PLAN_MANAGER_BASIC",
+      role:      "PLAN_MANAGER" as const,
+      name:      "Plan Manager - Basic",
+      amountAud: 19.99,
+    },
   ];
 
   for (const plan of plans) {

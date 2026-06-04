@@ -34,6 +34,7 @@ export interface AuthResult {
   roles: UserRole[];
   activeRole: UserRole;
   tokens: AuthTokens;
+  _dev_code?: string;
 }
 
 // Create a session (carrying the active role) and sign the token pair.
@@ -110,21 +111,22 @@ export async function register(input: {
   });
 
   // Auto-send phone OTP so the user can verify immediately.
-  void autoSendPhoneOtp(user.id, phone);
-
   const roles: UserRole[] = [input.role];
   const tokens = await issueTokens(user, input.role, roles);
-  return { user, roles, activeRole: input.role, tokens };
+  const otp = await autoSendPhoneOtp(user.id);
+  return { user, roles, activeRole: input.role, tokens, ...otp };
 }
 
 // Fire-and-forget helper — sends phone OTP after SELF registration.
-async function autoSendPhoneOtp(userId: string, phone: string): Promise<void> {
+async function autoSendPhoneOtp(userId: string): Promise<{ _dev_code?: string }> {
   try {
     const { requestVerification } = await import("../auth/otp.service");
-    await requestVerification({ userId, channel: "phone" });
+    const result = await requestVerification({ userId, channel: "phone" });
+    return result._dev_code ? { _dev_code: result._dev_code } : {};
   } catch (err) {
     // Non-fatal — user can request a new OTP manually via POST /auth/verify/request.
     console.error("[auth] autoSendPhoneOtp failed:", err);
+    return {};
   }
 }
 
