@@ -33,7 +33,7 @@ export async function getMe(req: Request, res: Response): Promise<void> {
   const profileStep       = activeRole ? computeProfileStep(user, activeRole) : 0;
   const marketplace       = activeRole ? await canAccessMarketplace(req.user.id, activeRole) : null;
 
-  success(res, { user: safe, profileCompletion, profileStep, marketplace });
+  success(res, { user: safe, profileCompletion, profileStep, phoneVerified: user.phoneVerified, marketplace });
 }
 
 // GET /users/:id — parent fetches full profile of a managed child
