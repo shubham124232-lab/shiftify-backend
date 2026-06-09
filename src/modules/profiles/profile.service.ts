@@ -171,3 +171,40 @@ export async function deleteUnavailabilityDate(userId: string, unavailabilityId:
   if (!row) throw new NotFoundError("Unavailability record not found.");
   await prisma.workerUnavailability.delete({ where: { id: unavailabilityId } });
 }
+
+// ─── Provider availability ────────────────────────────────────────────────────
+
+export async function getProviderAvailability(userId: string) {
+  const profile = await prisma.providerProfile.findUnique({
+    where: { userId },
+    include: { availability: true },
+  });
+  if (!profile) throw new NotFoundError("Provider profile not found. Submit your profile first.");
+  return { availability: profile.availability };
+}
+
+export async function replaceProviderAvailabilitySlots(
+  userId: string,
+  slots: { dayOfWeek: string; startTime: string; endTime: string }[],
+) {
+  const profile = await prisma.providerProfile.findUnique({ where: { userId } });
+  if (!profile) throw new NotFoundError("Provider profile not found. Submit your profile first.");
+
+  await prisma.$transaction([
+    prisma.providerAvailability.deleteMany({ where: { providerProfileId: profile.id } }),
+    ...(slots.length > 0
+      ? [
+          prisma.providerAvailability.createMany({
+            data: slots.map((s) => ({
+              providerProfileId: profile.id,
+              dayOfWeek: s.dayOfWeek as never,
+              startTime: s.startTime,
+              endTime:   s.endTime,
+            })),
+          }),
+        ]
+      : []),
+  ]);
+
+  return prisma.providerAvailability.findMany({ where: { providerProfileId: profile.id } });
+}

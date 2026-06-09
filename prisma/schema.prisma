@@ -374,6 +374,19 @@ model WorkerProfile {
   lat                      Float?
   lng                      Float?
 
+  // Compliance toggles (document uploads handled separately via Document model)
+  publicLiabilityInsurance Boolean  @default(false)
+  personalAccidentInsurance Boolean  @default(false)
+
+  // Vehicle details — only populated when hasVehicle = true
+  vehicleDetails           Json?    // { make, model, year, rego, colour }
+
+  // Referee contacts — JSON array of { name, relationship, phone, email }
+  references               Json?
+
+  // Worker preferences free text
+  preferences              String?
+
   seekingPlanManager       Boolean  @default(false)
 
   availability             WorkerAvailability[]
@@ -424,6 +437,8 @@ model ProviderProfile {
 
   seekingPlanManager       Boolean  @default(false)
 
+  availability             ProviderAvailability[]
+
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }
@@ -454,6 +469,11 @@ model CoordinatorProfile {
   billingMethodPreference              String?
   hourlyRate                           Decimal? @db.Decimal(10, 2)
   bio                                  String?
+
+  // Added for profile wizard
+  languages                            Json?    // String[] — languages spoken
+  fundingTypeCompatibility             Json?    // String[] — SELF | PLAN | NDIA
+  seekingPlanManager                   Boolean  @default(false)
 
   createdAt                            DateTime @default(now())
   updatedAt                            DateTime @updatedAt
@@ -530,6 +550,19 @@ model WorkerUnavailability {
   createdAt       DateTime      @default(now())
 
   @@index([workerProfileId, date])
+}
+
+// Provider availability (weekly recurring slots — mirrors WorkerAvailability)
+model ProviderAvailability {
+  id                String          @id @default(uuid())
+  providerProfileId String
+  providerProfile   ProviderProfile @relation(fields: [providerProfileId], references: [id], onDelete: Cascade)
+  dayOfWeek         WeekDay
+  startTime         String          // "09:00" 24h local
+  endTime           String          // "17:00"
+  createdAt         DateTime        @default(now())
+
+  @@index([providerProfileId, dayOfWeek])
 }
 
 // ───────────────────────────────────────────────────────────────────────────

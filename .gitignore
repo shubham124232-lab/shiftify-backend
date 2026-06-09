@@ -8,3 +8,12 @@ dist/
 uploads/
 !uploads/.gitkeep
 coverage/
+
+# Scratch / export files — never commit these
+*.txt
+*.zip
+*.doc
+*.docx
+*.md
+!README.md
+.fuse_hidden*

@@ -19,6 +19,10 @@ export const coordinatorProfileSchema = z.object({
   billingMethodPreference:           z.string().max(80).optional(),
   hourlyRate:                        z.number().min(0).max(9999).optional(),
   bio:                               z.string().max(2000).optional(),
+  // Added for profile wizard
+  languages:                         z.array(z.string()).optional(),
+  fundingTypeCompatibility:          z.array(z.string()).optional(),
+  seekingPlanManager:                z.boolean().optional(),
 });
 
 export type CoordinatorProfileInput = z.infer<typeof coordinatorProfileSchema>;

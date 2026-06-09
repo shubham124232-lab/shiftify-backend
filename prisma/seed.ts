@@ -301,37 +301,18 @@ async function main() {
   console.log("[seed] Seeding subscription plans...");
 
   const plans = [
-    {
-      key:       "WORKER_BASIC",
-      role:      "SUPPORT_WORKER" as const,
-      name:      "Support Worker — Basic",
-      amountAud: 49.99,
-    },
-    {
-      key:       "PROVIDER_BASIC",
-      role:      "PROVIDER" as const,
-      name:      "Provider — Basic",
-      amountAud: 99.99,
-    },
-    {
-      key:       "PROVIDER_PRO",
-      role:      "PROVIDER" as const,
-      name:      "Provider — Pro",
-      amountAud: 179.99,
-    },
-    {
-      key:       "COORDINATOR_BASIC",
-      role:       "COORDINATOR" as const,
-      name:      "Support Coordinator — Basic",
-      amountAud: 49.99,
-    },
-    {
-      key:       "PLAN_MANAGER_BASIC",
-      role:      "PLAN_MANAGER" as const,
-      name:      "Plan Manager - Basic",
-      amountAud: 19.99,
-    },
-  ];
+  { key: "WORKER_FREE",          role: "SUPPORT_WORKER" as const, name: "Worker — Free",            amountAud: 0     },
+  { key: "WORKER_BASIC",         role: "SUPPORT_WORKER" as const, name: "Worker — Basic",           amountAud: 49.99 },
+  { key: "WORKER_AVAILABLE_NOW", role: "SUPPORT_WORKER" as const, name: "Worker — Available Now",   amountAud: 24.99 },
+  { key: "COORDINATOR_FREE",     role: "COORDINATOR"    as const, name: "Coordinator — Free",       amountAud: 0     },
+  { key: "COORDINATOR_BASIC",    role: "COORDINATOR"    as const, name: "Coordinator — Basic",      amountAud: 49.99 },
+  { key: "COORDINATOR_GROWTH",   role: "COORDINATOR"    as const, name: "Coordinator — Growth",     amountAud: 29.99 },
+  { key: "COORDINATOR_SPEED",    role: "COORDINATOR"    as const, name: "Coordinator — Speed",      amountAud: 19.99 },
+  { key: "PROVIDER_BASIC",       role: "PROVIDER"       as const, name: "Provider — Basic",         amountAud: 99.99 },
+  { key: "PROVIDER_GROWTH",      role: "PROVIDER"       as const, name: "Provider — Growth",        amountAud: 39.99 },
+  { key: "PROVIDER_SPEED",       role: "PROVIDER"       as const, name: "Provider — Speed",         amountAud: 29.99 },
+  { key: "PLAN_MANAGER_BASIC",   role: "PLAN_MANAGER"   as const, name: "Plan Manager — Basic",     amountAud: 19.99 },
+];
 
   for (const plan of plans) {
     await (prisma as any).plan.upsert({

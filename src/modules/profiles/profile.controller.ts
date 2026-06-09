@@ -88,3 +88,18 @@ export async function deleteUnavailability(req: Request, res: Response): Promise
   await profileService.deleteUnavailabilityDate(req.user.id, req.params.id);
   success(res, { ok: true });
 }
+
+// GET /users/me/provider-availability
+export async function getProviderAvailability(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const result = await profileService.getProviderAvailability(req.user.id);
+  success(res, result);
+}
+
+// PUT /users/me/provider-availability
+export async function replaceProviderAvailability(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const { slots } = parseOrThrow(availabilitySlotsSchema, req.body);
+  const availability = await profileService.replaceProviderAvailabilitySlots(req.user.id, slots);
+  success(res, { availability });
+}

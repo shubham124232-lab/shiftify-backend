@@ -21,4 +21,10 @@ router.post("/unavailability", requireAuth, requireRole("SUPPORT_WORKER"), async
 // DELETE /users/me/unavailability/:id
 router.delete("/unavailability/:id", requireAuth, requireRole("SUPPORT_WORKER"), asyncHandler(ctrl.deleteUnavailability));
 
+// GET  /users/me/provider-availability
+router.get("/provider-availability", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.getProviderAvailability));
+
+// PUT  /users/me/provider-availability — replaces all slots
+router.put("/provider-availability", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.replaceProviderAvailability));
+
 export default router;
