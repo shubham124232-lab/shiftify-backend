@@ -20,7 +20,7 @@ import type {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// Base include — participant contact details always masked at this level
+// Full include — used only for GET (read) operations.
 const JOB_DETAIL_INCLUDE = {
   postedBy:          { select: { id: true, name: true, avatarUrl: true } },
   forParticipant:    { select: { id: true, name: true, avatarUrl: true } },
@@ -32,6 +32,20 @@ const JOB_DETAIL_INCLUDE = {
     take: 10,
   },
   _count: { select: { messages: true, applications: true } },
+} as const;
+
+// Lean select — used for write (mutation) responses. Avoids fetching the
+// applications array (up to 10 rows + nested profiles) on every state change.
+// The client only needs id + status to update its local state or navigate.
+const JOB_WRITE_SELECT = {
+  id:                      true,
+  status:                  true,
+  title:                   true,
+  postedByUserId:          true,
+  forParticipantUserId:    true,
+  selectedApplicantUserId: true,
+  assignedWorkerUserId:    true,
+  updatedAt:               true,
 } as const;
 
 // Statuses where the assigned worker may see participant contact details
@@ -145,7 +159,7 @@ export async function createJob(
       postedByUserId:      posterId,
       forParticipantUserId,
       title:               input.title,
-      description:         input.description,
+      description:         input.description ?? "",
       category:            input.category as JobCategory,
       subcategory:         input.subcategory ?? null,
       urgency:             (input.urgency ?? "SCHEDULED") as JobUrgency,
@@ -161,7 +175,7 @@ export async function createJob(
       recurrencePattern:   (input.recurrencePattern ?? undefined) as any,
       workerPreferences:   (input.workerPreferences ?? undefined) as any,
     },
-    include: JOB_DETAIL_INCLUDE,
+    select: JOB_WRITE_SELECT,
   });
 }
 
@@ -175,7 +189,7 @@ export async function publishJob(jobId: string, posterId: string) {
   return prisma.supportRequest.update({
     where: { id: jobId },
     data:  { status: "OPEN" },
-    include: JOB_DETAIL_INCLUDE,
+    select: JOB_WRITE_SELECT,
   });
 }
 
@@ -286,13 +300,24 @@ export async function listMyJobs(userId: string, activeRole: UserRole, status?: 
         { applications: { some: { applicantUserId: userId } } },
       ];
       break;
-    case "PROVIDER":
+    case "PROVIDER": {
+      const teamWorkerIds = (
+        await prisma.user.findMany({
+          where: { parentUserId: userId },
+          select: { id: true },
+        })
+      ).map((u) => u.id);
+
       where.OR = [
         { postedByUserId: userId },
         { selectedApplicantUserId: userId },
-        { assignedWorkerUserId: userId },
+        { applications: { some: { applicantUserId: userId } } },
+        ...(teamWorkerIds.length > 0
+          ? [{ assignedWorkerUserId: { in: teamWorkerIds } }]
+          : []),
       ];
       break;
+    }
     case "PARTICIPANT":
       where.OR = [{ forParticipantUserId: userId }, { postedByUserId: userId }];
       break;
@@ -585,7 +610,7 @@ export async function selectApplicant(jobId: string, appId: string, posterId: st
     "JOB_SELECTED",
   );
 
-  return prisma.supportRequest.findUnique({ where: { id: jobId }, include: JOB_DETAIL_INCLUDE });
+  return prisma.supportRequest.findUnique({ where: { id: jobId }, select: JOB_WRITE_SELECT });
 }
 
 // ─── Provider assigns a specific worker (after provider is selected) ──────────
@@ -620,7 +645,7 @@ export async function assignWorker(
   const updated = await prisma.supportRequest.update({
     where: { id: jobId },
     data:  { assignedWorkerUserId: input.workerUserId },
-    include: JOB_DETAIL_INCLUDE,
+    select: JOB_WRITE_SELECT,
   });
 
   void notify.sendPushNotification(
@@ -652,7 +677,7 @@ export async function startJob(jobId: string, userId: string) {
   const updated = await prisma.supportRequest.update({
     where: { id: jobId },
     data:  { status: "IN_PROGRESS", startedAt: new Date() },
-    include: JOB_DETAIL_INCLUDE,
+    select: JOB_WRITE_SELECT,
   });
 
   void notify.sendPushNotification(
@@ -684,7 +709,7 @@ export async function completeJob(jobId: string, userId: string) {
   const updated = await prisma.supportRequest.update({
     where: { id: jobId },
     data:  { status: "COMPLETED", completedAt: new Date() },
-    include: JOB_DETAIL_INCLUDE,
+    select: JOB_WRITE_SELECT,
   });
 
   void notify.sendPushNotification(
@@ -713,7 +738,7 @@ export async function confirmJob(jobId: string, posterId: string) {
   const updated = await prisma.supportRequest.update({
     where: { id: jobId },
     data:  { status: "CONFIRMED", confirmedAt: new Date() },
-    include: JOB_DETAIL_INCLUDE,
+    select: JOB_WRITE_SELECT,
   });
 
   const recipientId = job!.assignedWorkerUserId ?? job!.selectedApplicantUserId;
