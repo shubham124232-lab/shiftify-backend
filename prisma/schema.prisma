@@ -49,6 +49,7 @@ enum UserStatus {
   APPROVED    // legacy value kept for Postgres enum compatibility; new code uses ACTIVE
   REJECTED
   SUSPENDED
+  DRAFT       // provider-managed worker mid-onboarding — not yet visible for job matching
 }
 
 enum AdminTier {
@@ -405,7 +406,7 @@ model ProviderProfile {
 
   businessName             String
   legalEntityName          String?
-  abn                      String   @unique
+  abn                      String?  @unique
   businessStructure        String?
   ndisRegistered           Boolean  @default(false)
   ndisProviderNumber       String?
@@ -664,6 +665,10 @@ model SupportRequest {
   @@index([forParticipantUserId])
   @@index([selectedApplicantUserId])
   @@index([assignedWorkerUserId])
+  // Compound indexes for listMyJobs — covers (userId, status) filters together
+  @@index([postedByUserId, status])
+  @@index([assignedWorkerUserId, status])
+  @@index([selectedApplicantUserId, status])
 }
 
 model JobApplication {

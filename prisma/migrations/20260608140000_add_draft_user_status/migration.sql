@@ -1,0 +1,6 @@
+DO $$
+BEGIN
+  ALTER TYPE "UserStatus" ADD VALUE IF NOT EXISTS 'DRAFT';
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
