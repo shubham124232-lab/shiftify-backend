@@ -8,8 +8,12 @@
 
 import { prisma } from "../../lib/prisma";
 import { hashPassword } from "../../lib/hash";
-import { ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors";
-import type { UserRole } from "@prisma/client";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../lib/errors";
+import type { UserRole, UserStatus } from "@prisma/client";
+
+// Mandatory pieces of a managed worker's onboarding — mirrors the self-registration
+// requirements. A DRAFT worker can only be activated once all of these are present.
+const REQUIRED_WORKER_DOCS = ["POLICE_CHECK", "NDIS_SCREENING", "WWCC", "FIRST_AID"] as const;
 
 export interface ManagedAccountResult {
   id: string;
@@ -28,6 +32,7 @@ async function createManagedAccount(input: {
   password: string;
   name: string;
   role: UserRole;
+  status?: UserStatus;
 }): Promise<ManagedAccountResult> {
   if (await prisma.user.findUnique({ where: { username: input.username } })) {
     throw new ConflictError("That username is already taken.");
@@ -41,7 +46,7 @@ async function createManagedAccount(input: {
       passwordHash,
       name: input.name,
       accountType: "MANAGED",
-      status: "ACTIVE",
+      status: input.status ?? "ACTIVE",
       parentUserId: input.parentUserId,
       roles: { create: { role: input.role, isActiveDefault: true } },
     },
@@ -58,14 +63,108 @@ async function createManagedAccount(input: {
   };
 }
 
-// POST /linking/workers — Provider creates a MANAGED SUPPORT_WORKER.
+// POST /linking/workers — Provider creates a MANAGED SUPPORT_WORKER as a DRAFT.
+// The provider completes the profile, availability, service area and compliance
+// documents afterwards against this draft (each step persists independently —
+// no partial-creation rollback needed). The worker only becomes visible for job
+// matching once explicitly activated via activateWorker.
 export async function createWorker(input: {
   parentUserId: string;
   username: string;
   password: string;
   name: string;
 }): Promise<ManagedAccountResult> {
-  return createManagedAccount({ ...input, role: "SUPPORT_WORKER" });
+  return createManagedAccount({ ...input, role: "SUPPORT_WORKER", status: "DRAFT" });
+}
+
+export interface WorkerOnboardingStatus {
+  isComplete: boolean;
+  missing: string[];
+}
+
+// Server-side completeness check — the authoritative gate for activation.
+// Mirrors the client-side checklist but must never trust client state.
+async function checkWorkerOnboarding(workerId: string): Promise<WorkerOnboardingStatus> {
+  const worker = await prisma.user.findUnique({
+    where: { id: workerId },
+    include: {
+      workerProfile: { include: { availability: true } },
+      documents:     { select: { docType: true } },
+    },
+  });
+  if (!worker) throw new NotFoundError("Worker not found");
+
+  const wp = worker.workerProfile;
+  const missing: string[] = [];
+
+  if (!wp || !Array.isArray(wp.servicesOffered) || wp.servicesOffered.length === 0) {
+    missing.push("Services offered");
+  }
+  if (!wp?.experienceLevel) missing.push("Experience level");
+  if (!wp || wp.availability.length === 0) missing.push("Availability");
+  if (!wp || !Array.isArray(wp.serviceAreas) || wp.serviceAreas.length === 0) {
+    missing.push("Service areas");
+  }
+  if (wp?.travelRadiusKm == null) missing.push("Travel radius");
+
+  const uploadedTypes = new Set(worker.documents.map((d) => d.docType));
+  for (const docType of REQUIRED_WORKER_DOCS) {
+    if (!uploadedTypes.has(docType)) missing.push(`${docType.replace(/_/g, " ")} document`);
+  }
+
+  return { isComplete: missing.length === 0, missing };
+}
+
+// GET /linking/workers/:id/onboarding-status — completeness check for a draft worker.
+export async function getWorkerOnboardingStatus(input: {
+  parentUserId: string;
+  workerId: string;
+}): Promise<WorkerOnboardingStatus> {
+  const target = await prisma.user.findUnique({ where: { id: input.workerId } });
+  if (!target || target.parentUserId !== input.parentUserId) {
+    throw new NotFoundError("Worker not found");
+  }
+  return checkWorkerOnboarding(input.workerId);
+}
+
+// POST /linking/workers/:id/activate — flips a DRAFT worker to ACTIVE.
+// Re-validates completeness server-side regardless of what the client believes —
+// defense in depth against stale or tampered client state.
+export async function activateWorker(input: {
+  parentUserId: string;
+  workerId: string;
+}): Promise<ManagedAccountResult> {
+  const target = await prisma.user.findUnique({
+    where: { id: input.workerId },
+    include: { roles: { select: { role: true } } },
+  });
+  if (!target || target.parentUserId !== input.parentUserId || !target.roles.some((r) => r.role === "SUPPORT_WORKER")) {
+    throw new NotFoundError("Worker not found");
+  }
+  if (target.status !== "DRAFT") {
+    throw new ConflictError("This worker has already been activated.");
+  }
+
+  const onboarding = await checkWorkerOnboarding(input.workerId);
+  if (!onboarding.isComplete) {
+    throw new ValidationError("Worker setup is incomplete", onboarding.missing.map((m) => ({ path: m, message: `${m} is required` })));
+  }
+
+  const user = await prisma.user.update({
+    where: { id: input.workerId },
+    data: { status: "ACTIVE" },
+    include: { roles: { select: { role: true } } },
+  });
+
+  return {
+    id: user.id,
+    username: user.username!,
+    name: user.name,
+    accountType: user.accountType,
+    status: user.status,
+    roles: user.roles.map((r) => r.role),
+    parentUserId: user.parentUserId!,
+  };
 }
 
 // POST /linking/participants — Coordinator creates a MANAGED PARTICIPANT.

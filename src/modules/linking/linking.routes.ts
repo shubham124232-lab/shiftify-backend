@@ -19,6 +19,18 @@ router.get(
   requireRole("PROVIDER"),
   asyncHandler(ctrl.listWorkers),
 );
+router.get(
+  "/workers/:id/onboarding-status",
+  requireAuth,
+  requireRole("PROVIDER"),
+  asyncHandler(ctrl.getWorkerOnboardingStatus),
+);
+router.post(
+  "/workers/:id/activate",
+  requireAuth,
+  requireRole("PROVIDER"),
+  asyncHandler(ctrl.activateWorker),
+);
 
 // ── Participants (Coordinator only) ──────────────────────────────────────
 router.post(

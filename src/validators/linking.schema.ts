@@ -12,7 +12,10 @@ const managedAccountSchema = z.object({
   name: z.string().min(1).max(120),
 });
 
-// POST /linking/workers — Provider creates a MANAGED SUPPORT_WORKER.
+// POST /linking/workers — Provider creates a MANAGED SUPPORT_WORKER as a DRAFT.
+// Profile, availability, service area and documents are filled in afterwards
+// against the draft — the account becomes ACTIVE only once the provider
+// explicitly activates it (see activateWorker).
 export const createWorkerSchema = managedAccountSchema;
 export type CreateWorkerInput = z.infer<typeof createWorkerSchema>;
 

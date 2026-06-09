@@ -4,17 +4,40 @@ import * as linkingService from "./linking.service";
 import { success } from "../../utils/response";
 import { UnauthorizedError } from "../../lib/errors";
 
-// POST /linking/workers — Provider creates a MANAGED SUPPORT_WORKER sub-account.
+// POST /linking/workers — Provider creates a MANAGED SUPPORT_WORKER sub-account
+// in DRAFT status. Profile, availability, service area and documents are added
+// afterwards from the worker's edit page, then the provider explicitly activates it.
 export async function createWorker(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const body = createWorkerSchema.parse(req.body);
   const worker = await linkingService.createWorker({
     parentUserId: req.user.id,
-    username: body.username,
-    password: body.password,
-    name: body.name,
+    username:     body.username,
+    password:     body.password,
+    name:         body.name,
   });
   success(res, { user: worker }, 201);
+}
+
+// GET /linking/workers/:id/onboarding-status — completeness check for a draft worker.
+export async function getWorkerOnboardingStatus(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const status = await linkingService.getWorkerOnboardingStatus({
+    parentUserId: req.user.id,
+    workerId:     req.params.id,
+  });
+  success(res, status);
+}
+
+// POST /linking/workers/:id/activate — Provider explicitly finishes setup,
+// flipping the worker from DRAFT to ACTIVE once onboarding is complete.
+export async function activateWorker(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const worker = await linkingService.activateWorker({
+    parentUserId: req.user.id,
+    workerId:     req.params.id,
+  });
+  success(res, { user: worker });
 }
 
 // GET /linking/workers — Provider lists their managed workers.
