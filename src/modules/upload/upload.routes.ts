@@ -1,18 +1,32 @@
 import { Router } from "express";
+import multer from "multer";
 import { asyncHandler } from "../../utils/async-handler";
 import { requireAuth } from "../../middleware/auth.middleware";
 import * as ctrl from "./upload.controller";
 
 const router = Router();
 
-// GET /upload/presign?fileName=x&contentType=y&category=compliance|avatars
-// Returns a presigned PUT URL for direct client → R2 upload.
-// Falls back to a placeholder when R2 is not configured (dev: upload via POST /users/me/documents).
+// Image-only multer for avatar uploads (5 MB max)
+const AVATAR_MIME = ["image/jpeg", "image/png", "image/heic", "image/webp"];
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (AVATAR_MIME.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Avatar must be jpeg, png, heic, or webp"));
+    }
+  },
+});
+
+// GET /upload/presign
 router.get("/presign", requireAuth, asyncHandler(ctrl.presign));
 
+// POST /upload/avatar -- multipart, saves to local disk
+router.post("/avatar", requireAuth, avatarUpload.single("avatar"), asyncHandler(ctrl.uploadAvatar));
+
 // POST /upload/register-document
-// Called AFTER the client successfully PUT the file to R2.
-// Creates the Document row in the DB.
 router.post("/register-document", requireAuth, asyncHandler(ctrl.registerDocument));
 
 export default router;

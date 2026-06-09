@@ -2,8 +2,9 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { success } from "../../utils/response";
 import { UnauthorizedError, ValidationError, BadRequestError } from "../../lib/errors";
-import { generatePresignedUrl, buildFileKey, buildFileUrl } from "../../lib/storage";
+import { generatePresignedUrl, buildFileKey, buildFileUrl, saveFile } from "../../lib/storage";
 import { prisma } from "../../lib/prisma";
+import { updateProfile } from "../users/user.service";
 import type { DocumentType } from "@prisma/client";
 
 const AVATAR_CONTENT_TYPES = ["image/jpeg", "image/png", "image/heic", "image/webp"] as const;
@@ -39,10 +40,9 @@ export async function presign(req: Request, res: Response): Promise<void> {
 
   const { fileName, contentType, category } = parsed.data;
 
-  // Avatar uploads: gate content-type to image/* only (max 5 MB enforced client-side).
   if (category === "avatars" && !(AVATAR_CONTENT_TYPES as readonly string[]).includes(contentType)) {
     throw new BadRequestError(
-      `Avatar uploads must be one of: ${AVATAR_CONTENT_TYPES.join(", ")}`,
+      "Avatar uploads must be one of: " + AVATAR_CONTENT_TYPES.join(", "),
     );
   }
 
@@ -50,13 +50,38 @@ export async function presign(req: Request, res: Response): Promise<void> {
   const presigned = generatePresignedUrl({ fileKey, contentType });
 
   if (!presigned) {
-    // R2 not configured — tell client to use the multipart POST endpoint instead
     throw new BadRequestError(
-      "R2 storage is not configured on this server. Use POST /users/me/documents (multipart) instead.",
+      "R2 storage is not configured. Use POST /upload/avatar (multipart) instead.",
     );
   }
 
   success(res, presigned);
+}
+
+// POST /upload/avatar -- multipart, saves to local disk; used when R2 is not configured
+export async function uploadAvatar(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+
+  const file = req.file;
+  if (!file) throw new BadRequestError("No file provided");
+
+  if (!(AVATAR_CONTENT_TYPES as readonly string[]).includes(file.mimetype)) {
+    throw new BadRequestError(
+      "Avatar must be one of: " + AVATAR_CONTENT_TYPES.join(", "),
+    );
+  }
+
+  const saved = await saveFile({
+    buffer:       file.buffer,
+    originalName: file.originalname,
+    mimeType:     file.mimetype,
+    userId:       req.user.id,
+    category:     "avatars",
+  });
+
+  const avatarUrl = buildFileUrl(saved.filePath);
+  await updateProfile(req.user.id, { avatarUrl });
+  success(res, { avatarUrl });
 }
 
 // POST /upload/register-document
@@ -88,7 +113,6 @@ export async function registerDocument(req: Request, res: Response): Promise<voi
     },
   });
 
-  // Never expose raw filePath — return public URL instead
   const { filePath: _fp, ...rest } = doc;
   success(res, { document: { ...rest, fileUrl: buildFileUrl(fileKey) } }, 201);
 }
