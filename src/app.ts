@@ -24,12 +24,12 @@ import { listInvoices }   from "./modules/jobs/job.controller";
 const app = express();
 
 // CORS — allow Web (3000) and any future client listed in CORS_ORIGIN
-const allowedOrigins = env.CORS_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean);
+const allowedOrigins = new Set(env.CORS_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean));
 app.use(
   cors({
     origin: (origin, cb) => {
       if (!origin) return cb(null, true); // curl / postman / Flutter
-      if (allowedOrigins.includes(origin)) return cb(null, true);
+      if (allowedOrigins.has(origin)) return cb(null, true);
       return cb(new Error(`CORS: origin ${origin} not allowed`));
     },
     credentials: true,
