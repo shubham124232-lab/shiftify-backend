@@ -3,7 +3,7 @@
 // Plans live in the Plan table (seeded rows). In Phase 2 the Stripe price ID
 // is populated and the activate flow calls Stripe instead of the mock path.
 //
-// activateAccount() is the SINGLE place that sets a user to APPROVED.
+// activateAccount() is the SINGLE place that sets a user to ACTIVE.
 
 import { randomUUID } from "crypto";
 import { prisma } from "../../lib/prisma";
@@ -46,7 +46,7 @@ export async function getMySubscription(userId: string) {
 
 export interface ActivateResult {
   message: string;
-  status: "APPROVED";
+  status: "ACTIVE";
   subscription?: {
     id: string;
     planKey: string;
@@ -99,11 +99,11 @@ export async function activateAccount(
     });
   }
 
-  await prisma.user.update({ where: { id: userId }, data: { status: "APPROVED" } });
+  await prisma.user.update({ where: { id: userId }, data: { status: "ACTIVE" } });
 
   const result: ActivateResult = {
     message: "Account activated successfully",
-    status:  "APPROVED",
+    status:  "ACTIVE",
   };
 
   if (subscriptionRow && plan) {

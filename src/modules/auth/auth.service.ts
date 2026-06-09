@@ -153,7 +153,7 @@ export async function createManagedAccount(input: {
       passwordHash,
       name: input.name,
       accountType: "MANAGED",
-      status: "APPROVED",
+      status: "ACTIVE",
       parentUserId: input.parentUserId,
       roles: { create: { role: input.role, isActiveDefault: true } },
     },
