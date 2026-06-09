@@ -10,6 +10,9 @@ import * as ctrl from "./profile.controller";
 
 const router = Router();
 
+// ── Progress ───────────────────────────────────────────────────────────────
+router.get("/progress", requireAuth, asyncHandler(ctrl.getProgress));
+
 // ── Role-specific profile upserts ─────────────────────────────────────────
 router.post("/participant",  requireAuth, requireRole("PARTICIPANT"),   asyncHandler(ctrl.upsertParticipant));
 router.post("/worker",       requireAuth, requireRole("SUPPORT_WORKER"), asyncHandler(ctrl.upsertWorker));

@@ -3,12 +3,60 @@
 // profileStep is advanced only forward — Math.max(existing, submitted).
 
 import { prisma } from "../../lib/prisma";
-import { NotFoundError } from "../../lib/errors";
+import { ConflictError, NotFoundError } from "../../lib/errors";
 import type { ParticipantProfileInput  } from "../../validators/profile-participant.schema";
 import type { WorkerProfileInput       } from "../../validators/profile-worker.schema";
 import type { ProviderProfileInput     } from "../../validators/profile-provider.schema";
 import type { CoordinatorProfileInput  } from "../../validators/profile-coordinator.schema";
 import type { PlanManagerProfileInput  } from "../../validators/profile-planmanager.schema";
+
+// ─── Profile progress ─────────────────────────────────────────────────────────
+
+const ROLE_TOTAL_STEPS: Record<string, number> = {
+  PARTICIPANT:    4,
+  SUPPORT_WORKER: 11,
+  PROVIDER:       13,
+  COORDINATOR:    10,
+  PLAN_MANAGER:   4,
+};
+
+export async function getProfileProgress(userId: string, activeRole: string) {
+  let profileStep = 0;
+
+  switch (activeRole) {
+    case "PARTICIPANT": {
+      const p = await prisma.participantProfile.findUnique({ where: { userId }, select: { profileStep: true } });
+      profileStep = p?.profileStep ?? 0;
+      break;
+    }
+    case "SUPPORT_WORKER": {
+      const p = await prisma.workerProfile.findUnique({ where: { userId }, select: { profileStep: true } });
+      profileStep = p?.profileStep ?? 0;
+      break;
+    }
+    case "PROVIDER": {
+      const p = await prisma.providerProfile.findUnique({ where: { userId }, select: { profileStep: true } });
+      profileStep = p?.profileStep ?? 0;
+      break;
+    }
+    case "COORDINATOR": {
+      const p = await prisma.coordinatorProfile.findUnique({ where: { userId }, select: { profileStep: true } });
+      profileStep = p?.profileStep ?? 0;
+      break;
+    }
+    case "PLAN_MANAGER": {
+      const p = await prisma.planManagerProfile.findUnique({ where: { userId }, select: { profileStep: true } });
+      profileStep = p?.profileStep ?? 0;
+      break;
+    }
+  }
+
+  const totalSteps = ROLE_TOTAL_STEPS[activeRole] ?? 0;
+  const isComplete = profileStep >= totalSteps;
+  const nextStep   = isComplete ? totalSteps : profileStep + 1;
+
+  return { role: activeRole, profileStep, totalSteps, isComplete, nextStep };
+}
 
 // ─── Participant ─────────────────────────────────────────────────────────────
 
@@ -67,15 +115,25 @@ export async function upsertWorkerProfile(userId: string, data: WorkerProfileInp
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export async function upsertProviderProfile(userId: string, data: ProviderProfileInput) {
-  const { profileStep: incomingStep, ...fields } = data;
+  const { profileStep: incomingStep, abn: rawAbn, ...fields } = data;
 
   const existing = await prisma.providerProfile.findUnique({ where: { userId } });
   const nextStep  = Math.max(existing?.profileStep ?? 0, incomingStep ?? 0);
 
+  const abn = rawAbn?.trim() || undefined;
+  if (abn) {
+    const taken = await prisma.providerProfile.findUnique({ where: { abn } });
+    if (taken && taken.userId !== userId) {
+      throw new ConflictError("That ABN is already registered to another provider");
+    }
+  }
+
+  const profileFields = { ...fields, ...(abn !== undefined ? { abn } : {}) };
+
   return prisma.providerProfile.upsert({
     where:  { userId },
-    create: { userId, profileStep: nextStep, businessName: fields.businessName ?? "", abn: fields.abn ?? "", ...(fields as any) },
-    update: { profileStep: nextStep, ...(fields as any) },
+    create: { userId, profileStep: nextStep, businessName: fields.businessName ?? "", ...(profileFields as any) },
+    update: { profileStep: nextStep, ...(profileFields as any) },
   });
 }
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const availabilitySlotSchema = z.object({
+export const availabilitySlotSchema = z.object({
   dayOfWeek: z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]),
   startTime: z
     .string()

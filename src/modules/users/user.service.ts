@@ -35,6 +35,17 @@ export function sanitizeUser<T extends { passwordHash: string | null }>(user: T)
 
 type FullUser = Awaited<ReturnType<typeof getUserById>>;
 
+export function computeProfileStep(user: FullUser, activeRole: UserRole): number {
+  switch (activeRole) {
+    case "PARTICIPANT":    return user.participantProfile?.profileStep ?? 0;
+    case "SUPPORT_WORKER": return user.workerProfile?.profileStep ?? 0;
+    case "PROVIDER":       return user.providerProfile?.profileStep ?? 0;
+    case "COORDINATOR":    return user.coordinatorProfile?.profileStep ?? 0;
+    case "PLAN_MANAGER":   return user.planManagerProfile?.profileStep ?? 0;
+    default:               return 0;
+  }
+}
+
 export function computeCompletion(user: FullUser, activeRole: UserRole): number {
   const wp  = user.workerProfile;
   const pp  = user.participantProfile;
