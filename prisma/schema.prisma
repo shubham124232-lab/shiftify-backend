@@ -842,6 +842,11 @@ model Session {
   userId           String
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokenHash String   @unique
+  // The immediately-prior refresh token hash, kept valid for a short grace
+  // window after rotation so that two near-simultaneous refresh requests
+  // (e.g. rapid full-page navigations) don't log the user out.
+  previousRefreshTokenHash      String?   @unique
+  previousRefreshTokenExpiresAt DateTime?
   expiresAt        DateTime
   userAgent        String?
   ip               String?

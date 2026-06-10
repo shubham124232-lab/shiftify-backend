@@ -190,7 +190,13 @@ export async function login(input: {
   return { user, roles, activeRole, tokens };
 }
 
-// Rotate the refresh token.
+// How long a just-rotated refresh token stays valid for, so that two
+// near-simultaneous refresh requests (e.g. rapid full-page navigations both
+// triggering silentInit) don't race each other into "Session not found".
+const REFRESH_REUSE_GRACE_MS = 15_000;
+
+// Rotate the refresh token in place, keeping the same session id (jti) and
+// allowing the just-replaced token to still succeed for a short grace window.
 export async function refresh(refreshToken: string): Promise<AuthResult> {
   let payload;
   try {
@@ -203,7 +209,18 @@ export async function refresh(refreshToken: string): Promise<AuthResult> {
     where: { id: payload.jti },
     include: { user: { include: ROLE_INCLUDE } },
   });
-  if (!session || session.refreshTokenHash !== hashToken(refreshToken)) {
+  if (!session) {
+    throw new UnauthorizedError("Session not found");
+  }
+
+  const incomingHash = hashToken(refreshToken);
+  const isCurrent  = session.refreshTokenHash === incomingHash;
+  const isRecentPrevious =
+    session.previousRefreshTokenHash === incomingHash &&
+    !!session.previousRefreshTokenExpiresAt &&
+    session.previousRefreshTokenExpiresAt > new Date();
+
+  if (!isCurrent && !isRecentPrevious) {
     throw new UnauthorizedError("Session not found");
   }
   if (session.expiresAt < new Date()) {
@@ -220,8 +237,22 @@ export async function refresh(refreshToken: string): Promise<AuthResult> {
 
   const { roles: _r, ...user } = session.user;
 
-  const tokens = await issueTokens(user, activeRole, roles);
-  await prisma.session.delete({ where: { id: session.id } });
+  const accessToken  = signAccessToken({ sub: user.id, activeRole, roles, status: user.status });
+  const refreshTokenNew = signRefreshToken({ sub: user.id, jti: session.id });
+  const expiresAt = new Date(Date.now() + expiresInMs(env.JWT_REFRESH_EXPIRES_IN));
+
+  await prisma.session.update({
+    where: { id: session.id },
+    data: {
+      refreshTokenHash:              hashToken(refreshTokenNew),
+      previousRefreshTokenHash:      session.refreshTokenHash,
+      previousRefreshTokenExpiresAt: new Date(Date.now() + REFRESH_REUSE_GRACE_MS),
+      expiresAt,
+      activeRole,
+    },
+  });
+
+  const tokens: AuthTokens = { accessToken, refreshToken: refreshTokenNew, refreshTokenExpiresAt: expiresAt };
   return { user, roles, activeRole, tokens };
 }
 
