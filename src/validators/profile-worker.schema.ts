@@ -26,7 +26,7 @@ const referenceSchema = z.object({
 });
 
 export const workerProfileSchema = z.object({
-  profileStep:               z.number().int().min(0).max(9).optional(),
+  profileStep:               z.number().int().min(0).max(11).optional(),
   dob:                       z.string().datetime({ offset: true }).optional(),
   gender:                    z.string().max(40).optional(),
   rightToWork:               z.enum(["CITIZEN", "PR", "VISA_HOLDER"]).optional(),

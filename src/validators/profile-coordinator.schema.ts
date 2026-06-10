@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const coordinatorProfileSchema = z.object({
-  profileStep:                       z.number().int().min(0).max(9).optional(),
+  profileStep:                       z.number().int().min(0).max(10).optional(),
   roleType:                          z.enum(["INDEPENDENT", "AGENCY_EMPLOYED"]).optional(),
   organisationName:                  z.string().max(120).optional(),
   abn:                               z.string().max(20).optional(),

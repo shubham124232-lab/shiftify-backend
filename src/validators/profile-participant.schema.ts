@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const participantProfileSchema = z.object({
-  profileStep:                  z.number().int().min(0).max(5).optional(),
+  profileStep:                  z.number().int().min(0).max(4).optional(),
   preferredName:                z.string().max(80).optional(),
   ageGroup:                     z.string().max(40).optional(),
   gender:                       z.string().max(40).optional(),

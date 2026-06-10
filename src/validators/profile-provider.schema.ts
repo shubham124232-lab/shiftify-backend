@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const providerProfileSchema = z.object({
-  profileStep:          z.number().int().min(0).max(12).optional(),
+  profileStep:          z.number().int().min(0).max(13).optional(),
   businessName:         z.string().max(120).optional(),
   legalEntityName:      z.string().max(120).optional(),
   abn:                  z.string().max(20).optional(),
