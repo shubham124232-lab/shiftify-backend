@@ -2,6 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { asyncHandler } from "../../utils/async-handler";
 import { requireAuth } from "../../middleware/auth.middleware";
+import { BadRequestError } from "../../lib/errors";
 import * as ctrl from "./upload.controller";
 
 const router = Router();
@@ -15,7 +16,7 @@ const avatarUpload = multer({
     if (AVATAR_MIME.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("Avatar must be jpeg, png, heic, or webp"));
+      cb(new BadRequestError("Avatar must be jpeg, png, heic, or webp"));
     }
   },
 });

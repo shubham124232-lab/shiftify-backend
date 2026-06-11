@@ -44,6 +44,10 @@ function checkRateLimit(key: string): void {
 const OTP_TTL_MINUTES = 10;
 const OTP_MAX_ATTEMPTS = 5;
 
+// Plaintext codes are echoed in responses outside production, or in production
+// when RETURN_DEV_OTP=true (staging without a real SMS/email provider).
+const returnDevCode = (): boolean => env.NODE_ENV !== "production" || env.RETURN_DEV_OTP;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function generateCode(): string {
@@ -152,7 +156,7 @@ export async function requestVerification(input: {
 
   return {
     message: `A verification code has been sent to your ${input.channel}.`,
-    ...(env.NODE_ENV !== "production" ? { _dev_code: code } : {}),
+    ...(returnDevCode() ? { _dev_code: code } : {}),
   };
 }
 
@@ -202,7 +206,7 @@ export async function forgotPassword(input: {
     }
 
     const result: { message: string; _dev_code?: string } = { message: MSG };
-    if (env.NODE_ENV !== "production") result._dev_code = code;
+    if (returnDevCode()) result._dev_code = code;
     return result;
   } finally {
     const elapsed = Date.now() - start;

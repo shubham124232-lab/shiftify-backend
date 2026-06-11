@@ -38,6 +38,13 @@ export const errorMiddleware: ErrorRequestHandler = (err, _req, res, _next) => {
     });
     return;
   }
+  // Other multer errors (wrong field name, too many files, …) are client mistakes, not 500s.
+  if (err instanceof Error && err.name === "MulterError") {
+    res.status(400).json({
+      error: { code: "BAD_REQUEST", message: `Upload error: ${err.message}` },
+    });
+    return;
+  }
 
   console.error("[shiftify-backend] Unhandled error:", err);
   res.status(500).json({

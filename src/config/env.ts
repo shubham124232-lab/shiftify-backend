@@ -30,6 +30,13 @@ const EnvSchema = z.object({
   R2_BUCKET_NAME:       z.string().optional(),
   R2_PUBLIC_URL:        z.string().url().optional(),
 
+  // Staging escape hatch: return OTP codes in API responses while no real
+  // SMS/email provider is wired up. Must be removed/false once Twilio/Resend go live.
+  RETURN_DEV_OTP: z
+    .string()
+    .optional()
+    .transform((v) => v === "true"),
+
   SEED_ADMIN_EMAIL: z.string().email().optional(),
   SEED_ADMIN_PASSWORD: z.string().optional(),
   SEED_ADMIN_NAME: z.string().optional(),

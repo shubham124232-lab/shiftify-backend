@@ -31,8 +31,8 @@ router.post("/password/forgot", asyncHandler(otpCtrl.forgotPassword));
 router.post("/password/reset",  asyncHandler(otpCtrl.resetPassword));
 
 // ── Dev inbox — returns mock emails/SMS sent during this server session ───
-// Disabled in production automatically.
-if (env.NODE_ENV !== "production") {
+// Disabled in production unless RETURN_DEV_OTP=true (staging without real SMS).
+if (env.NODE_ENV !== "production" || env.RETURN_DEV_OTP) {
   router.get("/dev/inbox", (_req, res) => {
     res.json({ ok: true, data: { messages: getDevInbox() } });
   });

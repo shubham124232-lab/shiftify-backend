@@ -8,6 +8,9 @@ import { prisma } from "./prisma";
 import type { NotificationType } from "@prisma/client";
 
 const isDev = process.env.NODE_ENV !== "production";
+// Staging without a real provider: RETURN_DEV_OTP=true keeps the dev inbox
+// capturing mock sends in production so OTP flows remain testable.
+const captureInbox = isDev || process.env.RETURN_DEV_OTP === "true";
 
 // ─── Dev inbox (in-memory, capped at 200 entries) ────────────────────────────
 
@@ -23,7 +26,7 @@ const _devInbox: DevInboxEntry[] = [];
 const DEV_INBOX_CAP = 200;
 
 function devLog(entry: DevInboxEntry): void {
-  if (!isDev) return;
+  if (!captureInbox) return;
   if (_devInbox.length >= DEV_INBOX_CAP) _devInbox.shift();
   _devInbox.push(entry);
 }

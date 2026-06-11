@@ -3,6 +3,7 @@
 import multer from "multer";
 import { env } from "../config/env";
 import { ALLOWED_MIME_TYPES } from "../config/constants";
+import { BadRequestError } from "../lib/errors";
 
 export const uploadMiddleware = multer({
   storage: multer.memoryStorage(),
@@ -11,7 +12,7 @@ export const uploadMiddleware = multer({
     if ((ALLOWED_MIME_TYPES as readonly string[]).includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error(`File type ${file.mimetype} not allowed`));
+      cb(new BadRequestError(`File type ${file.mimetype} not allowed`));
     }
   },
 });
