@@ -17,7 +17,10 @@ function setRefreshCookie(res: Response, token: string, expiresAt: Date): void {
   res.cookie(REFRESH_COOKIE_NAME, token, {
     httpOnly: true,
     secure: env.NODE_ENV === "production",
-    sameSite: env.NODE_ENV === "production" ? "strict" : "lax",
+    // Web (vercel.app) and API (hostingersite.com) are different sites — Strict/Lax
+    // cookies are dropped on cross-site XHR, which silently kills session refresh.
+    // "none" requires secure:true, hence production-only; dev stays lax over http.
+    sameSite: env.NODE_ENV === "production" ? "none" : "lax",
     path: "/",
     expires: expiresAt,
   });
