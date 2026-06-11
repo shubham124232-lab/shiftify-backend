@@ -9,6 +9,11 @@
 import { prisma } from "../../lib/prisma";
 import { hashPassword } from "../../lib/hash";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../lib/errors";
+import * as profileService from "../profiles/profile.service";
+import * as documentService from "../documents/document.service";
+import type { WorkerProfileInput } from "../../validators/profile-worker.schema";
+import type { ParticipantProfileInput } from "../../validators/profile-participant.schema";
+import type { UploadDocumentInput } from "../../validators/document.schema";
 import type { UserRole, UserStatus } from "@prisma/client";
 
 // Mandatory pieces of a managed worker's onboarding — mirrors the self-registration
@@ -101,6 +106,8 @@ async function checkWorkerOnboarding(workerId: string): Promise<WorkerOnboarding
     missing.push("Services offered");
   }
   if (!wp?.experienceLevel) missing.push("Experience level");
+  // Required by the marketplace gate — activation must not pass while browsing would still be blocked.
+  if (!wp?.rightToWork) missing.push("Right to work");
   if (!wp || wp.availability.length === 0) missing.push("Availability");
   if (!wp || !Array.isArray(wp.serviceAreas) || wp.serviceAreas.length === 0) {
     missing.push("Service areas");
@@ -198,6 +205,83 @@ export async function listWorkers(parentUserId: string): Promise<ManagedAccountR
     roles: u.roles.map((r) => r.role),
     parentUserId: u.parentUserId!,
   }));
+}
+
+// ── Parent-managed onboarding ──────────────────────────────────────────────
+// The creating Provider/Coordinator fills the profile and uploads documents on
+// behalf of their MANAGED sub-accounts — the sub-account itself is blocked from
+// the self-service routes (see blockManagedSelfService middleware).
+
+// Ownership guard shared by all parent-managed operations.
+async function assertManagedChild(
+  parentUserId: string,
+  targetId: string,
+  expectedRole: UserRole,
+): Promise<void> {
+  const target = await prisma.user.findUnique({
+    where: { id: targetId },
+    include: { roles: { select: { role: true } } },
+  });
+  if (
+    !target ||
+    target.parentUserId !== parentUserId ||
+    target.accountType !== "MANAGED" ||
+    !target.roles.some((r) => r.role === expectedRole)
+  ) {
+    throw new NotFoundError("Managed account not found");
+  }
+}
+
+// POST /linking/workers/:id/profile — Provider upserts the managed worker's profile.
+export async function upsertManagedWorkerProfile(input: {
+  parentUserId: string;
+  workerId: string;
+  data: WorkerProfileInput;
+}) {
+  await assertManagedChild(input.parentUserId, input.workerId, "SUPPORT_WORKER");
+  return profileService.upsertWorkerProfile(input.workerId, input.data);
+}
+
+// POST /linking/workers/:id/documents — Provider uploads a compliance document
+// for the managed worker. The document row belongs to the worker.
+export async function uploadManagedWorkerDocument(input: {
+  parentUserId: string;
+  workerId: string;
+  file: Express.Multer.File;
+  data: UploadDocumentInput;
+}) {
+  await assertManagedChild(input.parentUserId, input.workerId, "SUPPORT_WORKER");
+  return documentService.uploadDocument(input.workerId, input.file, input.data);
+}
+
+// GET /linking/workers/:id/documents
+export async function listManagedWorkerDocuments(input: {
+  parentUserId: string;
+  workerId: string;
+}) {
+  await assertManagedChild(input.parentUserId, input.workerId, "SUPPORT_WORKER");
+  return documentService.listDocuments(input.workerId);
+}
+
+// DELETE /linking/workers/:id/documents/:docId
+export async function deleteManagedWorkerDocument(input: {
+  parentUserId: string;
+  workerId: string;
+  documentId: string;
+}): Promise<void> {
+  await assertManagedChild(input.parentUserId, input.workerId, "SUPPORT_WORKER");
+  await documentService.deleteDocument(input.workerId, input.documentId);
+}
+
+// POST /linking/participants/:id/profile — Coordinator upserts the managed
+// participant's profile.
+export async function upsertManagedParticipantProfile(input: {
+  parentUserId: string;
+  participantId: string;
+  data: ParticipantProfileInput;
+}) {
+  await assertManagedChild(input.parentUserId, input.participantId, "PARTICIPANT");
+  return profileService.upsertParticipantProfile(input.participantId, input.data);
 }
 
 // Generic unlink. Called by the two public wrappers below.
