@@ -31,18 +31,40 @@ export interface PresignResult {
   expiresIn: number;   // seconds
 }
 
-// ── Local-disk helpers (dev) ─────────────────────────────────────────────────
+// ── Save / delete (R2 when configured, local disk otherwise) ────────────────
 
 export async function saveFile(input: UploadInput): Promise<SavedFile> {
-  const safeExt = path.extname(input.originalName).toLowerCase().replace(/[^a-z0-9.]/g, "");
-  const fileKey = `${crypto.randomBytes(12).toString("hex")}${safeExt}`;
-  const relDir = path.join(input.category, input.userId);
-  const absDir = path.resolve(env.UPLOAD_DIR, relDir);
-  await fs.mkdir(absDir, { recursive: true });
-  const absPath = path.join(absDir, fileKey);
+  const fileKey = buildFileKey({
+    originalName: input.originalName,
+    userId:       input.userId,
+    category:     input.category,
+  });
+
+  // R2: PUT the buffer server-side via a presigned URL. Without this, files
+  // land on local disk while buildFileUrl() points at R2 — broken links.
+  if (r2Configured()) {
+    const presigned = generatePresignedUrl({ fileKey, contentType: input.mimeType })!;
+    const res = await fetch(presigned.uploadUrl, {
+      method:  "PUT",
+      headers: { "Content-Type": input.mimeType },
+      body:    new Uint8Array(input.buffer),
+    });
+    if (!res.ok) {
+      throw new Error(`R2 upload failed: ${res.status} ${await res.text()}`);
+    }
+    return {
+      filePath: fileKey,
+      fileName: input.originalName,
+      mimeType: input.mimeType,
+      sizeBytes: input.buffer.length,
+    };
+  }
+
+  const absPath = path.resolve(env.UPLOAD_DIR, fileKey);
+  await fs.mkdir(path.dirname(absPath), { recursive: true });
   await fs.writeFile(absPath, input.buffer);
   return {
-    filePath: path.posix.join(relDir.replace(/\\/g, "/"), fileKey),
+    filePath: fileKey,
     fileName: input.originalName,
     mimeType: input.mimeType,
     sizeBytes: input.buffer.length,
@@ -54,6 +76,14 @@ export function getAbsolutePath(relPath: string): string {
 }
 
 export async function deleteFile(relPath: string): Promise<void> {
+  if (r2Configured()) {
+    const res = await fetch(presignR2Url("DELETE", relPath), { method: "DELETE" });
+    // 404 = already gone — same tolerance as the ENOENT branch below.
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`R2 delete failed: ${res.status} ${await res.text()}`);
+    }
+    return;
+  }
   const abs = getAbsolutePath(relPath);
   try {
     await fs.unlink(abs);
@@ -89,6 +119,67 @@ function hmac(key: Buffer | string, data: string): Buffer {
 
 function sha256hex(data: string): string {
   return crypto.createHash("sha256").update(data, "utf8").digest("hex");
+}
+
+// Presign an R2 URL for a host-only-signed request (GET/DELETE — no body headers).
+function presignR2Url(method: "GET" | "DELETE", fileKey: string, expiresIn = 300): string {
+  const accountId = env.R2_ACCOUNT_ID!;
+  const accessKey = env.R2_ACCESS_KEY_ID!;
+  const secretKey = env.R2_SECRET_ACCESS_KEY!;
+  const bucket    = env.R2_BUCKET_NAME!;
+  const region    = "auto";
+  const service   = "s3";
+
+  const host = `${bucket}.${accountId}.r2.cloudflarestorage.com`;
+
+  const now  = new Date();
+  const date = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const time = now.toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
+
+  const credentialScope = `${date}/${region}/${service}/aws4_request`;
+
+  const queryParams: Record<string, string> = {
+    "X-Amz-Algorithm":     "AWS4-HMAC-SHA256",
+    "X-Amz-Credential":    `${accessKey}/${credentialScope}`,
+    "X-Amz-Date":          time,
+    "X-Amz-Expires":       String(expiresIn),
+    "X-Amz-SignedHeaders": "host",
+  };
+
+  const sortedQuery = Object.entries(queryParams)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join("&");
+
+  const canonicalUri = `/${encodeURIComponent(fileKey).replace(/%2F/g, "/")}`;
+
+  const canonicalRequest = [
+    method,
+    canonicalUri,
+    sortedQuery,
+    `host:${host}\n`,
+    "host",
+    "UNSIGNED-PAYLOAD",
+  ].join("\n");
+
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    time,
+    credentialScope,
+    sha256hex(canonicalRequest),
+  ].join("\n");
+
+  const kDate    = hmac(`AWS4${secretKey}`, date);
+  const kRegion  = hmac(kDate,    region);
+  const kService = hmac(kRegion,  service);
+  const kSigning = hmac(kService, "aws4_request");
+
+  const signature = crypto
+    .createHmac("sha256", kSigning)
+    .update(stringToSign, "utf8")
+    .digest("hex");
+
+  return `https://${host}${canonicalUri}?${sortedQuery}&X-Amz-Signature=${signature}`;
 }
 
 /**
