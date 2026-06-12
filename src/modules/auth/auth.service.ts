@@ -172,12 +172,19 @@ export async function createManagedAccount(input: {
   return { user, roles: [input.role] };
 }
 
-// Login step 1 — verify credentials, send login OTP, return pendingToken.
-// No session tokens until the OTP is confirmed via loginVerify().
+// Returns true when the identifier string looks like a phone number.
+// OTP is only required when the user explicitly logs in with their mobile number.
+function isPhoneIdentifier(id: string): boolean {
+  return /^\+/.test(id) || /^[\d\s\-()]+$/.test(id.trim());
+}
+
+// Login — OTP required only when the identifier is a phone number.
+// Email / username → full tokens returned immediately.
+// Phone identifier → pendingToken returned; call POST /auth/login/verify to complete.
 export async function login(input: {
   identifier: string;
   password: string;
-}): Promise<LoginPendingResult> {
+}): Promise<LoginPendingResult | AuthResult> {
   const id = input.identifier.trim();
   const row = await prisma.user.findFirst({
     where: { OR: [{ email: id.toLowerCase() }, { phone: id }, { username: id }] },
@@ -192,15 +199,21 @@ export async function login(input: {
     throw new UnauthorizedError("Account suspended. Contact support.");
   }
 
-  // Prefer phone; fall back to email.
-  const channel: "phone" | "email" = row.phone ? "phone" : row.email ? "email" : null as never;
-  if (!channel) {
-    throw new BadRequestError("No contact method on this account. Please contact support.");
+  const roles = row.roles.map((r) => r.role);
+  if (roles.length === 0) throw new UnauthorizedError("Account has no roles assigned");
+  const activeRole = roles[0];
+  const { roles: _r, ...user } = row;
+
+  // OTP only when the user typed a phone number as their identifier.
+  if (isPhoneIdentifier(id)) {
+    const { maskedContact, _dev_code } = await otpService.sendLoginOtp({ userId: row.id, channel: "phone" });
+    const pendingToken = signPendingToken(row.id);
+    return { pendingToken, maskedContact, channel: "phone", ...(_dev_code ? { _dev_code } : {}) };
   }
 
-  const { maskedContact, _dev_code } = await otpService.sendLoginOtp({ userId: row.id, channel });
-  const pendingToken = signPendingToken(row.id);
-  return { pendingToken, maskedContact, channel, ...(_dev_code ? { _dev_code } : {}) };
+  // Email or username — issue tokens directly.
+  const tokens = await issueTokens(user, activeRole, roles);
+  return { user, roles, activeRole, tokens };
 }
 
 // Login step 2 — verify the login OTP and issue full session tokens.

@@ -61,16 +61,29 @@ export async function register(req: Request, res: Response): Promise<void> {
   );
 }
 
-// POST /auth/login — step 1: verify credentials, dispatch OTP, return pendingToken.
+// POST /auth/login
+// Phone identifier → OTP flow: returns { pendingToken, maskedContact, channel }.
+// Email / username  → direct:   returns { user, accessToken } (sets refresh cookie).
 export async function login(req: Request, res: Response): Promise<void> {
   const body = loginSchema.parse(req.body);
   const r = await authService.login(body);
-  success(res, {
-    pendingToken:  r.pendingToken,
-    maskedContact: r.maskedContact,
-    channel:       r.channel,
-    ...(r._dev_code ? { _dev_code: r._dev_code } : {}),
-  });
+
+  if ("pendingToken" in r) {
+    // OTP required — caller must POST /auth/login/verify next.
+    success(res, {
+      pendingToken:  r.pendingToken,
+      maskedContact: r.maskedContact,
+      channel:       r.channel,
+      ...(r._dev_code ? { _dev_code: r._dev_code } : {}),
+    });
+  } else {
+    // Direct login — full session granted immediately.
+    setRefreshCookie(res, r.tokens.refreshToken, r.tokens.refreshTokenExpiresAt);
+    success(res, {
+      user:        publicUser(r.user, r.roles, r.activeRole),
+      accessToken: r.tokens.accessToken,
+    });
+  }
 }
 
 // POST /auth/login/verify — step 2: submit OTP, receive full session tokens.
