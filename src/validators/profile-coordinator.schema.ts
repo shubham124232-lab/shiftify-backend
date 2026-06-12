@@ -23,6 +23,8 @@ export const coordinatorProfileSchema = z.object({
   languages:                         z.array(z.string()).optional(),
   fundingTypeCompatibility:          z.array(z.string()).optional(),
   seekingPlanManager:                z.boolean().optional(),
+  termsAccepted:                     z.boolean().optional(),
+  ndisCodeAccepted:                  z.boolean().optional(),
 });
 
 export type CoordinatorProfileInput = z.infer<typeof coordinatorProfileSchema>;

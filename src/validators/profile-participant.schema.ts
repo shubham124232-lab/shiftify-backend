@@ -18,6 +18,8 @@ export const participantProfileSchema = z.object({
   emergencyContactPhone:        z.string().max(30).optional(),
   emergencyContactRelationship: z.string().max(80).optional(),
   seekingPlanManager:           z.boolean().optional(),
+  termsAccepted:                z.boolean().optional(),
+  ndisCodeAccepted:             z.boolean().optional(),
 });
 
 export type ParticipantProfileInput = z.infer<typeof participantProfileSchema>;

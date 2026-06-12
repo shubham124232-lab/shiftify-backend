@@ -332,6 +332,9 @@ model ParticipantProfile {
   // PM linkage now lives in PlanManagerConnection. This flag drives discovery.
   seekingPlanManager            Boolean  @default(false)
 
+  termsAccepted                 Boolean  @default(false)
+  ndisCodeAccepted              Boolean  @default(false)
+
   createdAt                     DateTime @default(now())
   updatedAt                     DateTime @updatedAt
 }
@@ -476,6 +479,9 @@ model CoordinatorProfile {
   fundingTypeCompatibility             Json?    // String[] — SELF | PLAN | NDIA
   seekingPlanManager                   Boolean  @default(false)
 
+  termsAccepted                        Boolean  @default(false)
+  ndisCodeAccepted                     Boolean  @default(false)
+
   createdAt                            DateTime @default(now())
   updatedAt                            DateTime @updatedAt
 }
@@ -495,6 +501,9 @@ model PlanManagerProfile {
 
   // Whether this PM appears in the discovery directory for clients to find.
   acceptingClients    Boolean  @default(true)
+
+  termsAccepted       Boolean  @default(false)
+  ndisCodeAccepted    Boolean  @default(false)
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt

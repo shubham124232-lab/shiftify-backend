@@ -7,7 +7,9 @@ export const planManagerProfileSchema = z.object({
   ndisRegistered:  z.boolean().optional(),
   yearsInOperation: z.string().max(20).optional(),
   serviceAreas:    z.array(z.string()).optional(),
-  acceptingClients: z.boolean().optional(),
+  acceptingClients:  z.boolean().optional(),
+  termsAccepted:     z.boolean().optional(),
+  ndisCodeAccepted:  z.boolean().optional(),
 });
 
 export type PlanManagerProfileInput = z.infer<typeof planManagerProfileSchema>;
