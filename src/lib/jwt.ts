@@ -34,6 +34,25 @@ export function verifyRefreshToken(token: string): RefreshTokenPayload {
   return jwt.verify(token, env.JWT_REFRESH_SECRET) as RefreshTokenPayload;
 }
 
+// Short-lived token issued after credential check, before OTP verification.
+// Scoped so it can never be used as an access token.
+export interface PendingTokenPayload {
+  sub: string; // user id
+  scope: "login-pending";
+}
+
+export function signPendingToken(userId: string): string {
+  return jwt.sign({ sub: userId, scope: "login-pending" }, env.JWT_ACCESS_SECRET, {
+    expiresIn: "10m",
+  } as SignOptions);
+}
+
+export function verifyPendingToken(token: string): PendingTokenPayload {
+  const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET) as PendingTokenPayload;
+  if (decoded.scope !== "login-pending") throw new Error("Invalid token scope");
+  return decoded;
+}
+
 // Hash a refresh token before storing it in the DB so a leaked DB doesn't
 // expose live tokens.
 export function hashToken(token: string): string {

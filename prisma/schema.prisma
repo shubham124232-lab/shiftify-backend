@@ -162,6 +162,7 @@ enum OtpPurpose {
   VERIFY_EMAIL
   VERIFY_PHONE
   PASSWORD_RESET
+  LOGIN
 }
 
 enum NotificationType {

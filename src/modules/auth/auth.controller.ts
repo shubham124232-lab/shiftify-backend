@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import {
   baseRegisterSchema,
   loginSchema,
+  loginVerifySchema,
   addRoleSchema,
   switchRoleSchema,
 } from "../../validators/auth.schema";
@@ -60,12 +61,25 @@ export async function register(req: Request, res: Response): Promise<void> {
   );
 }
 
+// POST /auth/login — step 1: verify credentials, dispatch OTP, return pendingToken.
 export async function login(req: Request, res: Response): Promise<void> {
   const body = loginSchema.parse(req.body);
   const r = await authService.login(body);
+  success(res, {
+    pendingToken:  r.pendingToken,
+    maskedContact: r.maskedContact,
+    channel:       r.channel,
+    ...(r._dev_code ? { _dev_code: r._dev_code } : {}),
+  });
+}
+
+// POST /auth/login/verify — step 2: submit OTP, receive full session tokens.
+export async function loginVerify(req: Request, res: Response): Promise<void> {
+  const body = loginVerifySchema.parse(req.body);
+  const r = await authService.loginVerify(body);
   setRefreshCookie(res, r.tokens.refreshToken, r.tokens.refreshTokenExpiresAt);
   success(res, {
-    user: publicUser(r.user, r.roles, r.activeRole),
+    user:        publicUser(r.user, r.roles, r.activeRole),
     accessToken: r.tokens.accessToken,
   });
 }

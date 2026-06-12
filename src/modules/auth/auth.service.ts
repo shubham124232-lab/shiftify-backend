@@ -5,9 +5,12 @@ import {
   signAccessToken,
   signRefreshToken,
   verifyRefreshToken,
+  signPendingToken,
+  verifyPendingToken,
   hashToken,
   expiresInMs,
 } from "../../lib/jwt";
+import * as otpService from "./otp.service";
 import {
   ConflictError,
   UnauthorizedError,
@@ -34,6 +37,13 @@ export interface AuthResult {
   roles: UserRole[];
   activeRole: UserRole;
   tokens: AuthTokens;
+  _dev_code?: string;
+}
+
+export interface LoginPendingResult {
+  pendingToken: string;
+  maskedContact: string;
+  channel: string;
   _dev_code?: string;
 }
 
@@ -162,11 +172,12 @@ export async function createManagedAccount(input: {
   return { user, roles: [input.role] };
 }
 
-// Login by ANY identifier: email, phone, or username.
+// Login step 1 — verify credentials, send login OTP, return pendingToken.
+// No session tokens until the OTP is confirmed via loginVerify().
 export async function login(input: {
   identifier: string;
   password: string;
-}): Promise<AuthResult> {
+}): Promise<LoginPendingResult> {
   const id = input.identifier.trim();
   const row = await prisma.user.findFirst({
     where: { OR: [{ email: id.toLowerCase() }, { phone: id }, { username: id }] },
@@ -177,6 +188,44 @@ export async function login(input: {
   }
   const ok = await verifyPassword(input.password, row.passwordHash);
   if (!ok) throw new UnauthorizedError("Invalid credentials");
+  if (row.status === "SUSPENDED") {
+    throw new UnauthorizedError("Account suspended. Contact support.");
+  }
+
+  // Prefer phone; fall back to email.
+  const channel: "phone" | "email" = row.phone ? "phone" : row.email ? "email" : null as never;
+  if (!channel) {
+    throw new BadRequestError("No contact method on this account. Please contact support.");
+  }
+
+  const { maskedContact, _dev_code } = await otpService.sendLoginOtp({ userId: row.id, channel });
+  const pendingToken = signPendingToken(row.id);
+  return { pendingToken, maskedContact, channel, ...(_dev_code ? { _dev_code } : {}) };
+}
+
+// Login step 2 — verify the login OTP and issue full session tokens.
+export async function loginVerify(input: {
+  pendingToken: string;
+  code: string;
+}): Promise<AuthResult> {
+  let userId: string;
+  try {
+    const payload = verifyPendingToken(input.pendingToken);
+    userId = payload.sub;
+  } catch {
+    throw new UnauthorizedError("Login session expired — please log in again.");
+  }
+
+  const row = await prisma.user.findUnique({
+    where: { id: userId },
+    include: ROLE_INCLUDE,
+  });
+  if (!row) throw new UnauthorizedError("Invalid session");
+
+  // Determine channel used in step 1 (same preference: phone → email).
+  const channel: "phone" | "email" = row.phone ? "phone" : "email";
+  await otpService.verifyLoginOtp({ userId, channel, code: input.code });
+
   if (row.status === "SUSPENDED") {
     throw new UnauthorizedError("Account suspended. Contact support.");
   }

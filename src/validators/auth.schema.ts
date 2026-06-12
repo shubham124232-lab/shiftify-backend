@@ -9,6 +9,13 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+// Login step 2 — submit the OTP received after credential check.
+export const loginVerifySchema = z.object({
+  pendingToken: z.string().min(1),
+  code: z.string().length(6, "Enter the 6-digit code"),
+});
+export type LoginVerifyInput = z.infer<typeof loginVerifySchema>;
+
 // Self-registration. Pick ONE initial role; more can be added later via /auth/roles.
 // Phone is required for SELF accounts (primary identity gate). Email is optional.
 export const baseRegisterSchema = z.object({

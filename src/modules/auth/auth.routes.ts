@@ -9,10 +9,11 @@ import { env } from "../../config/env";
 const router = Router();
 
 // ── Core auth ──────────────────────────────────────────────────────────────
-router.post("/register", asyncHandler(ctrl.register));
-router.post("/login", asyncHandler(ctrl.login));
-router.post("/refresh", asyncHandler(ctrl.refresh));
-router.post("/logout", asyncHandler(ctrl.logout));
+router.post("/register",      asyncHandler(ctrl.register));
+router.post("/login",         asyncHandler(ctrl.login));
+router.post("/login/verify",  asyncHandler(ctrl.loginVerify));
+router.post("/refresh",       asyncHandler(ctrl.refresh));
+router.post("/logout",        asyncHandler(ctrl.logout));
 
 // ── Multi-role (require a valid access token) ──────────────────────────────
 router.post("/roles", requireAuth, asyncHandler(ctrl.addRole));

@@ -1,6 +1,7 @@
 // OTP service — owns all one-time-code logic:
 //   Email / phone verification (VERIFY_EMAIL, VERIFY_PHONE)
 //   Password reset (PASSWORD_RESET)
+//   Login OTP — 2FA step after credential check (LOGIN)
 //
 // Codes are 6-digit numerics, SHA-256 hashed at rest, valid for OTP_TTL_MINUTES.
 // In non-prod the plaintext code is returned in the API response (_dev_code).
@@ -240,4 +241,68 @@ export async function resetPassword(input: {
     prisma.user.update({ where: { id: user.id }, data: { passwordHash } }),
     prisma.session.deleteMany({ where: { userId: user.id } }),
   ]);
+}
+
+// ─── Login OTP ────────────────────────────────────────────────────────────────
+
+function maskPhone(phone: string): string {
+  if (phone.length <= 4) return phone;
+  const visible = phone.slice(-2);
+  return phone.slice(0, 4) + "*".repeat(phone.length - 6) + visible;
+}
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  if (!domain) return email;
+  const maskedLocal = local.length <= 2 ? local[0] + "*" : local[0] + "*".repeat(local.length - 2) + local.slice(-1);
+  const [host, ...tlds] = domain.split(".");
+  const maskedHost = host.length <= 2 ? host[0] + "*" : host[0] + "*".repeat(host.length - 2) + host.slice(-1);
+  return `${maskedLocal}@${maskedHost}.${tlds.join(".")}`;
+}
+
+export async function sendLoginOtp(input: {
+  userId: string;
+  channel: "email" | "phone";
+}): Promise<{ maskedContact: string; channel: string; _dev_code?: string }> {
+  const user = await prisma.user.findUnique({ where: { id: input.userId } });
+  if (!user) throw new NotFoundError("User not found");
+
+  const ch = channelEnum(input.channel);
+  const destination = ch === "EMAIL" ? user.email : user.phone;
+  if (!destination) {
+    throw new BadRequestError(`No ${input.channel} address on this account.`);
+  }
+
+  checkRateLimit(`${user.id}:LOGIN`);
+  const code = await issueCode(user.id, ch, "LOGIN", destination);
+
+  if (ch === "EMAIL") {
+    await notify.sendEmail(
+      destination,
+      "[Shiftify] Your login code",
+      `Your Shiftify login code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes. Do not share this code.`,
+      `<p>Your Shiftify login code is <strong>${code}</strong>.</p><p>It expires in ${OTP_TTL_MINUTES} minutes. Do not share this code.</p>`,
+    );
+  } else {
+    await notify.sendSms(
+      destination,
+      `[Shiftify] Your login code is ${code}. Valid ${OTP_TTL_MINUTES} mins. Do not share.`,
+    );
+  }
+
+  const maskedContact = ch === "EMAIL" ? maskEmail(destination) : maskPhone(destination);
+  return {
+    maskedContact,
+    channel: input.channel,
+    ...(returnDevCode() ? { _dev_code: code } : {}),
+  };
+}
+
+export async function verifyLoginOtp(input: {
+  userId: string;
+  channel: "email" | "phone";
+  code: string;
+}): Promise<void> {
+  const ch = channelEnum(input.channel);
+  await consumeCode(input.userId, ch, "LOGIN", input.code);
 }
