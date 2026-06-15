@@ -8,6 +8,9 @@ const router = Router();
 
 router.use(requireAuth, requireAdmin);
 
+// ── DB Snapshot — SUPER_ADMIN only ────────────────────────────────────────────
+router.get("/db-snapshot", requireSuperAdmin, asyncHandler(ctrl.getDbSnapshot));
+
 // ── Stats ─────────────────────────────────────────────────────────────────────
 router.get("/stats", asyncHandler(ctrl.getStats));
 

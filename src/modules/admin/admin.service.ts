@@ -5,6 +5,95 @@ import { writeAudit } from "../../utils/audit";
 import { generateGetPresignedUrl } from "../../lib/storage";
 import type { UserStatus, UserRole, AdminTier, JobStatus, JobCategory, JobUrgency } from "@prisma/client";
 
+// ─── GET /admin/db-snapshot ───────────────────────────────────────────────────
+// Super-admin only. Returns every table in the database with full row data.
+// Sensitive fields (passwordHash, refreshTokenHash, codeHash) are stripped.
+// Session + VerificationCode rows are returned as counts only (security).
+
+export async function getDbSnapshot() {
+  // Split into two batches — TypeScript's Promise.all overloads top out at ~10 items.
+  const [users, workerProfiles, providerProfiles, participantProfiles, coordinatorProfiles, planManagerProfiles, addresses, documents, plans] =
+    await Promise.all([
+      prisma.user.findMany({ include: { roles: true }, orderBy: { createdAt: "desc" } }),
+      prisma.workerProfile.findMany({ include: { availability: true, unavailability: true }, orderBy: { createdAt: "desc" } }),
+      prisma.providerProfile.findMany({ include: { availability: true }, orderBy: { createdAt: "desc" } }),
+      prisma.participantProfile.findMany({ orderBy: { createdAt: "desc" } }),
+      prisma.coordinatorProfile.findMany({ orderBy: { createdAt: "desc" } }),
+      prisma.planManagerProfile.findMany({ orderBy: { createdAt: "desc" } }),
+      prisma.address.findMany({ orderBy: { createdAt: "desc" } }),
+      prisma.document.findMany({ orderBy: { uploadedAt: "desc" } }),
+      prisma.plan.findMany({ orderBy: { createdAt: "desc" } }),
+    ]);
+
+  const [subscriptions, supportRequests, jobApplications, jobMessages, invoices, pmConnections, notifications, auditLogs, sessionCount, verificationCodeCount] =
+    await Promise.all([
+      prisma.userSubscription.findMany({ include: { plan: { select: { key: true, name: true, role: true, amountAud: true } } }, orderBy: { createdAt: "desc" } }),
+      prisma.supportRequest.findMany({ include: { _count: { select: { applications: true, messages: true } } }, orderBy: { createdAt: "desc" } }),
+      prisma.jobApplication.findMany({ orderBy: { createdAt: "desc" } }),
+      prisma.jobMessage.findMany({ orderBy: { createdAt: "desc" } }),
+      prisma.invoice.findMany({ orderBy: { createdAt: "desc" } }),
+      prisma.planManagerConnection.findMany({ orderBy: { createdAt: "desc" } }),
+      prisma.notification.findMany({ orderBy: { createdAt: "desc" } }),
+      prisma.auditLog.findMany({ include: { admin: { select: { id: true, name: true, email: true } }, targetUser: { select: { id: true, name: true, email: true } } }, orderBy: { createdAt: "desc" } }),
+      prisma.session.count(),
+      prisma.verificationCode.count(),
+    ]);
+
+  // Strip passwordHash from user rows
+  const safeUsers = users.map((u) => {
+    const safe = u as Record<string, unknown>;
+    delete safe["passwordHash"];
+    return safe;
+  });
+
+  return {
+    _meta: {
+      generatedAt: new Date().toISOString(),
+      tables: {
+        User:                  safeUsers.length,
+        WorkerProfile:         workerProfiles.length,
+        ProviderProfile:       providerProfiles.length,
+        ParticipantProfile:    participantProfiles.length,
+        CoordinatorProfile:    coordinatorProfiles.length,
+        PlanManagerProfile:    planManagerProfiles.length,
+        Address:               addresses.length,
+        Document:              documents.length,
+        Plan:                  plans.length,
+        UserSubscription:      subscriptions.length,
+        SupportRequest:        supportRequests.length,
+        JobApplication:        jobApplications.length,
+        JobMessage:            jobMessages.length,
+        Invoice:               invoices.length,
+        PlanManagerConnection: pmConnections.length,
+        Notification:          notifications.length,
+        AuditLog:              auditLogs.length,
+        Session:               sessionCount,
+        VerificationCode:      verificationCodeCount,
+      },
+    },
+    users:                safeUsers,
+    workerProfiles,
+    providerProfiles,
+    participantProfiles,
+    coordinatorProfiles,
+    planManagerProfiles,
+    addresses,
+    documents,
+    plans,
+    subscriptions,
+    supportRequests,
+    jobApplications,
+    jobMessages,
+    invoices,
+    pmConnections,
+    notifications,
+    auditLogs,
+    // Counts only — full rows contain hashed tokens / OTP codes
+    sessionCount,
+    verificationCodeCount,
+  };
+}
+
 // ─── GET /admin/users ─────────────────────────────────────────────────────────
 
 export interface UserListItem {
@@ -466,8 +555,7 @@ export async function getDocumentViewUrl(documentId: string) {
   return { document: doc, viewUrl, expiresIn: 300 };
 }
 
-// ─── PATCH /admin/documents/:id/verify ───────────────────────────────────────
-
+// ─── PATCH /admin/documents/:id/verify ──────────────────────────────────────
 export async function verifyDocument(params: {
   documentId: string;
   adminUserId: string;
@@ -486,7 +574,7 @@ export async function verifyDocument(params: {
   });
   if (!doc) throw new NotFoundError("Document not found");
 
-  const newStatus = approved ? ("VERIFIED" as const) : ("REJECTED" as const);
+  const newStatus   = approved ? ("VERIFIED" as const) : ("REJECTED" as const);
   const auditAction = approved ? ("DOC_VERIFIED" as const) : ("DOC_REJECTED" as const);
 
   const [updatedDoc] = await Promise.all([
@@ -494,9 +582,9 @@ export async function verifyDocument(params: {
       where: { id: documentId },
       data: {
         status: newStatus,
-        rejectionReason: approved ? null : (reason ?? null),
+        rejectionReason:   approved ? null : (reason ?? null),
         verifiedByAdminId: approved ? adminUserId : null,
-        verifiedAt: approved ? new Date() : null,
+        verifiedAt:        approved ? new Date() : null,
       },
     }),
     writeAudit({
@@ -550,17 +638,14 @@ export async function notifyUser(params: {
 export async function broadcastNotification(params: {
   title: string;
   body: string;
-  role?: string; // if omitted → all users
+  role?: string;
 }) {
   const { title, body, role } = params;
 
   const where: Record<string, unknown> = {};
   if (role) where.roles = { some: { role: role as UserRole } };
 
-  const users = await prisma.user.findMany({
-    where,
-    select: { id: true },
-  });
+  const users = await prisma.user.findMany({ where, select: { id: true } });
 
   const results = await Promise.allSettled(
     users.map((u) =>
@@ -568,40 +653,27 @@ export async function broadcastNotification(params: {
     ),
   );
 
-  const sent     = results.filter((r) => r.status === "fulfilled").length;
-  const failed   = results.filter((r) => r.status === "rejected").length;
+  const sent   = results.filter((r) => r.status === "fulfilled").length;
+  const failed = results.filter((r) => r.status === "rejected").length;
 
   return { sent, failed, total: users.length };
 }
 
-// ─── Fix: GET /admin/verification-queue — SUSPENDED users only ────────────────
-// (verificationQueue() above is kept for backward compat; this replaces its logic)
+// ─── GET /admin/verification-queue — SUSPENDED users only ─────────────────────
 
-export async function suspendedUsersQueue(params: {
-  page: number;
-  limit: number;
-}) {
+export async function suspendedUsersQueue(params: { page: number; limit: number }) {
   const { page, limit } = params;
-  const skip = (page - 1) * limit;
-
+  const skip  = (page - 1) * limit;
   const where = { status: "SUSPENDED" as UserStatus };
 
   const [users, total] = await Promise.all([
     prisma.user.findMany({
       where,
       select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        username: true,
-        accountType: true,
-        status: true,
-        adminTier: true,
-        roles: { select: { role: true, isActiveDefault: true } },
-        documents: {
-          select: { id: true, docType: true, fileName: true, status: true, uploadedAt: true },
-        },
+        id: true, name: true, email: true, phone: true, username: true,
+        accountType: true, status: true, adminTier: true,
+        roles:     { select: { role: true, isActiveDefault: true } },
+        documents: { select: { id: true, docType: true, fileName: true, status: true, uploadedAt: true } },
         createdAt: true,
       },
       orderBy: { createdAt: "desc" },

@@ -3,6 +3,13 @@ import { success } from "../../utils/response";
 import { BadRequestError, UnauthorizedError } from "../../lib/errors";
 import * as adminService from "./admin.service";
 
+// ─── GET /admin/db-snapshot ───────────────────────────────────────────────────
+
+export async function getDbSnapshot(_req: Request, res: Response): Promise<void> {
+  const result = await adminService.getDbSnapshot();
+  success(res, result);
+}
+
 export async function listUsers(req: Request, res: Response): Promise<void> {
   const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),  10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "20"), 10) || 20));

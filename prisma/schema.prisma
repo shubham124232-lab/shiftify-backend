@@ -312,13 +312,26 @@ model ParticipantProfile {
 
   profileStep                   Int      @default(0)
 
+  // Step 1 — Personal Info
   preferredName                 String?
+  participantType               String?  // SELF | PARENT | GUARDIAN | CARER | NOMINEE
   ageGroup                      String?
   gender                        String?
+  suburb                        String?
+  postcode                      String?
+  state                         String?
+
+  // Step 2 — NDIS Details
   ndisNumber                    String?
   fundingManagementType         String?  // SELF | PLAN | NDIA
-  primaryDisability             String?
+  supportCoordinationFunding    String?  // NONE | LEVEL_1 | LEVEL_2 | LEVEL_3
+  ndisStartDate                 DateTime?
+  ndisEndDate                   DateTime?
 
+  // Step 3 — Support Needs
+  primaryDisability             String?
+  primarySupportNeeds           Json?    // String[] — service categories required
+  preferredSupportType          String?  // ONE_TIME | ONGOING | BOTH
   mobilitySupportNeeds          Json?
   communicationNeeds            Json?
   behaviourSensoryNotes         Json?
@@ -326,6 +339,15 @@ model ParticipantProfile {
   riskSafetyNotes               String?
   supportPreferences            Json?
 
+  // Step 3 — Preferences & Availability
+  preferredWorkerGender         String?
+  languagePreference            String?
+  culturalPreference            String?
+  skillsRequired                Json?    // String[]
+  preferredDays                 Json?    // String[]
+  preferredTime                 String?  // MORNING | AFTERNOON | EVENING | OVERNIGHT
+
+  // Step 4 — Emergency Contact
   emergencyContactName          String?
   emergencyContactPhone         String?
   emergencyContactRelationship  String?
@@ -333,7 +355,9 @@ model ParticipantProfile {
   // PM linkage now lives in PlanManagerConnection. This flag drives discovery.
   seekingPlanManager            Boolean  @default(false)
 
+  // Step 5 — Declaration
   termsAccepted                 Boolean  @default(false)
+  privacyPolicyAccepted         Boolean  @default(false)
   ndisCodeAccepted              Boolean  @default(false)
 
   createdAt                     DateTime @default(now())
@@ -341,111 +365,185 @@ model ParticipantProfile {
 }
 
 model WorkerProfile {
-  id                       String   @id @default(uuid())
-  userId                   String   @unique
-  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                        String   @id @default(uuid())
+  userId                    String   @unique
+  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  profileStep              Int      @default(0)
+  profileStep               Int      @default(0)
 
-  dob                      DateTime?
-  gender                   String?
-  rightToWork              String?
-  visaType                 String?
-  visaExpiry               DateTime?
-  workType                 String?
-  abn                      String?
-  gstRegistered            Boolean  @default(false)
+  // Step 1 — Identity
+  dob                       DateTime?
+  gender                    String?
+  suburb                    String?
+  postcode                  String?
+  state                     String?
 
-  servicesOffered          Json?
-  subServices              Json?
-  highIntensitySkills      Json?
-  experienceLevel          String?
-  disabilityExperience     Json?
+  // Step 2 — Right to Work
+  rightToWork               String?
+  visaType                  String?
+  visaExpiry                DateTime?
 
-  availabilityType         String?
-  emergencyAvailability    Boolean  @default(false)
-
-  serviceAreas             Json?
-  travelRadiusKm           Int?
-  hasVehicle               Boolean  @default(false)
-  insuranceValid           Boolean  @default(false)
-
-  hourlyRate               Decimal? @db.Decimal(10, 2)
-  bio                      String?
-  isAvailableNow           Boolean  @default(false)
-  rating                   Float    @default(0)
-  totalReviews             Int      @default(0)
-
-  lat                      Float?
-  lng                      Float?
-
-  // Compliance toggles (document uploads handled separately via Document model)
-  publicLiabilityInsurance Boolean  @default(false)
+  // Step 3 — Work Type & Insurance
+  workType                  String?
+  abn                       String?
+  gstRegistered             Boolean  @default(false)
+  publicLiabilityInsurance  Boolean  @default(false)
   personalAccidentInsurance Boolean  @default(false)
 
-  // Vehicle details — only populated when hasVehicle = true
-  vehicleDetails           Json?    // { make, model, year, rego, colour }
+  // Step 4 — Services & Skills
+  servicesOffered           Json?
+  subServices               Json?
+  highIntensitySkills       Json?
+  experienceLevel           String?
+  disabilityExperience      Json?
+
+  // Step 5 — Availability
+  availabilityType          String?
+  emergencyAvailability     Boolean  @default(false)
+  sleeperAvailability       Boolean  @default(false)
+
+  // Step 6 — Service Areas & Travel
+  serviceAreas              Json?
+  travelRadiusKm            Int?
+  hasVehicle                Boolean  @default(false)
+  canTransportParticipants  Boolean  @default(false)
+  insuranceValid            Boolean  @default(false)
+  vehicleDetails            Json?    // { make, model, year, rego, colour }
+
+  // Step 7 — Financials, Bio & Preferences
+  hourlyRate                Decimal? @db.Decimal(10, 2)
+  hourlyRateType            String?  // FIXED | NDIS_PRICE_GUIDE | NEGOTIABLE
+  weekendNightRates         Json?    // { weekendRate, nightRate, publicHolidayRate }
+  travelCharges             String?  // NONE | INCLUDED | CHARGED_SEPARATELY
+  preferredParticipantType  Json?    // String[]
+  genderPreference          String?
+  languagesSpoken           Json?    // String[]
+  bio                       String?
+  preferences               String?
+  isAvailableNow            Boolean  @default(false)
+  seekingPlanManager        Boolean  @default(false)
+
+  // Step 8 — Documents
+  manualHandlingCompleted   Boolean  @default(false)
+  firstAidCertType          String?  // HLTAID011 | HLTAID009 | OTHER
+
+  // Step 9 — Compliance
+  termsAccepted             Boolean  @default(false)
+  ndisCodeAccepted          Boolean  @default(false)
+  privacyPolicyAccepted     Boolean  @default(false)
+  declarationStatement      Boolean  @default(false)
+
+  // Stats
+  rating                    Float    @default(0)
+  totalReviews              Int      @default(0)
+  lat                       Float?
+  lng                       Float?
 
   // Referee contacts — JSON array of { name, relationship, phone, email }
-  references               Json?
+  references                Json?
 
-  // Worker preferences free text
-  preferences              String?
+  availability              WorkerAvailability[]
+  unavailability            WorkerUnavailability[]
 
-  seekingPlanManager       Boolean  @default(false)
-
-  availability             WorkerAvailability[]
-  unavailability           WorkerUnavailability[]
-
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 }
 
 model ProviderProfile {
-  id                       String   @id @default(uuid())
-  userId                   String   @unique
-  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                              String   @id @default(uuid())
+  userId                          String   @unique
+  user                            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  profileStep              Int      @default(0)
+  profileStep                     Int      @default(0)
 
-  businessName             String
-  legalEntityName          String?
-  abn                      String?  @unique
-  businessStructure        String?
-  ndisRegistered           Boolean  @default(false)
-  ndisProviderNumber       String?
-  gstRegistered            Boolean  @default(false)
-  yearsInOperation         String?
+  // Step 1 — Business Identity
+  businessName                    String
+  legalEntityName                 String?
+  abn                             String?  @unique
+  businessStructure               String?
+  ndisRegistered                  Boolean  @default(false)
+  ndisProviderNumber              String?
+  ndisAuditStatus                 String?  // VERIFIED | PENDING | EXPIRED
+  gstRegistered                   Boolean  @default(false)
+  yearsInOperation                String?
 
-  primaryContactName       String?
-  primaryContactRole       String?
-  primaryContactPhone      String?
-  primaryContactEmail      String?
-  accountsContactName      String?
-  accountsContactEmail     String?
+  // Step 3 — Primary & Secondary Contacts
+  primaryContactName              String?
+  primaryContactRole              String?
+  primaryContactPhone             String?
+  primaryContactEmail             String?
+  secondaryContactName            String?
+  secondaryContactRole            String?
+  secondaryContactPhone           String?
+  secondaryContactEmail           String?
+  accountsContactName             String?
+  accountsContactEmail            String?
 
-  coreServices             Json?
-  offersSil                Boolean  @default(false)
-  offersSda                Boolean  @default(false)
-  silDetails               Json?
-  sdaDetails               Json?
+  // Step 3 — Compliance (policy metadata)
+  publicLiabilityPolicyNumber     String?
+  publicLiabilityCoverageAmount   String?
+  professionalIndemnityPolicyNumber String?
+  workersCompPolicyNumber         String?
+  complianceDeclaration           Boolean  @default(false)
 
-  serviceAreas             Json?
-  serviceMode              String?
-  workforceSize            String?
-  participantTypes         Json?
-  pricingModel             String?
-  billingMethod            String?
-  businessDescription      String?
-  logoUrl                  String?
-  websiteUrl               String?
+  // Step 6 — Services (structured SIL/SDA)
+  coreServices                    Json?
+  offersSil                       Boolean  @default(false)
+  silType                         String?  // SHARED | INDIVIDUAL
+  silSupportLevel                 String?  // FULL_TIME | DROP_IN
+  silCurrentVacancies             Boolean?
+  silDetails                      Json?
+  offersSda                       Boolean  @default(false)
+  sdaDesignCategory               Json?    // String[]
+  sdaVacancyCount                 Int?
+  sdaLocations                    Json?    // String[]
+  sdaDetails                      Json?
 
-  seekingPlanManager       Boolean  @default(false)
+  // Step 7 — Service Coverage
+  serviceAreas                    Json?
+  serviceMode                     String?
+  multipleLocations               Json?    // branch address array
 
-  availability             ProviderAvailability[]
+  // Step 8 — Workforce
+  workforceSize                   String?
+  staffCapability                 Json?    // String[]
+  abilityToFillUrgentShifts       Boolean  @default(false)
+  workforceHiringType             String?  // INTERNAL | EXTERNAL | BOTH
+  participantTypes                Json?
+  currentCapacityStatus           String?  // OPEN | LIMITED | FULL
+  abilityToPostLiveAvailability   Boolean  @default(false)
+  participantComplexityAccepted   Json?    // String[]
 
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  // Step 9 — Pricing
+  pricingModel                    String?
+  billingMethod                   String?
+  travelCharges                   String?
+  cancellationPolicy              String?
+
+  // Step 10 — Platform Features
+  canPostRequests                 Boolean  @default(false)
+  canViewWorkerMarketplace        Boolean  @default(false)
+  canPostWorkerRequirements       Boolean  @default(false)
+  canPostSilSdaVacancies          Boolean  @default(false)
+
+  // Step 11 — Profile & Branding
+  businessDescription             String?
+  logoUrl                         String?
+  websiteUrl                      String?
+  socialLinks                     Json?    // { facebook, instagram, linkedin }
+  seekingPlanManager              Boolean  @default(false)
+
+  // Step 12 — Declarations
+  termsAccepted                   Boolean  @default(false)
+  ndisCodeAccepted                Boolean  @default(false)
+  privacyPolicyAccepted           Boolean  @default(false)
+  serviceAgreementAccepted        Boolean  @default(false)
+  platformRulesAccepted           Boolean  @default(false)
+
+  availability                    ProviderAvailability[]
+
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
 }
 
 model CoordinatorProfile {
@@ -455,59 +553,174 @@ model CoordinatorProfile {
 
   profileStep                          Int      @default(0)
 
+  // Step 1 — Professional Identity
   roleType                             String?
   organisationName                     String?
   abn                                  String?
   ndisRegistered                       Boolean  @default(false)
   ndisProviderNumber                   String?
-  yearsExperience                      String?
+  gender                               String?
 
+  // Step 3 — Experience & Capability
+  yearsExperience                      String?
+  qualifications                       Json?    // String[] — Cert III/IV/Diploma/Bachelor/Other
   supportCoordinationLevel             Json?
   participantComplexityExperience      Json?
   servicesOfferedBeyondCoordination    Json?
 
+  // Step 4 — Service Coverage
   serviceAreas                         Json?
+  serviceRadius                        Int?
   serviceMode                          String?
+  languages                            Json?
+
+  // Step 5 — Capacity & Availability
   currentCapacityStatus                String?
   maxParticipantLoad                   Int?
+  availabilityType                     String?  // BUSINESS_HOURS | FLEXIBLE | EMERGENCY_AVAILABLE
   participantTypesAccepted             Json?
-  billingMethodPreference              String?
-  hourlyRate                           Decimal? @db.Decimal(10, 2)
-  bio                                  String?
+  fundingTypeCompatibility             Json?
 
-  // Added for profile wizard
-  languages                            Json?    // String[] — languages spoken
-  fundingTypeCompatibility             Json?    // String[] — SELF | PLAN | NDIA
+  // Step 6 — Billing
+  billingMethodPreference              String?
+  travelCharges                        String?  // INCLUDED | CHARGED_SEPARATELY
+  hourlyRate                           Decimal? @db.Decimal(10, 2)
+
+  // Step 7 — Profile
+  bio                                  String?
   seekingPlanManager                   Boolean  @default(false)
 
+  // Step 9 — Declaration
   termsAccepted                        Boolean  @default(false)
   ndisCodeAccepted                     Boolean  @default(false)
+  consentForVerification               Boolean  @default(false)
 
   createdAt                            DateTime @default(now())
   updatedAt                            DateTime @updatedAt
 }
 
 model PlanManagerProfile {
-  id                  String   @id @default(uuid())
-  userId              String   @unique
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                                      String    @id @default(uuid())
+  userId                                  String    @unique
+  user                                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  profileStep         Int      @default(0)
+  profileStep                             Int       @default(0)
 
-  businessName        String
-  abn                 String?
-  ndisRegistered      Boolean  @default(false)
-  yearsInOperation    String?
-  serviceAreas        Json?
+  // Step 1 — Business Identity
+  businessName                            String
+  legalEntityName                         String?
+  abn                                     String?
+  businessStructure                       String?   // SOLE_TRADER | PARTNERSHIP | COMPANY | TRUST
+  businessAddress                         String?
+  businessSuburb                          String?
+  businessPostcode                        String?
+  businessState                           String?
+  businessPhone                           String?
+  businessEmail                           String?
+  websiteUrl                              String?
+  acn                                     String?
+  trustName                               String?
+  directorName                            String?
+  directorPosition                        String?
+  financeTeamEmail                        String?
+  accountsPayablePhone                    String?
+  yearsInOperation                        String?
 
-  // Whether this PM appears in the discovery directory for clients to find.
-  acceptingClients    Boolean  @default(true)
+  // Step 2 — NDIS Registration
+  ndisRegistrationStatus                  String?   // REGISTERED | IN_PROGRESS | NOT_REGISTERED
+  ndisRegistered                          Boolean   @default(false) // kept for backward compat
+  ndisProviderNumber                      String?
+  registrationExpiryDate                  DateTime?
+  approvedRegistrationGroups              Json?
 
-  termsAccepted       Boolean  @default(false)
-  ndisCodeAccepted    Boolean  @default(false)
+  // Step 3 — Plan Management Capability
+  servicesProvided                        Json?     // String[]
+  plansRecurringInvoices                  Boolean   @default(false)
+  plansOnceOffInvoices                    Boolean   @default(false)
+  providesBudgetStatements                Boolean   @default(false)
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  // Step 4 — Participant Scope
+  participantTypesSupported               Json?     // String[]
+  participantComplexityExperience         Json?
+
+  // Step 5 — Service Coverage
+  serviceCoverageType                     String?   // AUSTRALIA_WIDE | STATE_BASED | REGION_BASED
+  serviceAreas                            Json?
+  stateCoverage                           Json?     // String[]
+  postcodesServed                         Json?
+  timezone                                String?
+  operatingHours                          String?
+  invoiceTurnaroundTime                   String?
+
+  // Step 6 — Payment Operations
+  invoiceIntakeMethod                     Json?     // String[]
+  primaryInvoiceContactEmail              String?
+  accountsContactName                     String?
+  paymentEnquiryContactName              String?
+  paymentEnquiryContactEmail              String?
+  paymentEnquiryContactPhone              String?
+  invoiceReferenceFormat                  String?
+  acceptsRegisteredProvidersOnly          Boolean   @default(false)
+  requiresServiceDatesOnInvoices          Boolean   @default(false)
+  requiresSupportCategoryCode             Boolean   @default(false)
+
+  // Step 7 — Compliance & Governance
+  recordKeepingDeclaration                Boolean   @default(false)
+  conflictOfInterestDeclaration           Boolean   @default(false)
+  noMisuseOfFundsDeclaration              Boolean   @default(false)
+  taxComplianceDeclaration                Boolean   @default(false)
+  informationAccurateDeclaration          Boolean   @default(false)
+  complaintsContactName                   String?
+  complaintsContactEmail                  String?
+  incidentEscalationContact               String?
+  privacyContact                          String?
+  recordsRetentionContact                 String?
+
+  // Step 8 — Staff / User Model
+  organisationUserModel                   String?   // SINGLE | MULTI_USER
+  staffAdminName                          String?
+  staffAdminEmail                         String?
+  staffSeatsRequired                      Int?
+
+  // Step 9 — Participant Linking
+  participantLinkingMethod                Json?     // String[]
+  linkApprovalRequired                    Boolean   @default(true)
+  requiresServiceAgreementBeforeInvoicing Boolean   @default(false)
+
+  // Step 10 — Provider Interaction
+  invoiceAcceptanceRules                  Json?
+  acceptsRecurringClaims                  Boolean   @default(true)
+  acceptsOnceOffClaims                    Boolean   @default(true)
+  allowsProviderPortalMessaging           Boolean   @default(false)
+
+  // Step 12 — Communication Preferences
+  invoiceNotificationEmail                String?
+  complianceNoticesEmail                  String?
+  smsAlertsEnabled                        Boolean   @default(false)
+  escalationContactForFailedPayments      String?
+
+  // Step 13 — Commercial Setup
+  subscriptionPlan                        String?
+  billingContactName                      String?
+  billingContactEmail                     String?
+  billingAddress                          String?
+  gstRegistered                           Boolean?
+
+  // Directory visibility
+  acceptingClients                        Boolean   @default(true)
+
+  // Step 14 — Terms & Declaration
+  termsAccepted                           Boolean   @default(false)
+  ndisCodeAccepted                        Boolean   @default(false)
+  privacyPolicyAccepted                   Boolean   @default(false)
+  confirmAuthorityToRegister              Boolean   @default(false)
+  confirmDetailsAccurate                  Boolean   @default(false)
+  consentToVerification                   Boolean   @default(false)
+  consentToParticipantLinkingControls     Boolean   @default(false)
+  consentToInvoiceRoutingRules            Boolean   @default(false)
+
+  createdAt                               DateTime  @default(now())
+  updatedAt                               DateTime  @updatedAt
 }
 
 // ───────────────────────────────────────────────────────────────────────────
