@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// ─── Job categories (mirrors Prisma enum) ────────────────────────────────────
+// ─── Enums (mirror Prisma) ────────────────────────────────────────────────────
 
 const JobCategoryEnum = z.enum([
   "PERSONAL_CARE","COMMUNITY_ACCESS","DOMESTIC_ASSISTANCE","TRANSPORT",
@@ -10,43 +10,89 @@ const JobCategoryEnum = z.enum([
   "SHOPPING_ERRANDS","APPOINTMENT_SUPPORT","OTHER",
 ]);
 
+const ShiftTypeEnum = z.enum([
+  "STANDARD","SHORT_VISIT","LONG_SHIFT","ACTIVE_OVERNIGHT","SLEEPOVER",
+  "TWENTY_FOUR_HOUR","DROP_IN","APPOINTMENT","TRANSPORT_ONLY","SPLIT",
+]);
+
+const FundingTypeEnum = z.enum([
+  "SELF_MANAGED","PLAN_MANAGED","NDIA_MANAGED","PRIVATE","MIXED","DISCUSS",
+]);
+
+const UrgencyEnum = z.enum(["EMERGENCY","SAME_DAY","SCHEDULED"]);
+
 // ─── Create / draft ───────────────────────────────────────────────────────────
 
 export const createJobSchema = z.object({
-  // Core
-  title:               z.string().min(3).max(200),
-  description:         z.string().max(5000).optional(),
-  category:            JobCategoryEnum,
-  subcategory:         z.string().max(100).optional(),
-  urgency:             z.enum(["EMERGENCY","SAME_DAY","SCHEDULED"]).default("SCHEDULED"),
+  // ── Step 1: Service details ──────────────────────────────────────────────
+  title:                  z.string().min(3).max(200),
+  description:            z.string().max(5000).optional(),
+  category:               JobCategoryEnum,
+  subcategory:            z.string().max(100).optional(),
+  supportGoal:            z.string().max(80).optional(),
+  // ONE_TIME | TEMPORARY | RECURRING | ONGOING | TRIAL | EMERGENCY
+  durationType:           z.string().max(40).optional(),
+  // SELF | NOMINEE | FAMILY | COORDINATOR | GUARDIAN
+  participantPostedAs:    z.string().max(40).optional(),
 
-  // Location
-  suburb:              z.string().min(2).max(100),
-  state:               z.string().min(2).max(50),
-  postcode:            z.string().max(10).optional(),
-  serviceDeliveryMode: z.string().max(50).optional(),
+  // ── Step 2: Schedule ────────────────────────────────────────────────────
+  urgency:                UrgencyEnum.default("SCHEDULED"),
+  shiftType:              ShiftTypeEnum.optional(),
+  // EXACT | FLEXIBLE_SLIGHT | FLEXIBLE_MORNING | FLEXIBLE_AFTERNOON | FLEXIBLE_EVENING | FLEXIBLE_ANYTIME | DISCUSS
+  timeFlexibility:        z.string().max(40).optional(),
+  scheduledStartAt:       z.string().datetime({ offset: true }),
+  scheduledEndAt:         z.string().datetime({ offset: true }),
+  totalHours:             z.number().positive().max(500).optional(),
+  isRecurring:            z.boolean().default(false),
+  recurrencePattern:      z.record(z.unknown()).optional(),
+  applicationDeadlineAt:  z.string().datetime({ offset: true }).optional(),
 
-  // Schedule
-  scheduledStartAt:    z.string().datetime({ offset: true }),
-  scheduledEndAt:      z.string().datetime({ offset: true }),
-  totalHours:          z.number().positive().max(500).optional(),
-  isRecurring:         z.boolean().default(false),
-  recurrencePattern:   z.record(z.unknown()).optional(),
+  // ── Step 3: Location ────────────────────────────────────────────────────
+  suburb:                 z.string().min(2).max(100),
+  state:                  z.string().min(2).max(50),
+  postcode:               z.string().max(10).optional(),
+  addressLine:            z.string().max(200).optional(),  // shown only after booking
+  // AT_HOME | COMMUNITY | PROVIDER | MULTIPLE | ONLINE | COMBINATION
+  serviceDeliveryMode:    z.string().max(50).optional(),
+  locationNotes:          z.string().max(1000).optional(),
+  lat:                    z.number().min(-90).max(90).optional(),
+  lng:                    z.number().min(-180).max(180).optional(),
+  // NONE | LOCAL | MULTI_STOP | PARTICIPANT_TRANSPORT | LONG_DISTANCE
+  travelRequired:         z.string().max(40).optional(),
 
-  // Preferences
-  workerPreferences:   z.record(z.unknown()).optional(),
+  // ── Step 6: Budget / Funding ─────────────────────────────────────────────
+  fundingType:            FundingTypeEnum.optional(),
+  // FIXED_HOURLY | FIXED_TOTAL | OPEN | NDIS | DISCUSS
+  budgetType:             z.string().max(40).optional(),
+  budgetPerHour:          z.number().min(0).max(9999).optional(),
+  totalBudget:            z.number().min(0).max(999999).optional(),
+  // INCLUDED | ADDITIONAL | DISCUSS | NOT_REQUIRED
+  travelReimbursement:    z.string().max(40).optional(),
 
-  // Post as DRAFT instead of OPEN immediately
-  asDraft:             z.boolean().default(false),
+  // ── Step 7: Visibility & matching ────────────────────────────────────────
+  // ALL | VERIFIED | PROVIDERS_ONLY | WORKERS_ONLY | INVITE_ONLY
+  visibilityTarget:       z.string().max(40).optional(),
+  maxApplicants:          z.number().int().min(1).max(999).optional(),
+  hideParticipantName:    z.boolean().default(false),
+  allowQuotes:            z.boolean().default(false),
+  allowDirectMessages:    z.boolean().default(true),
 
-  // Coordinator modes
-  // Mode 1: existing managed participant
-  forParticipantUserId: z.string().uuid().optional(),
-  // Mode 2: inline create a new participant
+  // ── Coordinator / PM extras (internal only) ──────────────────────────────
+  workerPreferences:      z.record(z.unknown()).optional(),
+  internalNote:           z.string().max(2000).optional(),
+  caseReference:          z.string().max(120).optional(),
+  // NEW_SUPPORT | REPLACEMENT | URGENT_INTERIM | HOSPITAL_DISCHARGE | SIL_SDA | etc.
+  requestPurposeCategory: z.string().max(80).optional(),
+
+  // ── Submit mode ──────────────────────────────────────────────────────────
+  asDraft:                z.boolean().default(false),
+
+  // ── Coordinator: participant selection ───────────────────────────────────
+  forParticipantUserId:   z.string().uuid().optional(),
   inlineParticipant: z.object({
-    name:    z.string().min(2).max(120),
-    phone:   z.string().min(8).max(30).optional(),
-    suburb:  z.string().min(2).max(100).optional(),
+    name:   z.string().min(2).max(120),
+    phone:  z.string().min(8).max(30).optional(),
+    suburb: z.string().min(2).max(100).optional(),
   }).optional(),
 });
 
@@ -56,21 +102,58 @@ export const publishJobSchema = z.object({
   jobId: z.string().uuid(),
 });
 
-// ─── Filters ─────────────────────────────────────────────────────────────────
+// ─── Filters (load board) ─────────────────────────────────────────────────────
 
 export const jobFiltersSchema = z.object({
-  suburb:   z.string().optional(),
-  category: JobCategoryEnum.optional(),
-  urgency:  z.enum(["EMERGENCY","SAME_DAY","SCHEDULED"]).optional(),
-  status:   z.enum(["DRAFT","OPEN","ASSIGNED","IN_PROGRESS","COMPLETED","CONFIRMED","CANCELLED"]).optional(),
-  page:     z.coerce.number().int().min(1).default(1),
-  limit:    z.coerce.number().int().min(1).max(100).default(20),
+  // Text / location
+  suburb:           z.string().optional(),
+  state:            z.string().optional(),
+  // Category
+  category:         JobCategoryEnum.optional(),
+  // Urgency
+  urgency:          UrgencyEnum.optional(),
+  // Status
+  status:           z.enum(["DRAFT","OPEN","ASSIGNED","IN_PROGRESS","COMPLETED","CONFIRMED","CANCELLED"]).optional(),
+  // New spec filters
+  shiftType:        ShiftTypeEnum.optional(),
+  fundingType:      FundingTypeEnum.optional(),
+  isRecurring:      z.coerce.boolean().optional(),
+  // SELF_MANAGED | PLAN_MANAGED | NDIA_MANAGED = who can see
+  visibilityTarget: z.string().optional(),
+  // Date filters
+  startFrom:        z.string().datetime({ offset: true }).optional(),
+  startTo:          z.string().datetime({ offset: true }).optional(),
+  // Posted within N hours (e.g. 24 = posted today)
+  postedWithinHours: z.coerce.number().int().min(1).max(720).optional(),
+  // Poster role type filter
+  postedByRole:     z.enum(["PARTICIPANT","COORDINATOR","PLAN_MANAGER"]).optional(),
+  // Pagination
+  page:             z.coerce.number().int().min(1).default(1),
+  limit:            z.coerce.number().int().min(1).max(100).default(20),
+  // Sort
+  sortBy:           z.enum(["newest","urgency","startDate","bestMatch"]).default("urgency"),
 });
 
-// ─── Application ─────────────────────────────────────────────────────────────
+// ─── Application (structured proposal) ───────────────────────────────────────
 
 export const applyJobSchema = z.object({
-  note: z.string().max(1000).optional(),
+  // Short legacy note still supported
+  note:               z.string().max(1000).optional(),
+
+  // Step 1: Availability confirmation
+  // YES_EXACT | YES_ADJUSTED | PARTIAL | DISCUSS | UNAVAILABLE
+  availabilityType:   z.string().max(40).optional(),
+
+  // Step 3: Rate / commercial response
+  // ACCEPT | OFFER_OWN | QUOTE_AFTER | DISCUSS
+  rateResponse:       z.string().max(40).optional(),
+  proposedRate:       z.number().min(0).max(9999).optional(),
+
+  // Step 4: Introduction / proposal
+  introduction:       z.string().max(3000).optional(),
+
+  // Structured confirmations blob (suitability checkboxes, docs visibility, etc.)
+  applicationData:    z.record(z.unknown()).optional(),
 });
 
 // ─── Cancel ──────────────────────────────────────────────────────────────────

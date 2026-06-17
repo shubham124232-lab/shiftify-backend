@@ -73,6 +73,10 @@ enum DocumentType {
   NDIS_AUDIT
   PERSONAL_ACCIDENT_INSURANCE
   QUALIFICATION_CERTIFICATE
+  ABN_CONFIRMATION
+  NDIS_REGISTRATION_PROOF
+  BUSINESS_REP_PROOF
+  POLICIES_PROCEDURES
   OTHER
 }
 
@@ -130,6 +134,29 @@ enum ApplicationStatus {
   DECLINED
   WITHDRAWN
 }
+
+enum ShiftType {
+  STANDARD
+  SHORT_VISIT
+  LONG_SHIFT
+  ACTIVE_OVERNIGHT
+  SLEEPOVER
+  TWENTY_FOUR_HOUR
+  DROP_IN
+  APPOINTMENT
+  TRANSPORT_ONLY
+  SPLIT
+}
+
+enum FundingType {
+  SELF_MANAGED
+  PLAN_MANAGED
+  NDIA_MANAGED
+  PRIVATE
+  MIXED
+  DISCUSS
+}
+
 
 enum WeekDay {
   MON
@@ -320,6 +347,7 @@ model ParticipantProfile {
   suburb                        String?
   postcode                      String?
   state                         String?
+  fullAddress                   String?
 
   // Step 2 — NDIS Details
   ndisNumber                    String?
@@ -384,11 +412,16 @@ model WorkerProfile {
   visaExpiry                DateTime?
 
   // Step 3 — Work Type & Insurance
-  workType                  String?
-  abn                       String?
-  gstRegistered             Boolean  @default(false)
-  publicLiabilityInsurance  Boolean  @default(false)
-  personalAccidentInsurance Boolean  @default(false)
+  workType                      String?
+  abn                           String?
+  gstRegistered                 Boolean  @default(false)
+  publicLiabilityInsurance      Boolean  @default(false)
+  publicLiabilityPolicyNumber   String?
+  publicLiabilityExpiry         DateTime?
+  personalAccidentInsurance      Boolean  @default(false)
+  personalAccidentPolicyNumber   String?
+  personalAccidentExpiry         DateTime?
+  driversLicenceType            String?  // C | R | HR | HC | MR
 
   // Step 4 — Services & Skills
   servicesOffered           Json?
@@ -482,8 +515,11 @@ model ProviderProfile {
   // Step 3 — Compliance (policy metadata)
   publicLiabilityPolicyNumber     String?
   publicLiabilityCoverageAmount   String?
+  publicLiabilityExpiryDate       DateTime?
   professionalIndemnityPolicyNumber String?
+  professionalIndemnityExpiryDate DateTime?
   workersCompPolicyNumber         String?
+  workersCompExpiryDate           DateTime?
   complianceDeclaration           Boolean  @default(false)
 
   // Step 6 — Services (structured SIL/SDA)
@@ -588,10 +624,12 @@ model CoordinatorProfile {
 
   // Step 7 — Profile
   bio                                  String?
+  profilePhoto                         String?
   seekingPlanManager                   Boolean  @default(false)
 
   // Step 9 — Declaration
   termsAccepted                        Boolean  @default(false)
+  privacyPolicyAccepted                Boolean  @default(false)
   ndisCodeAccepted                     Boolean  @default(false)
   consentForVerification               Boolean  @default(false)
 
@@ -605,6 +643,9 @@ model PlanManagerProfile {
   user                                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   profileStep                             Int       @default(0)
+
+  // Step 2 — Role Type
+  pmRoleType                              String?   // PLAN_MANAGER | PM_ORG_ADMIN | PM_STAFF_MEMBER
 
   // Step 1 — Business Identity
   businessName                            String
@@ -634,6 +675,8 @@ model PlanManagerProfile {
   approvedRegistrationGroups              Json?
 
   // Step 3 — Plan Management Capability
+  planTypesSupported                      Json?     // String[] — Plan-managed | Agency-managed | Self-managed
+  silSdaInvoicing                         Boolean   @default(false)
   servicesProvided                        Json?     // String[]
   plansRecurringInvoices                  Boolean   @default(false)
   plansOnceOffInvoices                    Boolean   @default(false)
@@ -660,6 +703,9 @@ model PlanManagerProfile {
   paymentEnquiryContactEmail              String?
   paymentEnquiryContactPhone              String?
   invoiceReferenceFormat                  String?
+  remittanceAdvice                        String?   // email/portal for remittance
+  disputeHandlingContact                  String?
+  staffFinanceTeamEmail                   String?
   acceptsRegisteredProvidersOnly          Boolean   @default(false)
   requiresServiceDatesOnInvoices          Boolean   @default(false)
   requiresSupportCategoryCode             Boolean   @default(false)
@@ -852,6 +898,43 @@ model SupportRequest {
 
   workerPreferences        Json?
 
+
+  // ── Step 1: Service details ──────────────────────────────────────────────────
+  supportGoal          String?       // e.g. DAILY_LIVING, INDEPENDENCE, SOCIAL_PARTICIPATION
+  durationType         String?       // ONE_TIME | TEMPORARY | RECURRING | ONGOING | TRIAL | EMERGENCY
+  participantPostedAs  String?       // SELF | NOMINEE | FAMILY | COORDINATOR | GUARDIAN
+
+  // ── Step 2: Schedule ─────────────────────────────────────────────────────────
+  shiftType            ShiftType?
+  timeFlexibility      String?       // EXACT | FLEXIBLE_SLIGHT | FLEXIBLE_MORNING | FLEXIBLE_AFTERNOON | FLEXIBLE_EVENING | FLEXIBLE_ANYTIME | DISCUSS
+  applicationDeadlineAt DateTime?
+
+  // ── Step 3: Location (extended) ───────────────────────────────────────────────
+  addressLine          String?       // unit/street (full address, shown only after booking)
+  locationNotes        String?       // access notes: stairs, parking, pets, etc.
+  lat                  Decimal?      @db.Decimal(9, 6)
+  lng                  Decimal?      @db.Decimal(9, 6)
+  travelRequired       String?       // NONE | LOCAL | MULTI_STOP | PARTICIPANT_TRANSPORT | LONG_DISTANCE
+
+  // ── Step 6: Budget / Funding ──────────────────────────────────────────────────
+  fundingType          FundingType?
+  budgetType           String?       // FIXED_HOURLY | FIXED_TOTAL | OPEN | NDIS | DISCUSS
+  budgetPerHour        Decimal?      @db.Decimal(8, 2)
+  totalBudget          Decimal?      @db.Decimal(10, 2)
+  travelReimbursement  String?       // INCLUDED | ADDITIONAL | DISCUSS | NOT_REQUIRED
+
+  // ── Step 7: Visibility ───────────────────────────────────────────────────────
+  visibilityTarget     String?       // ALL | VERIFIED | PROVIDERS_ONLY | WORKERS_ONLY | INVITE_ONLY
+  maxApplicants        Int?
+  hideParticipantName  Boolean       @default(false)
+  allowQuotes          Boolean       @default(false)
+  allowDirectMessages  Boolean       @default(true)
+
+  // ── Coordinator / Plan Manager extras ────────────────────────────────────────
+  internalNote         String?       // private — never shown publicly
+  caseReference        String?       // coordinator case ref
+  requestPurposeCategory String?     // NEW_SUPPORT | REPLACEMENT | URGENT_INTERIM | HOSPITAL_DISCHARGE | etc.
+
   // The candidate (worker OR provider) the poster selected from the top-5.
   selectedApplicantUserId  String?
   selectedApplicant        User?        @relation("SelectedApplicant", fields: [selectedApplicantUserId], references: [id])
@@ -888,6 +971,11 @@ model SupportRequest {
   @@index([forParticipantUserId])
   @@index([selectedApplicantUserId])
   @@index([assignedWorkerUserId])
+  @@index([shiftType])
+  @@index([fundingType])
+  @@index([isRecurring])
+  @@index([visibilityTarget])
+  @@index([applicationDeadlineAt])
   // Compound indexes for listMyJobs — covers (userId, status) filters together
   @@index([postedByUserId, status])
   @@index([assignedWorkerUserId, status])
@@ -907,6 +995,14 @@ model JobApplication {
   note            String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
+
+
+  // ── Structured application proposal ──────────────────────────────────────────
+  availabilityType     String?   // YES_EXACT | YES_ADJUSTED | PARTIAL | DISCUSS | UNAVAILABLE
+  rateResponse         String?   // ACCEPT | OFFER_OWN | QUOTE_AFTER | DISCUSS
+  proposedRate         Decimal?  @db.Decimal(8, 2)
+  introduction         String?   // longer proposal text (separate from note)
+  applicationData      Json?     // suitability confirmations, doc visibility, etc.
 
   @@unique([jobId, applicantUserId])
   @@index([jobId, status])
@@ -1072,33 +1168,27 @@ model Session {
   previousRefreshTokenExpiresAt DateTime?
   expiresAt        DateTime
   userAgent        String?
-  ip               String?
-  // The active role this session is operating under. Set at login, preserved
-  // across refresh, updated by POST /auth/switch-role.
-  activeRole       UserRole?
+  ip                 String?
   createdAt        DateTime @default(now())
 
   @@index([userId])
   @@index([expiresAt])
 }
 
-// One-time codes for email/phone verification AND password reset.
-// In non-prod the plaintext code is returned in the API response (mock sender);
-// production swaps in Twilio / an email provider. Codes are hashed at rest.
-model VerificationCode {
-  id          String     @id @default(uuid())
-  userId      String?
-  user        User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  channel     OtpChannel
-  purpose     OtpPurpose
-  destination String     // the email address or E.164 phone the code was sent to
-  codeHash    String
-  expiresAt   DateTime
-  consumedAt  DateTime?
-  attempts    Int        @default(0)
-  createdAt   DateTime   @default(now())
+// ───────────────────────────────────────────────────────────────────────────
+// OTP / password-reset codes (email + SMS — mock sender in dev)
+// ───────────────────────────────────────────────────────────────────────────
 
-  @@index([userId])
-  @@index([destination, purpose])
+model VerificationCode {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  type      String   // EMAIL_VERIFY | PHONE_VERIFY | PASSWORD_RESET
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, type])
   @@index([expiresAt])
 }

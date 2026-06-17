@@ -67,7 +67,7 @@ async function workerDashboard(userId: string) {
 // Participant
 async function participantDashboard(userId: string) {
   const now = new Date();
-  const [openJobs, upcomingShifts, awaitingConfirmation, unreadNotifications] = await Promise.all([
+  const [openJobs, upcomingShifts, awaitingConfirmation, draftCount, recurringCount, urgentCount, unreadNotifications] = await Promise.all([
     prisma.supportRequest.findMany({
       where: {
         OR: [{ forParticipantUserId: userId }, { postedByUserId: userId }],
@@ -80,7 +80,7 @@ async function participantDashboard(userId: string) {
     prisma.supportRequest.findMany({
       where: {
         OR: [{ forParticipantUserId: userId }, { postedByUserId: userId }],
-        status: "IN_PROGRESS",
+        status: { in: ["ASSIGNED","IN_PROGRESS"] },
         scheduledStartAt: { gte: now },
       },
       select: JOB_SUMMARY,
@@ -96,11 +96,40 @@ async function participantDashboard(userId: string) {
       orderBy: { completedAt: "desc" },
       take: 5,
     }),
+    prisma.supportRequest.count({
+      where: {
+        OR: [{ forParticipantUserId: userId }, { postedByUserId: userId }],
+        status: "DRAFT",
+      },
+    }),
+    prisma.supportRequest.count({
+      where: {
+        OR: [{ forParticipantUserId: userId }, { postedByUserId: userId }],
+        isRecurring: true,
+        status: { in: ["OPEN","ASSIGNED","IN_PROGRESS"] },
+      },
+    }),
+    prisma.supportRequest.count({
+      where: {
+        OR: [{ forParticipantUserId: userId }, { postedByUserId: userId }],
+        urgency: "EMERGENCY",
+        status: "OPEN",
+      },
+    }),
     prisma.notification.count({ where: { userId, read: false } }),
   ]);
 
   return {
     role: "PARTICIPANT" as const,
+    stats: {
+      activeRequests:     openJobs.length,
+      draftRequests:      draftCount,
+      recurringSupports:  recurringCount,
+      urgentRequests:     urgentCount,
+      upcomingBookings:   upcomingShifts.length,
+      awaitingConfirmation: awaitingConfirmation.length,
+      unreadMessages:     unreadNotifications,
+    },
     openJobs,
     upcomingShifts,
     awaitingConfirmation,
@@ -140,8 +169,26 @@ async function coordinatorDashboard(userId: string) {
     prisma.notification.count({ where: { userId, read: false } }),
   ]);
 
+  const [draftCount, urgentCount, unfilledCount] = await Promise.all([
+    prisma.supportRequest.count({ where: { postedByUserId: userId, status: "DRAFT" } }),
+    prisma.supportRequest.count({ where: { postedByUserId: userId, urgency: "EMERGENCY", status: "OPEN" } }),
+    prisma.supportRequest.count({
+      where: { postedByUserId: userId, status: "OPEN", applications: { none: {} } },
+    }),
+  ]);
+
   return {
     role: "COORDINATOR" as const,
+    stats: {
+      activeRequests:         openJobs.length,
+      draftRequests:          draftCount,
+      urgentRequests:         urgentCount,
+      unfilledRequests:       unfilledCount,
+      upcomingShifts:         upcomingShifts.length,
+      awaitingConfirmation:   awaitingConfirmation.length,
+      managedParticipants:    managedParticipantCount,
+      unreadMessages:         unreadNotifications,
+    },
     openJobs,
     upcomingShifts,
     awaitingConfirmation,
@@ -216,8 +263,41 @@ async function planManagerDashboard(userId: string) {
     counts[row.status] = row._count._all;
   }
 
+  // Open requests for plan-managed participants
+  const acceptedClientIds = connectionCounts
+    .filter((r) => r.status === "ACCEPTED")
+    .flatMap(() => []) as string[]; // computed below
+
+  const acceptedConns = await prisma.planManagerConnection.findMany({
+    where: { planManagerUserId: userId, status: "ACCEPTED" },
+    select: { clientUserId: true },
+  });
+  const clientIds = acceptedConns.map((c) => c.clientUserId);
+
+  const [openReferrals, urgentReferrals, unfilledReferrals] = clientIds.length > 0
+    ? await Promise.all([
+        prisma.supportRequest.count({
+          where: { forParticipantUserId: { in: clientIds }, status: "OPEN" },
+        }),
+        prisma.supportRequest.count({
+          where: { forParticipantUserId: { in: clientIds }, status: "OPEN", urgency: "EMERGENCY" },
+        }),
+        prisma.supportRequest.count({
+          where: { forParticipantUserId: { in: clientIds }, status: "OPEN", applications: { none: {} } },
+        }),
+      ])
+    : [0, 0, 0];
+
   return {
     role: "PLAN_MANAGER" as const,
+    stats: {
+      activeParticipantCases: counts["ACCEPTED"] ?? 0,
+      openReferrals,
+      urgentReferrals,
+      unfilledReferrals,
+      recentInvoiceCount:     recentInvoices.length,
+      unreadMessages:         unreadNotifications,
+    },
     recentInvoices,
     connectionCounts: {
       pending:  counts["PENDING"]  ?? 0,
@@ -230,18 +310,31 @@ async function planManagerDashboard(userId: string) {
 
 // Admin
 async function adminDashboard() {
-  const [pendingUsers, totalUsers, openJobs, activeJobs] = await Promise.all([
+  const [pendingUsers, totalUsers, openJobs, activeJobs, urgentJobs, completedToday, totalInvoices] = await Promise.all([
     prisma.user.count({ where: { status: "PENDING" } }),
     prisma.user.count(),
     prisma.supportRequest.count({ where: { status: "OPEN" } }),
     prisma.supportRequest.count({ where: { status: { in: ["ASSIGNED", "IN_PROGRESS"] } } }),
+    prisma.supportRequest.count({ where: { status: "OPEN", urgency: "EMERGENCY" } }),
+    prisma.supportRequest.count({
+      where: {
+        status: "CONFIRMED",
+        confirmedAt: { gte: new Date(new Date().setHours(0,0,0,0)) },
+      },
+    }),
+    prisma.invoice.count(),
   ]);
 
   return {
     role: "ADMIN" as const,
-    pendingUsers,
-    totalUsers,
-    openJobs,
-    activeJobs,
+    stats: {
+      pendingUsers,
+      totalUsers,
+      openJobs,
+      activeJobs,
+      urgentJobs,
+      completedToday,
+      totalInvoices,
+    },
   };
 }

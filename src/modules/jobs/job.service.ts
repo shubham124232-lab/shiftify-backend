@@ -34,9 +34,7 @@ const JOB_DETAIL_INCLUDE = {
   _count: { select: { messages: true, applications: true } },
 } as const;
 
-// Lean select — used for write (mutation) responses. Avoids fetching the
-// applications array (up to 10 rows + nested profiles) on every state change.
-// The client only needs id + status to update its local state or navigate.
+// Lean select — used for write (mutation) responses.
 const JOB_WRITE_SELECT = {
   id:                      true,
   status:                  true,
@@ -48,15 +46,34 @@ const JOB_WRITE_SELECT = {
   updatedAt:               true,
 } as const;
 
-// Statuses where the assigned worker may see participant contact details
+// Summary select — used for list views.
+const JOB_SUMMARY_SELECT = {
+  id:                  true,
+  title:               true,
+  category:            true,
+  subcategory:         true,
+  urgency:             true,
+  shiftType:           true,
+  durationType:        true,
+  isRecurring:         true,
+  suburb:              true,
+  state:               true,
+  serviceDeliveryMode: true,
+  scheduledStartAt:    true,
+  scheduledEndAt:      true,
+  totalHours:          true,
+  budgetPerHour:       true,
+  totalBudget:         true,
+  budgetType:          true,
+  fundingType:         true,
+  visibilityTarget:    true,
+  hideParticipantName: true,
+  createdAt:           true,
+  status:              true,
+} as const;
+
 const CONTACT_VISIBLE_STATUSES: JobStatus[] = ["ASSIGNED", "IN_PROGRESS", "COMPLETED", "CONFIRMED"];
 
-/**
- * Attach participant contact details (phone, email) only when:
- * - Job is ASSIGNED or beyond, AND
- * - The caller is the assigned worker or the poster
- * Everyone else sees name + avatar only.
- */
 function withContactDetails<T extends {
   status: JobStatus;
   assignedWorkerUserId: string | null;
@@ -85,14 +102,13 @@ function requireJob(job: { status: JobStatus } | null, jobId: string) {
   return job;
 }
 
-// ─── Create job (participant or coordinator) ──────────────────────────────────
+// ─── Create job ───────────────────────────────────────────────────────────────
 
 export async function createJob(
   posterId: string,
   activeRole: UserRole,
   input: CreateJobInput,
 ) {
-  // Gate check
   const access = await canAccessMarketplace(posterId, activeRole);
   if (!access.canPost) {
     throw new ForbiddenError(
@@ -109,9 +125,7 @@ export async function createJob(
   if (activeRole === "PARTICIPANT") {
     forParticipantUserId = posterId;
   } else {
-    // COORDINATOR — three modes
     if (input.forParticipantUserId) {
-      // Mode 1: existing participant — must be this coordinator's managed participant
       const participant = await prisma.user.findUnique({
         where: { id: input.forParticipantUserId },
         include: { roles: true },
@@ -120,22 +134,19 @@ export async function createJob(
       if (!participant.roles.some((r) => r.role === "PARTICIPANT")) {
         throw new BadRequestError("That user is not a participant");
       }
-      // Ownership guard: participant must be managed by this coordinator
-      // (parentUserId === posterId) OR coordinator posted the original job themselves
       if (participant.parentUserId && participant.parentUserId !== posterId) {
         throw new ForbiddenError("That participant is managed by a different coordinator");
       }
       forParticipantUserId = input.forParticipantUserId;
 
     } else if (input.inlineParticipant) {
-      // Mode 2: inline — create a new MANAGED participant under this coordinator
       const { name, phone, suburb } = input.inlineParticipant;
       const newParticipant = await prisma.user.create({
         data: {
           name,
-          phone:       phone ?? null,
-          accountType: "MANAGED",
-          status:      "ACTIVE",
+          phone:        phone ?? null,
+          accountType:  "MANAGED",
+          status:       "ACTIVE",
           parentUserId: posterId,
           defaultSuburb: suburb ?? null,
           roles: { create: { role: "PARTICIPANT", isActiveDefault: true } },
@@ -147,34 +158,69 @@ export async function createJob(
       forParticipantUserId = newParticipant.id;
 
     } else {
-      // Mode 3: no participant — coordinator posts as themselves
       forParticipantUserId = posterId;
     }
   }
 
   const status: JobStatus = input.asDraft ? "DRAFT" : "OPEN";
 
+  // Cast required: Prisma client types are stale pending `prisma migrate dev` (run from Windows terminal).
+  // The schema has been updated — all these columns exist at the DB level after migration.
+  const createData = {
+    postedByUserId:       posterId,
+    forParticipantUserId,
+    // Step 1
+    title:                input.title,
+    description:          input.description ?? "",
+    category:             input.category as JobCategory,
+    subcategory:          input.subcategory ?? null,
+    supportGoal:          input.supportGoal ?? null,
+    durationType:         input.durationType ?? null,
+    participantPostedAs:  input.participantPostedAs ?? null,
+    // Step 2
+    urgency:              (input.urgency ?? "SCHEDULED") as JobUrgency,
+    shiftType:            input.shiftType ?? null,
+    timeFlexibility:      input.timeFlexibility ?? null,
+    scheduledStartAt:     new Date(input.scheduledStartAt),
+    scheduledEndAt:       new Date(input.scheduledEndAt),
+    totalHours:           input.totalHours ?? null,
+    isRecurring:          input.isRecurring ?? false,
+    recurrencePattern:    (input.recurrencePattern ?? undefined) as Record<string, unknown> | undefined,
+    applicationDeadlineAt: input.applicationDeadlineAt ? new Date(input.applicationDeadlineAt) : null,
+    // Step 3
+    suburb:               input.suburb,
+    state:                input.state,
+    postcode:             input.postcode ?? null,
+    addressLine:          input.addressLine ?? null,
+    serviceDeliveryMode:  input.serviceDeliveryMode ?? null,
+    locationNotes:        input.locationNotes ?? null,
+    lat:                  input.lat ?? null,
+    lng:                  input.lng ?? null,
+    travelRequired:       input.travelRequired ?? null,
+    // Step 6
+    fundingType:          input.fundingType ?? null,
+    budgetType:           input.budgetType ?? null,
+    budgetPerHour:        input.budgetPerHour ?? null,
+    totalBudget:          input.totalBudget ?? null,
+    travelReimbursement:  input.travelReimbursement ?? null,
+    // Step 7
+    visibilityTarget:     input.visibilityTarget ?? "ALL",
+    maxApplicants:        input.maxApplicants ?? null,
+    hideParticipantName:  input.hideParticipantName ?? false,
+    allowQuotes:          input.allowQuotes ?? false,
+    allowDirectMessages:  input.allowDirectMessages ?? true,
+    // Coordinator extras
+    workerPreferences:    (input.workerPreferences ?? undefined) as Record<string, unknown> | undefined,
+    internalNote:         input.internalNote ?? null,
+    caseReference:        input.caseReference ?? null,
+    requestPurposeCategory: input.requestPurposeCategory ?? null,
+    status,
+  } satisfies Record<string, unknown>;
+
   return prisma.supportRequest.create({
-    data: {
-      postedByUserId:      posterId,
-      forParticipantUserId,
-      title:               input.title,
-      description:         input.description ?? "",
-      category:            input.category as JobCategory,
-      subcategory:         input.subcategory ?? null,
-      urgency:             (input.urgency ?? "SCHEDULED") as JobUrgency,
-      status,
-      suburb:              input.suburb,
-      state:               input.state,
-      postcode:            input.postcode ?? null,
-      serviceDeliveryMode: input.serviceDeliveryMode ?? null,
-      scheduledStartAt:    new Date(input.scheduledStartAt),
-      scheduledEndAt:      new Date(input.scheduledEndAt),
-      totalHours:          input.totalHours ?? null,
-      isRecurring:         input.isRecurring ?? false,
-      recurrencePattern:   (input.recurrencePattern ?? undefined) as any,
-      workerPreferences:   (input.workerPreferences ?? undefined) as any,
-    },
+    // `unknown` intermediate required: Prisma generated client predates the schema update.
+    // Safe: schema + DB are in sync after `prisma migrate dev` on Windows.
+    data: createData as unknown as Parameters<typeof prisma.supportRequest.create>[0]["data"],
     select: JOB_WRITE_SELECT,
   });
 }
@@ -193,34 +239,83 @@ export async function publishJob(jobId: string, posterId: string) {
   });
 }
 
-// ─── List jobs (role-based) ───────────────────────────────────────────────────
+// ─── List jobs (role-based, with spec filters) ────────────────────────────────
 
 export async function listJobs(
   userId: string,
   activeRole: UserRole,
   filters: JobFiltersInput,
 ) {
-  const { suburb, category, urgency, status, page, limit } = filters;
+  const {
+    suburb, state, category, urgency, status, shiftType, fundingType,
+    isRecurring, visibilityTarget, startFrom, startTo, postedWithinHours,
+    postedByRole, page, limit, sortBy,
+  } = filters;
   const skip = (page - 1) * limit;
 
   const where: Record<string, unknown> = {};
-  if (suburb)   where.suburb   = { contains: suburb,   mode: "insensitive" };
-  if (category) where.category = category;
-  if (urgency)  where.urgency  = urgency;
 
+  // ── Text / location ──────────────────────────────────────────────────────
+  if (suburb) where.suburb = { contains: suburb, mode: "insensitive" };
+  if (state)  where.state  = { contains: state,  mode: "insensitive" };
+
+  // ── Category / type filters ──────────────────────────────────────────────
+  if (category)    where.category    = category;
+  if (urgency)     where.urgency     = urgency;
+  if (shiftType)   where.shiftType   = shiftType;
+  if (fundingType) where.fundingType = fundingType;
+  if (typeof isRecurring === "boolean") where.isRecurring = isRecurring;
+
+  // ── Date window ──────────────────────────────────────────────────────────
+  if (startFrom || startTo) {
+    where.scheduledStartAt = {
+      ...(startFrom ? { gte: new Date(startFrom) } : {}),
+      ...(startTo   ? { lte: new Date(startTo) }   : {}),
+    };
+  }
+  if (postedWithinHours) {
+    const cutoff = new Date(Date.now() - postedWithinHours * 60 * 60 * 1000);
+    where.createdAt = { gte: cutoff };
+  }
+
+  // ── Poster role filter ───────────────────────────────────────────────────
+  if (postedByRole) {
+    where.postedBy = { roles: { some: { role: postedByRole } } };
+  }
+
+  // ── Role-based scoping ───────────────────────────────────────────────────
   switch (activeRole) {
     case "PARTICIPANT":
       where.OR = [{ forParticipantUserId: userId }, { postedByUserId: userId }];
       if (status) where.status = status;
       break;
+
     case "COORDINATOR":
       where.postedByUserId = userId;
       if (status) where.status = status;
       break;
+
     case "SUPPORT_WORKER":
+      where.status = status ?? "OPEN";
+      // Only show posts the worker can see
+      where.OR = [
+        { visibilityTarget: "ALL" },
+        { visibilityTarget: "VERIFIED" },
+        { visibilityTarget: "WORKERS_ONLY" },
+        { visibilityTarget: null },
+      ];
+      break;
+
     case "PROVIDER":
       where.status = status ?? "OPEN";
+      where.OR = [
+        { visibilityTarget: "ALL" },
+        { visibilityTarget: "VERIFIED" },
+        { visibilityTarget: "PROVIDERS_ONLY" },
+        { visibilityTarget: null },
+      ];
       break;
+
     case "PLAN_MANAGER": {
       const conns = await prisma.planManagerConnection.findMany({
         where: { planManagerUserId: userId, status: "ACCEPTED" },
@@ -230,65 +325,60 @@ export async function listJobs(
       if (status) where.status = status;
       break;
     }
+
     case "ADMIN":
       if (status) where.status = status;
       break;
+
     default:
       where.status = "OPEN";
   }
 
-  // JobSummary shape — lean for list views (per DECISIONS.md §13).
-  const JOB_SUMMARY_SELECT = {
-    id:              true,
-    title:           true,
-    category:        true,
-    urgency:         true,
-    suburb:          true,
-    state:           true,
-    scheduledStartAt: true,
-    totalHours:      true,  // estimatedHours
-    createdAt:       true,  // postedAt
-    status:          true,
-    // Include own application status for workers/providers (ownApplication field).
-    applications: {
-      where:  { applicantUserId: userId },
-      select: { id: true, status: true },
-      take:   1,
-    },
-    _count: { select: { applications: true } },
-  } as const;
+  // ── Visibility override if caller passed it explicitly ───────────────────
+  if (visibilityTarget && (activeRole === "ADMIN" || activeRole === "COORDINATOR")) {
+    where.visibilityTarget = visibilityTarget;
+  }
+
+  // ── Sort ─────────────────────────────────────────────────────────────────
+  const orderBy: Record<string, string>[] =
+    sortBy === "newest"    ? [{ createdAt: "desc" }]
+    : sortBy === "startDate" ? [{ scheduledStartAt: "asc" }]
+    : sortBy === "bestMatch" ? [{ urgency: "asc" }, { scheduledStartAt: "asc" }]
+    : /* urgency (default) */ [{ urgency: "asc" }, { scheduledStartAt: "asc" }];
 
   const [rawJobs, total] = await Promise.all([
     prisma.supportRequest.findMany({
       where:   where as any,
       skip,
       take:    limit,
-      orderBy: [{ urgency: "asc" }, { scheduledStartAt: "asc" }],
-      select:  JOB_SUMMARY_SELECT,
+      orderBy: orderBy as any,
+      select:  {
+        ...JOB_SUMMARY_SELECT,
+        // Include own application status for workers/providers
+        applications: {
+          where:  { applicantUserId: userId },
+          select: { id: true, status: true },
+          take:   1,
+        },
+        _count: { select: { applications: true } },
+      },
     }),
-    prisma.supportRequest.count({ where: where as never }),
+    prisma.supportRequest.count({ where: where as any }),
   ]);
 
-  // Rename fields to match JobSummary shape, surface ownApplication for workers.
   const jobs = rawJobs.map(({ applications, createdAt, totalHours, ...rest }) => ({
     ...rest,
-    postedAt:        createdAt,
-    estimatedHours:  totalHours,
-    ownApplication:  applications[0] ?? null,
+    postedAt:       createdAt,
+    estimatedHours: totalHours,
+    ownApplication: applications[0] ?? null,
   }));
 
   return { jobs, total, page, limit, pages: Math.ceil(total / limit) };
 }
 
-// ─── My jobs (scoped to calling user) ────────────────────────────────────────
+// ─── My jobs ─────────────────────────────────────────────────────────────────
 
 export async function listMyJobs(userId: string, activeRole: UserRole, status?: string) {
-  const JOB_SUMMARY_SELECT = {
-    id: true, title: true, category: true, urgency: true,
-    suburb: true, state: true, scheduledStartAt: true,
-    totalHours: true, createdAt: true, status: true,
-  } as const;
-
   let where: Record<string, unknown> = {};
   if (status) where.status = status;
 
@@ -300,6 +390,7 @@ export async function listMyJobs(userId: string, activeRole: UserRole, status?: 
         { applications: { some: { applicantUserId: userId } } },
       ];
       break;
+
     case "PROVIDER": {
       const teamWorkerIds = (
         await prisma.user.findMany({
@@ -318,24 +409,33 @@ export async function listMyJobs(userId: string, activeRole: UserRole, status?: 
       ];
       break;
     }
+
     case "PARTICIPANT":
       where.OR = [{ forParticipantUserId: userId }, { postedByUserId: userId }];
       break;
+
     case "COORDINATOR":
       where.postedByUserId = userId;
       break;
+
     default:
       where.postedByUserId = userId;
   }
 
   const jobs = await prisma.supportRequest.findMany({
-    where: where as any,
-    select: JOB_SUMMARY_SELECT,
+    where:   where as any,
+    select:  JOB_SUMMARY_SELECT,
     orderBy: [{ scheduledStartAt: "desc" }],
-    take: 100,
+    take:    100,
   });
 
-  return { jobs: jobs.map(({ createdAt, totalHours, ...rest }) => ({ ...rest, postedAt: createdAt, totalHours })) };
+  return {
+    jobs: jobs.map(({ createdAt, totalHours, ...rest }) => ({
+      ...rest,
+      postedAt:      createdAt,
+      totalHours,
+    })),
+  };
 }
 
 // ─── Get single job ───────────────────────────────────────────────────────────
@@ -347,7 +447,6 @@ export async function getJob(jobId: string, userId: string, activeRole: UserRole
   });
   requireJob(job, jobId);
 
-  // DRAFT jobs are only visible to the poster
   if (job!.status === "DRAFT" && job!.postedByUserId !== userId) {
     throw new NotFoundError(`Job ${jobId} not found`);
   }
@@ -364,7 +463,6 @@ export async function getJob(jobId: string, userId: string, activeRole: UserRole
     }
   }
 
-  // Fetch participant contact details separately — only injected if caller is eligible
   const participantContact = job!.forParticipantUserId
     ? await prisma.user.findUnique({
         where:  { id: job!.forParticipantUserId },
@@ -375,7 +473,7 @@ export async function getJob(jobId: string, userId: string, activeRole: UserRole
   return withContactDetails(job!, userId, participantContact);
 }
 
-// ─── Cancel job (+ emergency promotion if near start) ────────────────────────
+// ─── Cancel ──────────────────────────────────────────────────────────────────
 
 export async function cancelJob(
   jobId: string,
@@ -389,14 +487,12 @@ export async function cancelJob(
     throw new BadRequestError(`Cannot cancel a ${job!.status} job`);
   }
 
-  // Emergency promotion: if the job was ASSIGNED and < 4 hours to start, repost as EMERGENCY
   const hoursToStart =
     (new Date(job!.scheduledStartAt).getTime() - Date.now()) / (1000 * 60 * 60);
   const shouldPromote =
     job!.status === "ASSIGNED" && hoursToStart > 0 && hoursToStart <= 4;
 
   if (shouldPromote) {
-    // Cancel + create a promoted emergency repost in a transaction
     await prisma.$transaction([
       prisma.supportRequest.update({
         where: { id: jobId },
@@ -433,10 +529,11 @@ export async function cancelJob(
         isRecurring:             false,
         workerPreferences:       job!.workerPreferences ?? undefined,
         promotedFromCancellation: true,
+        // Note: fundingType, budgetType, budgetPerHour, totalBudget, visibilityTarget
+        // will be copied once Prisma client is regenerated after migration
       },
     });
 
-    // Notify poster
     void notify.sendPushNotification(
       userId,
       "Job rescheduled as EMERGENCY",
@@ -448,7 +545,6 @@ export async function cancelJob(
     return { cancelled: job, promoted };
   }
 
-  // Normal cancel
   await prisma.$transaction([
     prisma.supportRequest.update({
       where: { id: jobId },
@@ -468,7 +564,7 @@ export async function cancelJob(
   return { cancelled: await prisma.supportRequest.findUnique({ where: { id: jobId } }), promoted: null };
 }
 
-// ─── Apply (express interest) ─────────────────────────────────────────────────
+// ─── Apply (structured proposal) ─────────────────────────────────────────────
 
 export async function applyToJob(
   jobId: string,
@@ -491,7 +587,19 @@ export async function applyToJob(
   requireJob(job, jobId);
   if (job!.status !== "OPEN") throw new BadRequestError("Job is no longer accepting applications");
 
-  // Incomplete worker cap: max 1 active application until Step 1 + Step 4 complete
+  // Max applicants cap (spec: allow poster to limit)
+  // Cast required: Prisma client predates schema update; field exists after migration.
+  const maxApplicants = (job! as unknown as Record<string, unknown>)["maxApplicants"] as number | null;
+  if (maxApplicants) {
+    const count = await prisma.jobApplication.count({
+      where: { jobId, status: { not: "WITHDRAWN" } },
+    });
+    if (count >= maxApplicants) {
+      throw new BadRequestError("This request is no longer accepting applications");
+    }
+  }
+
+  // Incomplete worker profile cap: max 1 active application
   if (activeRole === "SUPPORT_WORKER") {
     const wp = await prisma.workerProfile.findUnique({ where: { userId: applicantId } });
     const profileComplete =
@@ -518,22 +626,30 @@ export async function applyToJob(
     throw new ConflictError("You have already applied to this job");
   }
 
+  const applicationPayload = {
+    status:           "INTERESTED" as const,
+    note:             input.note ?? null,
+    availabilityType: input.availabilityType ?? null,
+    rateResponse:     input.rateResponse ?? null,
+    proposedRate:     input.proposedRate ?? null,
+    introduction:     input.introduction ?? null,
+    applicationData:  (input.applicationData ?? undefined) as any,
+  };
+
   const app = existing
     ? await prisma.jobApplication.update({
         where: { id: existing.id },
-        data:  { status: "INTERESTED", note: input.note ?? null },
+        data:  applicationPayload,
       })
     : await prisma.jobApplication.create({
         data: {
           jobId,
           applicantUserId: applicantId,
           applicantRole:   activeRole,
-          note:            input.note ?? null,
-          status:          "INTERESTED",
+          ...applicationPayload,
         },
       });
 
-  // Notify poster
   void notify.sendPushNotification(
     job!.postedByUserId,
     "New application received",
@@ -545,7 +661,7 @@ export async function applyToJob(
   return app;
 }
 
-// ─── List applications (poster only, top 5 by score) ─────────────────────────
+// ─── List applications ────────────────────────────────────────────────────────
 
 export async function listApplications(jobId: string, userId: string) {
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
@@ -572,7 +688,7 @@ export async function listApplications(jobId: string, userId: string) {
   });
 }
 
-// ─── Select applicant (OPEN → ASSIGNED) ──────────────────────────────────────
+// ─── Select applicant ─────────────────────────────────────────────────────────
 
 export async function selectApplicant(jobId: string, appId: string, posterId: string) {
   const job = await prisma.supportRequest.findUnique({
@@ -601,7 +717,6 @@ export async function selectApplicant(jobId: string, appId: string, posterId: st
     }),
   ]);
 
-  // Notify selected applicant
   void notify.sendPushNotification(
     app.applicantUserId,
     "You've been selected!",
@@ -613,7 +728,7 @@ export async function selectApplicant(jobId: string, appId: string, posterId: st
   return prisma.supportRequest.findUnique({ where: { id: jobId }, select: JOB_WRITE_SELECT });
 }
 
-// ─── Provider assigns a specific worker (after provider is selected) ──────────
+// ─── Assign worker (provider → their team member) ────────────────────────────
 
 export async function assignWorker(
   jobId: string,
@@ -629,7 +744,6 @@ export async function assignWorker(
     throw new BadRequestError("Can only assign a worker to an ASSIGNED job");
   }
 
-  // Verify the worker belongs to this provider
   const worker = await prisma.user.findUnique({
     where: { id: input.workerUserId },
     include: { roles: true },
@@ -659,71 +773,49 @@ export async function assignWorker(
   return updated;
 }
 
-// ─── Start job (ASSIGNED → IN_PROGRESS) ──────────────────────────────────────
+// ─── Start / Complete / Confirm ───────────────────────────────────────────────
 
 export async function startJob(jobId: string, userId: string) {
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
-
-  const isSelected = job!.selectedApplicantUserId === userId;
-  const isAssigned = job!.assignedWorkerUserId    === userId;
-  if (!isSelected && !isAssigned) {
+  if (job!.selectedApplicantUserId !== userId && job!.assignedWorkerUserId !== userId) {
     throw new ForbiddenError("Only the selected worker/provider can start this job");
   }
   if (job!.status !== "ASSIGNED") {
     throw new BadRequestError(`Job must be ASSIGNED to start (current: ${job!.status})`);
   }
-
   const updated = await prisma.supportRequest.update({
     where: { id: jobId },
     data:  { status: "IN_PROGRESS", startedAt: new Date() },
     select: JOB_WRITE_SELECT,
   });
-
   void notify.sendPushNotification(
-    job!.postedByUserId,
-    "Job started",
-    `"${job!.title}" is now in progress`,
-    { jobId },
-    "JOB_STARTED",
+    job!.postedByUserId, "Job started",
+    `"${job!.title}" is now in progress`, { jobId }, "JOB_STARTED",
   );
-
   return updated;
 }
-
-// ─── Complete job (IN_PROGRESS → COMPLETED) — worker/provider side ───────────
 
 export async function completeJob(jobId: string, userId: string) {
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
-
-  const isSelected = job!.selectedApplicantUserId === userId;
-  const isAssigned = job!.assignedWorkerUserId    === userId;
-  if (!isSelected && !isAssigned) {
+  if (job!.selectedApplicantUserId !== userId && job!.assignedWorkerUserId !== userId) {
     throw new ForbiddenError("Only the assigned worker/provider can mark this job complete");
   }
   if (job!.status !== "IN_PROGRESS") {
     throw new BadRequestError(`Job must be IN_PROGRESS to complete (current: ${job!.status})`);
   }
-
   const updated = await prisma.supportRequest.update({
     where: { id: jobId },
     data:  { status: "COMPLETED", completedAt: new Date() },
     select: JOB_WRITE_SELECT,
   });
-
   void notify.sendPushNotification(
-    job!.postedByUserId,
-    "Job marked complete",
-    `"${job!.title}" has been marked complete — please confirm`,
-    { jobId },
-    "JOB_COMPLETED",
+    job!.postedByUserId, "Job marked complete",
+    `"${job!.title}" has been marked complete — please confirm`, { jobId }, "JOB_COMPLETED",
   );
-
   return updated;
 }
-
-// ─── Confirm job (COMPLETED → CONFIRMED) — poster side ───────────────────────
 
 export async function confirmJob(jobId: string, posterId: string) {
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
@@ -734,24 +826,18 @@ export async function confirmJob(jobId: string, posterId: string) {
   if (job!.status !== "COMPLETED") {
     throw new BadRequestError(`Job must be COMPLETED to confirm (current: ${job!.status})`);
   }
-
   const updated = await prisma.supportRequest.update({
     where: { id: jobId },
     data:  { status: "CONFIRMED", confirmedAt: new Date() },
     select: JOB_WRITE_SELECT,
   });
-
   const recipientId = job!.assignedWorkerUserId ?? job!.selectedApplicantUserId;
   if (recipientId) {
     void notify.sendPushNotification(
-      recipientId,
-      "Job confirmed",
-      `"${job!.title}" has been confirmed by the poster`,
-      { jobId },
-      "JOB_CONFIRMED",
+      recipientId, "Job confirmed",
+      `"${job!.title}" has been confirmed by the poster`, { jobId }, "JOB_CONFIRMED",
     );
   }
-
   return updated;
 }
 
@@ -763,16 +849,13 @@ export async function sendMessage(jobId: string, senderId: string, input: SendMe
     include: { applications: { select: { applicantUserId: true } } },
   });
   requireJob(job, jobId);
-
   const isParty =
     job!.postedByUserId          === senderId ||
     job!.forParticipantUserId    === senderId ||
     job!.selectedApplicantUserId === senderId ||
     job!.assignedWorkerUserId    === senderId ||
     job!.applications.some((a) => a.applicantUserId === senderId);
-
   if (!isParty) throw new ForbiddenError("You are not a participant in this job");
-
   return prisma.jobMessage.create({
     data: { jobId, senderUserId: senderId, body: input.body },
     include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
@@ -785,16 +868,13 @@ export async function getMessages(jobId: string, userId: string) {
     include: { applications: { select: { applicantUserId: true } } },
   });
   requireJob(job, jobId);
-
   const isParty =
     job!.postedByUserId          === userId ||
     job!.forParticipantUserId    === userId ||
     job!.selectedApplicantUserId === userId ||
     job!.assignedWorkerUserId    === userId ||
     job!.applications.some((a) => a.applicantUserId === userId);
-
   if (!isParty) throw new ForbiddenError("You are not a participant in this job");
-
   return prisma.jobMessage.findMany({
     where:   { jobId },
     orderBy: { createdAt: "asc" },
@@ -814,20 +894,17 @@ export async function createInvoice(
   if (!allowed.includes(activeRole)) {
     throw new ForbiddenError("Only coordinators, providers, and workers can create invoices");
   }
-
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
   if (!["COMPLETED","CONFIRMED","ASSIGNED","IN_PROGRESS"].includes(job!.status)) {
     throw new BadRequestError("Can only invoice a completed or in-progress job");
   }
-
   const app = await prisma.jobApplication.findFirst({
     where: { jobId, applicantUserId: senderId, status: { in: ["SELECTED", "SHORTLISTED"] } },
   });
   if (!app && job!.postedByUserId !== senderId) {
     throw new ForbiddenError("Only the poster or the assigned worker/provider can create an invoice");
   }
-
   const invoice = await prisma.invoice.create({
     data: {
       jobId,
@@ -844,7 +921,6 @@ export async function createInvoice(
       job:         { select: { id: true, title: true } },
     },
   });
-
   await notify.sendPushNotification(
     input.planManagerUserId,
     "New invoice received",
@@ -852,32 +928,20 @@ export async function createInvoice(
     { jobId, invoiceId: invoice.id },
     "INVOICE_RECEIVED",
   );
-
   return invoice;
 }
 
-// ─── List invoices ────────────────────────────────────────────────────────────
-
 export async function listInvoices(userId: string, activeRole: UserRole) {
   const where: Record<string, unknown> = {};
-
   switch (activeRole) {
-    case "PLAN_MANAGER":
-      where.planManagerUserId = userId;
-      break;
+    case "PLAN_MANAGER":  where.planManagerUserId = userId; break;
     case "COORDINATOR":
     case "PROVIDER":
-    case "SUPPORT_WORKER":
-      where.senderUserId = userId;
-      break;
-    case "PARTICIPANT":
-      where.participantUserId = userId;
-      break;
-    default:
-      where.senderUserId = userId;
+    case "SUPPORT_WORKER": where.senderUserId = userId; break;
+    case "PARTICIPANT":   where.participantUserId = userId; break;
+    default:              where.senderUserId = userId;
   }
-
-  const invoices = await prisma.invoice.findMany({
+  return prisma.invoice.findMany({
     where,
     include: {
       sender:      { select: { id: true, name: true } },
@@ -887,6 +951,4 @@ export async function listInvoices(userId: string, activeRole: UserRole) {
     },
     orderBy: { sentAt: "desc" },
   });
-
-  return invoices;
 }
