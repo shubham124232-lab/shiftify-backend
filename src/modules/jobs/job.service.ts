@@ -8,6 +8,7 @@ import {
 import { notify } from "../../lib/notify";
 import { canAccessMarketplace } from "../../middleware/marketplace.middleware";
 import type { UserRole, JobCategory, JobUrgency, JobStatus } from "@prisma/client";
+import { ShiftType, FundingType } from "@prisma/client";
 import type {
   CreateJobInput,
   JobFiltersInput,
@@ -164,63 +165,57 @@ export async function createJob(
 
   const status: JobStatus = input.asDraft ? "DRAFT" : "OPEN";
 
-  // Cast required: Prisma client types are stale pending `prisma migrate dev` (run from Windows terminal).
-  // The schema has been updated — all these columns exist at the DB level after migration.
-  const createData = {
-    postedByUserId:       posterId,
-    forParticipantUserId,
-    // Step 1
-    title:                input.title,
-    description:          input.description ?? "",
-    category:             input.category as JobCategory,
-    subcategory:          input.subcategory ?? null,
-    supportGoal:          input.supportGoal ?? null,
-    durationType:         input.durationType ?? null,
-    participantPostedAs:  input.participantPostedAs ?? null,
-    // Step 2
-    urgency:              (input.urgency ?? "SCHEDULED") as JobUrgency,
-    shiftType:            input.shiftType ?? null,
-    timeFlexibility:      input.timeFlexibility ?? null,
-    scheduledStartAt:     new Date(input.scheduledStartAt),
-    scheduledEndAt:       new Date(input.scheduledEndAt),
-    totalHours:           input.totalHours ?? null,
-    isRecurring:          input.isRecurring ?? false,
-    recurrencePattern:    (input.recurrencePattern ?? undefined) as Record<string, unknown> | undefined,
-    applicationDeadlineAt: input.applicationDeadlineAt ? new Date(input.applicationDeadlineAt) : null,
-    // Step 3
-    suburb:               input.suburb,
-    state:                input.state,
-    postcode:             input.postcode ?? null,
-    addressLine:          input.addressLine ?? null,
-    serviceDeliveryMode:  input.serviceDeliveryMode ?? null,
-    locationNotes:        input.locationNotes ?? null,
-    lat:                  input.lat ?? null,
-    lng:                  input.lng ?? null,
-    travelRequired:       input.travelRequired ?? null,
-    // Step 6
-    fundingType:          input.fundingType ?? null,
-    budgetType:           input.budgetType ?? null,
-    budgetPerHour:        input.budgetPerHour ?? null,
-    totalBudget:          input.totalBudget ?? null,
-    travelReimbursement:  input.travelReimbursement ?? null,
-    // Step 7
-    visibilityTarget:     input.visibilityTarget ?? "ALL",
-    maxApplicants:        input.maxApplicants ?? null,
-    hideParticipantName:  input.hideParticipantName ?? false,
-    allowQuotes:          input.allowQuotes ?? false,
-    allowDirectMessages:  input.allowDirectMessages ?? true,
-    // Coordinator extras
-    workerPreferences:    (input.workerPreferences ?? undefined) as Record<string, unknown> | undefined,
-    internalNote:         input.internalNote ?? null,
-    caseReference:        input.caseReference ?? null,
-    requestPurposeCategory: input.requestPurposeCategory ?? null,
-    status,
-  } satisfies Record<string, unknown>;
-
   return prisma.supportRequest.create({
-    // `unknown` intermediate required: Prisma generated client predates the schema update.
-    // Safe: schema + DB are in sync after `prisma migrate dev` on Windows.
-    data: createData as unknown as Parameters<typeof prisma.supportRequest.create>[0]["data"],
+    data: {
+      postedByUserId:       posterId,
+      forParticipantUserId,
+      // Step 1
+      title:                input.title,
+      description:          input.description ?? "",
+      category:             input.category as JobCategory,
+      subcategory:          input.subcategory ?? null,
+      supportGoal:          input.supportGoal ?? null,
+      durationType:         input.durationType ?? null,
+      participantPostedAs:  input.participantPostedAs ?? null,
+      // Step 2
+      urgency:              (input.urgency ?? "SCHEDULED") as JobUrgency,
+      shiftType:            input.shiftType ? (input.shiftType as ShiftType) : null,
+      timeFlexibility:      input.timeFlexibility ?? null,
+      scheduledStartAt:     new Date(input.scheduledStartAt),
+      scheduledEndAt:       new Date(input.scheduledEndAt),
+      totalHours:           input.totalHours ?? null,
+      isRecurring:          input.isRecurring ?? false,
+      recurrencePattern:    (input.recurrencePattern ?? undefined) as Record<string, unknown> | undefined,
+      applicationDeadlineAt: input.applicationDeadlineAt ? new Date(input.applicationDeadlineAt) : null,
+      // Step 3
+      suburb:               input.suburb,
+      state:                input.state,
+      postcode:             input.postcode ?? null,
+      addressLine:          input.addressLine ?? null,
+      serviceDeliveryMode:  input.serviceDeliveryMode ?? null,
+      locationNotes:        input.locationNotes ?? null,
+      lat:                  input.lat ?? null,
+      lng:                  input.lng ?? null,
+      travelRequired:       input.travelRequired ?? null,
+      // Step 6
+      fundingType:          input.fundingType ? (input.fundingType as FundingType) : null,
+      budgetType:           input.budgetType ?? null,
+      budgetPerHour:        input.budgetPerHour ?? null,
+      totalBudget:          input.totalBudget ?? null,
+      travelReimbursement:  input.travelReimbursement ?? null,
+      // Step 7
+      visibilityTarget:     input.visibilityTarget ?? "ALL",
+      maxApplicants:        input.maxApplicants ?? null,
+      hideParticipantName:  input.hideParticipantName ?? false,
+      allowQuotes:          input.allowQuotes ?? false,
+      allowDirectMessages:  input.allowDirectMessages ?? true,
+      // Coordinator extras
+      workerPreferences:    (input.workerPreferences ?? undefined) as Record<string, unknown> | undefined,
+      internalNote:         input.internalNote ?? null,
+      caseReference:        input.caseReference ?? null,
+      requestPurposeCategory: input.requestPurposeCategory ?? null,
+      status,
+    },
     select: JOB_WRITE_SELECT,
   });
 }
@@ -527,10 +522,13 @@ export async function cancelJob(
         scheduledEndAt:          job!.scheduledEndAt,
         totalHours:              job!.totalHours ?? undefined,
         isRecurring:             false,
+        fundingType:             job!.fundingType ?? undefined,
+        budgetType:              job!.budgetType ?? undefined,
+        budgetPerHour:           job!.budgetPerHour ?? undefined,
+        totalBudget:             job!.totalBudget ?? undefined,
+        visibilityTarget:        job!.visibilityTarget ?? undefined,
         workerPreferences:       job!.workerPreferences ?? undefined,
         promotedFromCancellation: true,
-        // Note: fundingType, budgetType, budgetPerHour, totalBudget, visibilityTarget
-        // will be copied once Prisma client is regenerated after migration
       },
     });
 
@@ -588,13 +586,11 @@ export async function applyToJob(
   if (job!.status !== "OPEN") throw new BadRequestError("Job is no longer accepting applications");
 
   // Max applicants cap (spec: allow poster to limit)
-  // Cast required: Prisma client predates schema update; field exists after migration.
-  const maxApplicants = (job! as unknown as Record<string, unknown>)["maxApplicants"] as number | null;
-  if (maxApplicants) {
+  if (job!.maxApplicants) {
     const count = await prisma.jobApplication.count({
       where: { jobId, status: { not: "WITHDRAWN" } },
     });
-    if (count >= maxApplicants) {
+    if (count >= job!.maxApplicants) {
       throw new BadRequestError("This request is no longer accepting applications");
     }
   }
