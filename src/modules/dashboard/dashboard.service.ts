@@ -3,6 +3,7 @@
 
 import { prisma } from "../../lib/prisma";
 import type { UserRole } from "@prisma/client";
+import type { JobStatus } from "@prisma/client";
 
 const JOB_SUMMARY = {
   id: true, title: true, category: true, urgency: true,
@@ -319,7 +320,12 @@ async function planManagerDashboard(userId: string) {
 // ── Admin ─────────────────────────────────────────────────────────────────────
 
 async function adminDashboard() {
-  const activeStatuses = ["OPEN", "DRAFT", "ASSIGNED", "IN_PROGRESS"] as const;
+  const activeStatuses: JobStatus[] = [
+  "OPEN",
+  "DRAFT",
+  "ASSIGNED",
+  "IN_PROGRESS",
+];
 
   const [pendingUsers, totalUsers, openJobs, activeJobs, urgentJobs, completedToday, totalInvoices] = await Promise.all([
     prisma.user.count({ where: { status: "PENDING" } }),

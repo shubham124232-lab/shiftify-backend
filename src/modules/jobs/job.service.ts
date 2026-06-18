@@ -18,6 +18,7 @@ import type {
   SendMessageInput,
   CreateInvoiceInput,
 } from "../../validators/job.schema";
+import { Prisma } from "@prisma/client";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -185,7 +186,7 @@ export async function createJob(
       scheduledEndAt:       new Date(input.scheduledEndAt),
       totalHours:           input.totalHours ?? null,
       isRecurring:          input.isRecurring ?? false,
-      recurrencePattern:    (input.recurrencePattern ?? undefined) as Record<string, unknown> | undefined,
+      recurrencePattern:    input.recurrencePattern ? (input.recurrencePattern as Prisma.InputJsonValue) : undefined,
       applicationDeadlineAt: input.applicationDeadlineAt ? new Date(input.applicationDeadlineAt) : null,
       // Step 3
       suburb:               input.suburb,
@@ -210,7 +211,10 @@ export async function createJob(
       allowQuotes:          input.allowQuotes ?? false,
       allowDirectMessages:  input.allowDirectMessages ?? true,
       // Coordinator extras
-      workerPreferences:    (input.workerPreferences ?? undefined) as Record<string, unknown> | undefined,
+      workerPreferences:
+  input.workerPreferences
+    ? (input.workerPreferences as Prisma.InputJsonValue)
+    : undefined,
       internalNote:         input.internalNote ?? null,
       caseReference:        input.caseReference ?? null,
       requestPurposeCategory: input.requestPurposeCategory ?? null,
