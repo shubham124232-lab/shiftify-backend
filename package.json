@@ -6,6 +6,7 @@
   "private": true,
   "main": "dist/server.js",
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "tsx watch src/server.ts",
     "build": "npx tsc -p tsconfig.json",
     "start": "node dist/server.js",
