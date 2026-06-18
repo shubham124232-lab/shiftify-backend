@@ -1167,6 +1167,7 @@ model Session {
   previousRefreshTokenHash      String?   @unique
   previousRefreshTokenExpiresAt DateTime?
   expiresAt        DateTime
+  activeRole       UserRole?
   userAgent        String?
   ip                 String?
   createdAt        DateTime @default(now())
@@ -1180,15 +1181,18 @@ model Session {
 // ───────────────────────────────────────────────────────────────────────────
 
 model VerificationCode {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  code      String
-  type      String   // EMAIL_VERIFY | PHONE_VERIFY | PASSWORD_RESET
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime @default(now())
-
-  @@index([userId, type])
+  id          String     @id @default(uuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel     OtpChannel
+  purpose     OtpPurpose
+  destination String
+  codeHash    String
+  attempts    Int        @default(0)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime   @default(now())
+ 
+  @@index([userId, purpose])
   @@index([expiresAt])
 }
