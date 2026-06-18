@@ -10,14 +10,42 @@ import type { ProviderProfileInput     } from "../../validators/profile-provider
 import type { CoordinatorProfileInput  } from "../../validators/profile-coordinator.schema";
 import type { PlanManagerProfileInput  } from "../../validators/profile-planmanager.schema";
 
+// ─── GET profile (read-back for wizard pre-fill) ─────────────────────────────
+
+export async function getParticipantProfile(userId: string) {
+  return prisma.participantProfile.findUnique({ where: { userId } });
+}
+
+export async function getWorkerProfile(userId: string) {
+  return prisma.workerProfile.findUnique({
+    where:   { userId },
+    include: { availability: true, unavailability: true },
+  });
+}
+
+export async function getProviderProfile(userId: string) {
+  return prisma.providerProfile.findUnique({
+    where:   { userId },
+    include: { availability: true },
+  });
+}
+
+export async function getCoordinatorProfile(userId: string) {
+  return prisma.coordinatorProfile.findUnique({ where: { userId } });
+}
+
+export async function getPlanManagerProfile(userId: string) {
+  return prisma.planManagerProfile.findUnique({ where: { userId } });
+}
+
 // ─── Profile progress ─────────────────────────────────────────────────────────
 
 const ROLE_TOTAL_STEPS: Record<string, number> = {
-  PARTICIPANT:    4,
-  SUPPORT_WORKER: 11,
-  PROVIDER:       13,
-  COORDINATOR:    10,
-  PLAN_MANAGER:   4,
+  PARTICIPANT:    8,
+  SUPPORT_WORKER: 9,
+  PROVIDER:       12,
+  COORDINATOR:    9,
+  PLAN_MANAGER:   14,
 };
 
 export async function getProfileProgress(userId: string, activeRole: string) {

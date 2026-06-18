@@ -32,8 +32,15 @@ router.patch("/jobs/:id/cancel", asyncHandler(ctrl.cancelJob));
 router.get("/documents/:id/view",    asyncHandler(ctrl.viewDocument));
 router.patch("/documents/:id/verify", asyncHandler(ctrl.verifyDocument));
 
+// ── Subscriptions ─────────────────────────────────────────────────────────────
+router.get("/subscriptions",                asyncHandler(ctrl.listSubscriptions));
+router.patch("/subscriptions/:id/cancel",   asyncHandler(ctrl.cancelSubscription));
+
 // ── Broadcast ─────────────────────────────────────────────────────────────────
 router.post("/broadcast", requireSuperAdmin, asyncHandler(ctrl.broadcast));
+
+// ── Reports / Analytics ───────────────────────────────────────────────────────
+router.get("/reports", asyncHandler(ctrl.getReports));
 
 // ── Audit log — SUPER_ADMIN only ──────────────────────────────────────────────
 router.get("/audit-log", requireSuperAdmin, asyncHandler(ctrl.getAuditLog));

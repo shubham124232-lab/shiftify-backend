@@ -659,6 +659,135 @@ export async function broadcastNotification(params: {
   return { sent, failed, total: users.length };
 }
 
+// ─── GET /admin/subscriptions ─────────────────────────────────────────────────
+// Returns all user subscriptions paginated. Useful for subscription management.
+
+export async function listSubscriptions(params: { page: number; limit: number; status?: string }) {
+  const { page, limit, status } = params;
+  const skip = (page - 1) * limit;
+
+  const where: Record<string, unknown> = {};
+  if (status) where.status = status;
+
+  const [subscriptions, total] = await Promise.all([
+    prisma.userSubscription.findMany({
+      where,
+      include: {
+        user: { select: { id: true, name: true, email: true, status: true } },
+        plan: { select: { id: true, key: true, name: true, role: true, amountAud: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+    }),
+    prisma.userSubscription.count({ where }),
+  ]);
+
+  return { subscriptions, total, page, limit };
+}
+
+// ─── GET /admin/reports ───────────────────────────────────────────────────────
+// Platform-level analytics for the admin dashboard.
+
+export async function getPlatformReports() {
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const sevenDaysAgo = new Date(now);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const [
+    newUsersLast30,
+    newUsersLast7,
+    activeListingsCount,
+    openComplexCare,
+    invoiceCountLast30,
+    pmConnectionsTotal,
+    pmConnectionsAccepted,
+    flaggedUserCount,
+    suspendedUserCount,
+    roleBreakdown,
+    topCategories,
+  ] = await Promise.all([
+    prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
+    prisma.user.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+    prisma.supportRequest.count({ where: { status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] } } }),
+    prisma.supportRequest.count({ where: { status: "OPEN", urgency: "EMERGENCY" } }),
+    prisma.invoice.count({ where: { sentAt: { gte: thirtyDaysAgo } } }),
+    prisma.planManagerConnection.count(),
+    prisma.planManagerConnection.count({ where: { status: "ACCEPTED" } }),
+    prisma.user.count({ where: { status: "SUSPENDED" } }),
+    prisma.user.count({ where: { status: "SUSPENDED" } }),
+    prisma.userRoleAssignment.groupBy({ by: ["role"], _count: { role: true } }),
+    prisma.supportRequest.groupBy({
+      by: ["category"],
+      _count: { _all: true },
+      orderBy: { _count: { category: "desc" } },
+      take: 10,
+    }),
+  ]);
+
+  return {
+    users: {
+      newLast30Days: newUsersLast30,
+      newLast7Days:  newUsersLast7,
+      flagged:       flaggedUserCount,
+      suspended:     suspendedUserCount,
+      byRole:        Object.fromEntries(roleBreakdown.map((r) => [r.role, r._count.role])),
+    },
+    listings: {
+      active:           activeListingsCount,
+      urgentOpenCases:  openComplexCare,
+      topCategories:    topCategories.map((c) => ({ category: c.category, count: c._count._all })),
+    },
+    invoices: {
+      last30Days: invoiceCountLast30,
+    },
+    planManager: {
+      totalConnections:    pmConnectionsTotal,
+      acceptedConnections: pmConnectionsAccepted,
+    },
+  };
+}
+
+// ─── PATCH /admin/subscriptions/:id/cancel ────────────────────────────────────
+
+export async function cancelSubscription(params: {
+  subscriptionId: string;
+  adminUserId: string;
+  reason?: string;
+}) {
+  const { subscriptionId, adminUserId, reason } = params;
+
+  const sub = await prisma.userSubscription.findUnique({
+    where: { id: subscriptionId },
+    include: { user: { select: { id: true, name: true } } },
+  });
+  if (!sub) throw new NotFoundError("Subscription not found");
+  if (sub.status !== "ACTIVE") {
+    throw new BadRequestError(`Subscription is already ${sub.status}`);
+  }
+
+  const [updated] = await Promise.all([
+    prisma.userSubscription.update({
+      where: { id: subscriptionId },
+      data: { status: "CANCELLED", cancelledAt: new Date() },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        plan: { select: { id: true, key: true, name: true } },
+      },
+    }),
+    writeAudit({
+      adminUserId,
+      action: "USER_EDITED",
+      targetUserId: sub.userId,
+      reason: reason ? `Admin cancelled subscription ${subscriptionId}: ${reason}` : `Admin cancelled subscription ${subscriptionId}`,
+    }),
+  ]);
+
+  return { subscription: updated };
+}
+
 // ─── GET /admin/verification-queue — SUSPENDED users only ─────────────────────
 
 export async function suspendedUsersQueue(params: { page: number; limit: number }) {

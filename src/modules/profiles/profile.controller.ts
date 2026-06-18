@@ -20,6 +20,41 @@ function parseOrThrow<T>(schema: { safeParse: (v: unknown) => { success: boolean
   return result.data!;
 }
 
+// GET /users/me/profile/participant
+export async function getParticipant(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const profile = await profileService.getParticipantProfile(req.user.id);
+  success(res, { profile });
+}
+
+// GET /users/me/profile/worker
+export async function getWorker(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const profile = await profileService.getWorkerProfile(req.user.id);
+  success(res, { profile });
+}
+
+// GET /users/me/profile/provider
+export async function getProvider(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const profile = await profileService.getProviderProfile(req.user.id);
+  success(res, { profile });
+}
+
+// GET /users/me/profile/coordinator
+export async function getCoordinator(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const profile = await profileService.getCoordinatorProfile(req.user.id);
+  success(res, { profile });
+}
+
+// GET /users/me/profile/plan-manager
+export async function getPlanManager(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const profile = await profileService.getPlanManagerProfile(req.user.id);
+  success(res, { profile });
+}
+
 // GET /users/me/profile/progress
 export async function getProgress(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();

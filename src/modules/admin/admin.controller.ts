@@ -154,11 +154,41 @@ export async function broadcast(req: Request, res: Response): Promise<void> {
   success(res, result);
 }
 
+// ─── GET /admin/subscriptions ─────────────────────────────────────────────────
+
+export async function listSubscriptions(req: Request, res: Response): Promise<void> {
+  const page   = Math.max(1, parseInt(String(req.query.page  ?? "1"),  10) || 1);
+  const limit  = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "20"), 10) || 20));
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const result = await adminService.listSubscriptions({ page, limit, status });
+  success(res, result);
+}
+
+// ─── PATCH /admin/subscriptions/:id/cancel ────────────────────────────────────
+
+export async function cancelSubscription(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const { reason } = req.body as { reason?: string };
+  const result = await adminService.cancelSubscription({
+    subscriptionId: req.params.id,
+    adminUserId:    req.user.id,
+    reason,
+  });
+  success(res, result);
+}
+
 // ─── GET /admin/verification-queue (updated — SUSPENDED only) ─────────────────
 
 export async function getSuspendedQueue(req: Request, res: Response): Promise<void> {
   const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),  10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "20"), 10) || 20));
   const result = await adminService.suspendedUsersQueue({ page, limit });
+  success(res, result);
+}
+
+// ─── GET /admin/reports ───────────────────────────────────────────────────────
+
+export async function getReports(_req: Request, res: Response): Promise<void> {
+  const result = await adminService.getPlatformReports();
   success(res, result);
 }
