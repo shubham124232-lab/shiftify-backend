@@ -411,7 +411,19 @@ model WorkerProfile {
   visaType                  String?
   visaExpiry                DateTime?
 
-  // Step 3 — Work Type & Insurance
+  // Step 3 — Compliance Metadata
+  ndisScreeningNumber           String?
+  ndisScreeningExpiry           DateTime?
+  policeCheckIssueDate          DateTime?
+  policeCheckExpiry             DateTime?
+  wwccNumber                    String?
+  wwccExpiry                    DateTime?
+  firstAidExpiry                DateTime?
+  cprExpiry                     DateTime?
+  driversLicenceExpiry          DateTime?
+  infectionControlCompleted     Boolean  @default(false)
+
+  // Step 4 — Work Type & Insurance
   workType                      String?
   abn                           String?
   gstRegistered                 Boolean  @default(false)
@@ -423,19 +435,22 @@ model WorkerProfile {
   personalAccidentExpiry         DateTime?
   driversLicenceType            String?  // C | R | HR | HC | MR
 
-  // Step 4 — Services & Skills
+  // Step 5 — Services & Skills
   servicesOffered           Json?
   subServices               Json?
   highIntensitySkills       Json?
   experienceLevel           String?
   disabilityExperience      Json?
 
-  // Step 5 — Availability
+  // Step 6 — Availability
   availabilityType          String?
+  availableDays             Json?    // String[] — MON | TUE | WED | THU | FRI | SAT | SUN
+  timeBlocks                Json?    // String[] — MORNING | AFTERNOON | EVENING | OVERNIGHT
   emergencyAvailability     Boolean  @default(false)
   sleeperAvailability       Boolean  @default(false)
+  minimumShiftHours         Float?
 
-  // Step 6 — Service Areas & Travel
+  // Step 7 — Service Areas & Travel
   serviceAreas              Json?
   travelRadiusKm            Int?
   hasVehicle                Boolean  @default(false)
@@ -443,7 +458,7 @@ model WorkerProfile {
   insuranceValid            Boolean  @default(false)
   vehicleDetails            Json?    // { make, model, year, rego, colour }
 
-  // Step 7 — Financials, Bio & Preferences
+  // Step 8 — Financials, Bio & Preferences
   hourlyRate                Decimal? @db.Decimal(10, 2)
   hourlyRateType            String?  // FIXED | NDIS_PRICE_GUIDE | NEGOTIABLE
   weekendNightRates         Json?    // { weekendRate, nightRate, publicHolidayRate }
@@ -456,11 +471,11 @@ model WorkerProfile {
   isAvailableNow            Boolean  @default(false)
   seekingPlanManager        Boolean  @default(false)
 
-  // Step 8 — Documents
+  // Step 9 — Documents
   manualHandlingCompleted   Boolean  @default(false)
   firstAidCertType          String?  // HLTAID011 | HLTAID009 | OTHER
 
-  // Step 9 — Compliance
+  // Step 10 — Compliance
   termsAccepted             Boolean  @default(false)
   ndisCodeAccepted          Boolean  @default(false)
   privacyPolicyAccepted     Boolean  @default(false)
