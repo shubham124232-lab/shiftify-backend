@@ -4,9 +4,9 @@ export const participantProfileSchema = z.object({
   profileStep:                  z.number().int().min(0).max(20).optional(),
   // Personal
   preferredName:                z.string().max(80).optional(),
-  ageGroup:                     z.string().max(40).optional(),
+  ageGroup:                     z.enum(["CHILD", "ADULT", "SENIOR"]).optional(),
   gender:                       z.string().max(40).optional(),
-  participantType:              z.string().max(60).optional(),
+  participantType:              z.enum(["SELF", "PARENT", "GUARDIAN", "CARER", "NOMINEE"]).optional(),
   suburb:                       z.string().max(100).optional(),
   postcode:                     z.string().max(10).optional(),
   state:                        z.string().max(10).optional(),
@@ -14,7 +14,7 @@ export const participantProfileSchema = z.object({
   // NDIS
   ndisNumber:                   z.string().max(20).optional(),
   fundingManagementType:        z.enum(["SELF_MANAGED", "PLAN_MANAGED", "NDIA_MANAGED"]).optional(),
-  supportCoordinationFunding:   z.string().max(80).optional(),
+  supportCoordinationFunding:   z.enum(["NONE", "LEVEL_1", "LEVEL_2", "LEVEL_3"]).optional(),
   ndisStartDate:                z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   ndisEndDate:                  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   // Support needs
@@ -28,7 +28,7 @@ export const participantProfileSchema = z.object({
   skillsRequired:               z.array(z.string()).optional(),
   // Preferences
   supportPreferences:           z.array(z.string()).optional(),
-  preferredSupportType:         z.string().max(80).optional(),
+  preferredSupportType:         z.enum(["ONE_TIME", "ONGOING", "BOTH"]).optional(),
   preferredWorkerGender:        z.string().max(40).optional(),
   languagePreference:           z.array(z.string()).optional(),
   culturalPreference:           z.array(z.string()).optional(),

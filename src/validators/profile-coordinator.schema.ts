@@ -31,7 +31,7 @@ export const coordinatorProfileSchema = z.object({
   serviceRadius:                     z.number().int().min(0).max(500).optional(),
   // Step 6 -- Availability & Capacity
   currentCapacityStatus:             z.string().max(80).optional(),
-  availabilityType:                  z.string().max(40).optional(),
+  availabilityType:                  z.enum(["BUSINESS_HOURS", "FLEXIBLE", "EMERGENCY_AVAILABLE"]).optional(),
   maxParticipantLoad:                z.number().int().min(0).max(500).optional(),
   // Step 7 -- Plan Management Handling
   participantTypesAccepted:          z.array(z.string()).optional(),
@@ -39,7 +39,7 @@ export const coordinatorProfileSchema = z.object({
   billingMethodPreference:           z.string().max(80).optional(),
   // Step 8 -- Rates & Commercials
   hourlyRate:                        z.number().min(0).max(9999).optional(),
-  travelCharges:                     z.string().max(40).optional(),
+  travelCharges:                     z.enum(["INCLUDED", "CHARGED_SEPARATELY"]).optional(),
   // Step 9 -- Profile & Trust Layer
   bio:                               z.string().max(2000).optional(),
   profilePhoto:                      z.string().max(500).optional(),

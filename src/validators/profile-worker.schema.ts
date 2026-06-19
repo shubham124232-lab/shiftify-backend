@@ -71,9 +71,9 @@ export const workerProfileSchema = z.object({
   insuranceValid:            z.boolean().optional(),
   // Financials
   hourlyRate:                z.number().min(0).max(9999).optional(),
-  hourlyRateType:            z.string().max(40).optional(),
+  hourlyRateType:            z.enum(["FIXED", "NDIS_PRICE_GUIDE", "NEGOTIABLE"]).optional(),
   weekendNightRates:         weekendNightRatesSchema.optional(),
-  travelCharges:             z.string().max(40).optional(),
+  travelCharges:             z.enum(["NONE", "INCLUDED", "CHARGED_SEPARATELY"]).optional(),
   // Preferences
   preferredParticipantType:  z.array(z.string()).optional(),
   genderPreference:          z.string().max(40).optional(),
@@ -90,9 +90,11 @@ export const workerProfileSchema = z.object({
   wwccNumber:                z.string().max(80).optional(),
   wwccExpiry:                z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   firstAidExpiry:            z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
+  firstAidCertType:          z.enum(["HLTAID011", "HLTAID009", "OTHER"]).optional(),
   cprExpiry:                 z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   driversLicenceExpiry:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   infectionControlCompleted: z.boolean().optional(),
+  manualHandlingCompleted:   z.boolean().optional(),
   // Availability schedule
   availableDays:             z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).optional(),
   timeBlocks:                z.array(z.enum(["MORNING", "AFTERNOON", "EVENING", "OVERNIGHT"])).optional(),
@@ -103,6 +105,7 @@ export const workerProfileSchema = z.object({
   termsAccepted:             z.boolean().optional(),
   privacyPolicyAccepted:     z.boolean().optional(),
   ndisCodeAccepted:          z.boolean().optional(),
+  declarationStatement:      z.boolean().optional(),
 });
 
 export type WorkerProfileInput  = z.infer<typeof workerProfileSchema>;

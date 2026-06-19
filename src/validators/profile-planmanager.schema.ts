@@ -9,7 +9,7 @@ export const planManagerProfileSchema = z.object({
   legalEntityName:                       z.string().max(120).optional(),
   abn:                                   z.string().max(20).optional(),
   acn:                                   z.string().max(20).optional(),
-  businessStructure:                     z.string().max(60).optional(),
+  businessStructure:                     z.enum(["SOLE_TRADER", "PARTNERSHIP", "COMPANY", "TRUST"]).optional(),
   trustName:                             z.string().max(120).optional(),
   directorName:                          z.string().max(120).optional(),
   directorPosition:                      z.string().max(80).optional(),
@@ -24,7 +24,7 @@ export const planManagerProfileSchema = z.object({
   accountsPayablePhone:                  z.string().max(30).optional(),
   yearsInOperation:                      z.string().max(20).optional(),
   // Step 4 -- NDIS Registration
-  ndisRegistrationStatus:                z.string().max(40).optional(),
+  ndisRegistrationStatus:                z.enum(["REGISTERED", "IN_PROGRESS", "NOT_REGISTERED"]).optional(),
   ndisRegistered:                        z.boolean().optional(),
   ndisProviderNumber:                    z.string().max(40).optional(),
   registrationExpiryDate:                z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
@@ -40,7 +40,7 @@ export const planManagerProfileSchema = z.object({
   participantTypesSupported:             z.array(z.string()).optional(),
   participantComplexityExperience:       z.array(z.string()).optional(),
   // Step 7 -- Service Coverage
-  serviceCoverageType:                   z.string().max(40).optional(),
+  serviceCoverageType:                   z.enum(["AUSTRALIA_WIDE", "STATE_BASED", "REGION_BASED"]).optional(),
   stateCoverage:                         z.array(z.string()).optional(),
   serviceAreas:                          z.array(z.string()).optional(),
   postcodesServed:                       z.array(z.string()).optional(),
@@ -77,7 +77,7 @@ export const planManagerProfileSchema = z.object({
   privacyContact:                        z.string().max(200).optional(),
   recordsRetentionContact:               z.string().max(200).optional(),
   // Step 10 -- Staff / User Access Control
-  organisationUserModel:                 z.string().max(40).optional(),
+  organisationUserModel:                 z.enum(["SINGLE", "MULTI_USER"]).optional(),
   staffAdminName:                        z.string().max(120).optional(),
   staffAdminEmail:                       z.string().email().optional(),
   staffSeatsRequired:                    z.number().int().min(0).max(9999).optional(),
@@ -93,7 +93,7 @@ export const planManagerProfileSchema = z.object({
   acceptsAlliedHealthInvoices:           z.boolean().optional(),
   requiresDocsForHighValueInvoices:      z.boolean().optional(),
   allowsProviderPortalMessaging:         z.boolean().optional(),
-  // Step 14 -- Communication Preferences (Step 13 = document uploads)
+  // Step 14 -- Communication Preferences
   invoiceNotificationEmail:              z.string().email().optional(),
   complianceNoticesEmail:                z.string().email().optional(),
   escalationContactForFailedPayments:    z.string().max(200).optional(),

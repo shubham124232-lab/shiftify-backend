@@ -15,7 +15,7 @@ export const providerProfileSchema = z.object({
   businessStructure:                 z.enum(["SOLE_TRADER", "PARTNERSHIP", "COMPANY", "TRUST"]).optional(),
   ndisRegistered:                    z.boolean().optional(),
   ndisProviderNumber:                z.string().max(40).optional(),
-  ndisAuditStatus:                   z.string().max(80).optional(),
+  ndisAuditStatus:                   z.enum(["VERIFIED", "PENDING", "EXPIRED"]).optional(),
   gstRegistered:                     z.boolean().optional(),
   yearsInOperation:                  z.string().max(20).optional(),
   // Primary contact
@@ -42,8 +42,8 @@ export const providerProfileSchema = z.object({
   // Services
   coreServices:                      z.array(z.string()).optional(),
   offersSil:                         z.boolean().optional(),
-  silType:                           z.string().max(40).optional(),
-  silSupportLevel:                   z.string().max(40).optional(),
+  silType:                           z.enum(["SHARED", "INDIVIDUAL"]).optional(),
+  silSupportLevel:                   z.enum(["FULL_TIME", "DROP_IN"]).optional(),
   silCurrentVacancies:               z.boolean().optional(),
   silDetails:                        z.record(z.unknown()).optional(),
   offersSda:                         z.boolean().optional(),
@@ -57,8 +57,8 @@ export const providerProfileSchema = z.object({
   serviceMode:                       z.enum(["IN_PERSON", "REMOTE", "BOTH"]).optional(),
   // Workforce
   workforceSize:                     z.string().max(40).optional(),
-  workforceHiringType:               z.string().max(40).optional(),
-  currentCapacityStatus:             z.string().max(40).optional(),
+  workforceHiringType:               z.enum(["INTERNAL", "EXTERNAL", "BOTH"]).optional(),
+  currentCapacityStatus:             z.enum(["OPEN", "LIMITED", "FULL"]).optional(),
   participantTypes:                  z.array(z.string()).optional(),
   participantComplexityAccepted:     z.array(z.string()).optional(),
   staffCapability:                   z.array(z.string()).optional(),
