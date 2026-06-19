@@ -367,7 +367,7 @@ model ParticipantProfile {
   riskSafetyNotes               String?
   supportPreferences            Json?
 
-  // Step 3 — Preferences & Availability
+  // Step 4 — Preferences & Availability
   preferredWorkerGender         String?
   languagePreference            String?
   culturalPreference            String?
@@ -375,7 +375,7 @@ model ParticipantProfile {
   preferredDays                 Json?    // String[]
   preferredTime                 String?  // MORNING | AFTERNOON | EVENING | OVERNIGHT
 
-  // Step 4 — Emergency Contact
+  // Step 5 — Emergency Contact
   emergencyContactName          String?
   emergencyContactPhone         String?
   emergencyContactRelationship  String?
@@ -383,7 +383,7 @@ model ParticipantProfile {
   // PM linkage now lives in PlanManagerConnection. This flag drives discovery.
   seekingPlanManager            Boolean  @default(false)
 
-  // Step 5 — Declaration
+  // Step 6 — Declaration
   termsAccepted                 Boolean  @default(false)
   privacyPolicyAccepted         Boolean  @default(false)
   ndisCodeAccepted              Boolean  @default(false)

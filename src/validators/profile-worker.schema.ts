@@ -82,6 +82,21 @@ export const workerProfileSchema = z.object({
   preferences:               z.string().max(1000).optional(),
   isAvailableNow:            z.boolean().optional(),
   seekingPlanManager:        z.boolean().optional(),
+  // Compliance metadata
+  ndisScreeningNumber:       z.string().max(80).optional(),
+  ndisScreeningExpiry:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
+  policeCheckIssueDate:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
+  policeCheckExpiry:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
+  wwccNumber:                z.string().max(80).optional(),
+  wwccExpiry:                z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
+  firstAidExpiry:            z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
+  cprExpiry:                 z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
+  driversLicenceExpiry:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
+  infectionControlCompleted: z.boolean().optional(),
+  // Availability
+  availableDays:             z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).optional(),
+  timeBlocks:                z.array(z.enum(["MORNING", "AFTERNOON", "EVENING", "OVERNIGHT"])).optional(),
+  minimumShiftHours:         z.number().min(0).max(24).optional(),
   // Documents / compliance
   manualHandlingCompleted:   z.boolean().optional(),
   firstAidCertType:          z.string().max(40).optional(),
