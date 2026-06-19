@@ -53,8 +53,9 @@ export async function register(req: Request, res: Response): Promise<void> {
   success(
     res,
     {
-      user: publicUser(r.user, r.roles, r.activeRole),
-      accessToken: r.tokens.accessToken,
+      user:         publicUser(r.user, r.roles, r.activeRole),
+      accessToken:  r.tokens.accessToken,
+      refreshToken: r.tokens.refreshToken,
       ...(r._dev_code ? { _dev_code: r._dev_code } : {}),
     },
     201,
@@ -80,8 +81,9 @@ export async function login(req: Request, res: Response): Promise<void> {
     // Direct login — full session granted immediately.
     setRefreshCookie(res, r.tokens.refreshToken, r.tokens.refreshTokenExpiresAt);
     success(res, {
-      user:        publicUser(r.user, r.roles, r.activeRole),
-      accessToken: r.tokens.accessToken,
+      user:         publicUser(r.user, r.roles, r.activeRole),
+      accessToken:  r.tokens.accessToken,
+      refreshToken: r.tokens.refreshToken,   // body fallback for cross-site envs
     });
   }
 }
@@ -92,8 +94,9 @@ export async function loginVerify(req: Request, res: Response): Promise<void> {
   const r = await authService.loginVerify(body);
   setRefreshCookie(res, r.tokens.refreshToken, r.tokens.refreshTokenExpiresAt);
   success(res, {
-    user:        publicUser(r.user, r.roles, r.activeRole),
-    accessToken: r.tokens.accessToken,
+    user:         publicUser(r.user, r.roles, r.activeRole),
+    accessToken:  r.tokens.accessToken,
+    refreshToken: r.tokens.refreshToken,
   });
 }
 
@@ -102,7 +105,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
     (req.cookies?.[REFRESH_COOKIE_NAME] as string | undefined) ?? req.body?.refreshToken;
   const r = await authService.refresh(token ?? "");
   setRefreshCookie(res, r.tokens.refreshToken, r.tokens.refreshTokenExpiresAt);
-  success(res, { accessToken: r.tokens.accessToken, activeRole: r.activeRole, roles: r.roles });
+  success(res, { accessToken: r.tokens.accessToken, refreshToken: r.tokens.refreshToken, activeRole: r.activeRole, roles: r.roles });
 }
 
 export async function logout(req: Request, res: Response): Promise<void> {
@@ -136,11 +139,6 @@ export async function checkUsername(req: Request, res: Response): Promise<void> 
 export async function switchRole(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const { role } = switchRoleSchema.parse(req.body);
-  const token = req.cookies?.[REFRESH_COOKIE_NAME] as string | undefined;
-  const r = await authService.switchRole({
-    userId: req.user.id,
-    targetRole: role,
-    refreshToken: token,
-  });
-  success(res, { activeRole: r.activeRole, roles: r.roles, accessToken: r.accessToken });
+  const r = await authService.switchRole({ userId: req.user.id, targetRole: role });
+  success(res, { accessToken: r.accessToken, activeRole: r.activeRole, roles: r.roles });
 }
