@@ -504,18 +504,17 @@ model ProviderProfile {
 
   profileStep                     Int      @default(0)
 
-  // Step 1 — Business Identity
+  // Step 2 — Business Identity
   businessName                    String
   legalEntityName                 String?
   abn                             String?  @unique
   businessStructure               String?
   ndisRegistered                  Boolean  @default(false)
   ndisProviderNumber              String?
-  ndisAuditStatus                 String?  // VERIFIED | PENDING | EXPIRED
   gstRegistered                   Boolean  @default(false)
   yearsInOperation                String?
 
-  // Step 3 — Primary & Secondary Contacts
+  // Step 3 — Key Contacts
   primaryContactName              String?
   primaryContactRole              String?
   primaryContactPhone             String?
@@ -527,7 +526,8 @@ model ProviderProfile {
   accountsContactName             String?
   accountsContactEmail            String?
 
-  // Step 3 — Compliance (policy metadata)
+  // Step 4 — Compliance (policy metadata)
+  ndisAuditStatus                 String?  // VERIFIED | PENDING | EXPIRED
   publicLiabilityPolicyNumber     String?
   publicLiabilityCoverageAmount   String?
   publicLiabilityExpiryDate       DateTime?
@@ -537,7 +537,7 @@ model ProviderProfile {
   workersCompExpiryDate           DateTime?
   complianceDeclaration           Boolean  @default(false)
 
-  // Step 6 — Services (structured SIL/SDA)
+  // Step 5 — Services (structured SIL/SDA)
   coreServices                    Json?
   offersSil                       Boolean  @default(false)
   silType                         String?  // SHARED | INDIVIDUAL
@@ -550,41 +550,45 @@ model ProviderProfile {
   sdaLocations                    Json?    // String[]
   sdaDetails                      Json?
 
-  // Step 7 — Service Coverage
+  // Step 6 — Service Coverage
   serviceAreas                    Json?
   serviceMode                     String?
   multipleLocations               Json?    // branch address array
 
-  // Step 8 — Workforce
+  // Step 7 — Workforce Capability
   workforceSize                   String?
   staffCapability                 Json?    // String[]
   abilityToFillUrgentShifts       Boolean  @default(false)
   workforceHiringType             String?  // INTERNAL | EXTERNAL | BOTH
-  participantTypes                Json?
+
+  // Step 8 — Capacity & Availability
   currentCapacityStatus           String?  // OPEN | LIMITED | FULL
   abilityToPostLiveAvailability   Boolean  @default(false)
+
+  // Step 9 — Participant Handling
+  participantTypes                Json?
   participantComplexityAccepted   Json?    // String[]
 
-  // Step 9 — Pricing
+  // Step 10 — Pricing & Billing
   pricingModel                    String?
   billingMethod                   String?
   travelCharges                   String?
   cancellationPolicy              String?
 
-  // Step 10 — Platform Features
+  // Step 11 — Platform Features
   canPostRequests                 Boolean  @default(false)
   canViewWorkerMarketplace        Boolean  @default(false)
   canPostWorkerRequirements       Boolean  @default(false)
   canPostSilSdaVacancies          Boolean  @default(false)
 
-  // Step 11 — Profile & Branding
+  // Step 12 — Profile & Branding
   businessDescription             String?
   logoUrl                         String?
   websiteUrl                      String?
   socialLinks                     Json?    // { facebook, instagram, linkedin }
   seekingPlanManager              Boolean  @default(false)
 
-  // Step 12 — Declarations
+  // Step 13 — Declarations
   termsAccepted                   Boolean  @default(false)
   ndisCodeAccepted                Boolean  @default(false)
   privacyPolicyAccepted           Boolean  @default(false)
@@ -604,48 +608,63 @@ model CoordinatorProfile {
 
   profileStep                          Int      @default(0)
 
-  // Step 1 — Professional Identity
+  // Step 2 — Professional Identity
   roleType                             String?
   organisationName                     String?
   abn                                  String?
   ndisRegistered                       Boolean  @default(false)
   ndisProviderNumber                   String?
-  gender                               String?
-
-  // Step 3 — Experience & Capability
   yearsExperience                      String?
+
+  // Step 3 — Qualification & Compliance metadata
   qualifications                       Json?    // String[] — Cert III/IV/Diploma/Bachelor/Other
+  policeCheckExpiry                    DateTime?
+  wwccNumber                           String?
+  wwccExpiry                           DateTime?
+  ndisScreeningNumber                  String?
+  ndisScreeningExpiry                  DateTime?
+  professionalIndemnityProviderName    String?
+  professionalIndemnityPolicyNumber    String?
+  professionalIndemnityExpiry          DateTime?
+  publicLiabilityPolicyNumber          String?
+  publicLiabilityExpiry                DateTime?
+
+  // Step 4 — Service Capability
   supportCoordinationLevel             Json?
   participantComplexityExperience      Json?
   servicesOfferedBeyondCoordination    Json?
 
-  // Step 4 — Service Coverage
+  // Step 5 — Service Coverage
   serviceAreas                         Json?
   serviceRadius                        Int?
   serviceMode                          String?
-  languages                            Json?
 
-  // Step 5 — Capacity & Availability
+  // Step 6 — Availability & Capacity
   currentCapacityStatus                String?
   maxParticipantLoad                   Int?
   availabilityType                     String?  // BUSINESS_HOURS | FLEXIBLE | EMERGENCY_AVAILABLE
+
+  // Step 7 — Plan Management Handling
   participantTypesAccepted             Json?
   fundingTypeCompatibility             Json?
-
-  // Step 6 — Billing
   billingMethodPreference              String?
-  travelCharges                        String?  // INCLUDED | CHARGED_SEPARATELY
-  hourlyRate                           Decimal? @db.Decimal(10, 2)
 
-  // Step 7 — Profile
+  // Step 8 — Rates & Commercials
+  hourlyRate                           Decimal? @db.Decimal(10, 2)
+  travelCharges                        String?  // INCLUDED | CHARGED_SEPARATELY
+
+  // Step 9 — Profile & Trust Layer
   bio                                  String?
   profilePhoto                         String?
+  languages                            Json?
+  gender                               String?
   seekingPlanManager                   Boolean  @default(false)
 
-  // Step 9 — Declaration
+  // Step 10 — Platform Rules & Compliance
   termsAccepted                        Boolean  @default(false)
   privacyPolicyAccepted                Boolean  @default(false)
   ndisCodeAccepted                     Boolean  @default(false)
+  complianceDeclaration                Boolean  @default(false)
   consentForVerification               Boolean  @default(false)
 
   createdAt                            DateTime @default(now())
