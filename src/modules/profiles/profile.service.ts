@@ -86,10 +86,29 @@ export async function getProfileProgress(userId: string, activeRole: string) {
   return { role: activeRole, profileStep, totalSteps, isComplete, nextStep };
 }
 
+// ─── Date helpers ────────────────────────────────────────────────────────────
+// Prisma DateTime columns reject bare "YYYY-MM-DD" strings — convert to Date.
+function toDate(v: string | undefined | null): Date | undefined {
+  if (!v) return undefined;
+  // Already a full ISO string
+  if (v.includes("T")) return new Date(v);
+  // Date-only "YYYY-MM-DD" — treat as UTC midnight
+  return new Date(`${v}T00:00:00.000Z`);
+}
+
+function datesToDates<T extends Record<string, unknown>>(obj: T, keys: string[]): T {
+  const out = { ...obj } as Record<string, unknown>;
+  for (const k of keys) {
+    if (k in out && out[k] !== undefined) out[k] = toDate(out[k] as string);
+  }
+  return out as T;
+}
+
 // ─── Participant ─────────────────────────────────────────────────────────────
 
 export async function upsertParticipantProfile(userId: string, data: ParticipantProfileInput) {
-  const { profileStep: incomingStep, ...fields } = data;
+  const { profileStep: incomingStep, ...raw } = data;
+  const fields = datesToDates(raw as Record<string, unknown>, ["ndisStartDate", "ndisEndDate"]);
 
   const existing = await prisma.participantProfile.findUnique({ where: { userId } });
   const nextStep  = Math.max(existing?.profileStep ?? 0, incomingStep ?? 0);
@@ -104,7 +123,10 @@ export async function upsertParticipantProfile(userId: string, data: Participant
 // ─── Worker ──────────────────────────────────────────────────────────────────
 
 export async function upsertWorkerProfile(userId: string, data: WorkerProfileInput) {
-  const { availability, profileStep: incomingStep, ...profileData } = data;
+  const { availability, profileStep: incomingStep, ...raw } = data;
+  const profileData = datesToDates(raw as Record<string, unknown>, [
+    "dob", "visaExpiry", "publicLiabilityExpiry", "personalAccidentExpiry",
+  ]);
 
   const existing  = await prisma.workerProfile.findUnique({ where: { userId } });
   const nextStep  = Math.max(existing?.profileStep ?? 0, incomingStep ?? 0);
@@ -143,7 +165,10 @@ export async function upsertWorkerProfile(userId: string, data: WorkerProfileInp
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export async function upsertProviderProfile(userId: string, data: ProviderProfileInput) {
-  const { profileStep: incomingStep, abn: rawAbn, ...fields } = data;
+  const { profileStep: incomingStep, abn: rawAbn, ...raw } = data;
+  const fields = datesToDates(raw as Record<string, unknown>, [
+    "publicLiabilityExpiryDate", "professionalIndemnityExpiryDate", "workersCompExpiryDate",
+  ]);
 
   const existing = await prisma.providerProfile.findUnique({ where: { userId } });
   const nextStep  = Math.max(existing?.profileStep ?? 0, incomingStep ?? 0);
@@ -160,7 +185,7 @@ export async function upsertProviderProfile(userId: string, data: ProviderProfil
 
   return prisma.providerProfile.upsert({
     where:  { userId },
-    create: { userId, profileStep: nextStep, businessName: fields.businessName ?? "", ...(profileFields as any) },
+    create: { userId, profileStep: nextStep, businessName: (fields.businessName as string) ?? "", ...(profileFields as any) },
     update: { profileStep: nextStep, ...(profileFields as any) },
   });
 }
@@ -183,14 +208,15 @@ export async function upsertCoordinatorProfile(userId: string, data: Coordinator
 // ─── Plan Manager ────────────────────────────────────────────────────────────
 
 export async function upsertPlanManagerProfile(userId: string, data: PlanManagerProfileInput) {
-  const { profileStep: incomingStep, ...fields } = data;
+  const { profileStep: incomingStep, ...raw } = data;
+  const fields = datesToDates(raw as Record<string, unknown>, ["registrationExpiryDate"]);
 
   const existing = await prisma.planManagerProfile.findUnique({ where: { userId } });
   const nextStep  = Math.max(existing?.profileStep ?? 0, incomingStep ?? 0);
 
   return prisma.planManagerProfile.upsert({
     where:  { userId },
-    create: { userId, profileStep: nextStep, businessName: fields.businessName ?? "", ...(fields as any) },
+    create: { userId, profileStep: nextStep, businessName: (fields.businessName as string) ?? "", ...(fields as any) },
     update: { profileStep: nextStep, ...(fields as any) },
   });
 }

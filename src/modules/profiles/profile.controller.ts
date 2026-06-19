@@ -137,7 +137,7 @@ export async function deleteUnavailability(req: Request, res: Response): Promise
 // GET /users/me/provider-availability
 export async function getProviderAvailability(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
-  const result = await profileService.getProviderAvailability(req.user.id);
+  const result = await profileService.getWorkerAvailability(req.user.id);
   success(res, result);
 }
 
@@ -145,6 +145,6 @@ export async function getProviderAvailability(req: Request, res: Response): Prom
 export async function replaceProviderAvailability(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const { slots } = parseOrThrow(availabilitySlotsSchema, req.body);
-  const availability = await profileService.replaceProviderAvailabilitySlots(req.user.id, slots);
+  const availability = await profileService.replaceAvailabilitySlots(req.user.id, slots);
   success(res, { availability });
 }
