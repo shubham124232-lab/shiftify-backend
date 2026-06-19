@@ -4,7 +4,7 @@ export const planManagerProfileSchema = z.object({
   profileStep:                           z.number().int().min(0).max(20).optional(),
   // Step 2 — Role Type
   pmRoleType:                            z.enum(["PLAN_MANAGER", "PM_ORG_ADMIN", "PM_STAFF_MEMBER"]).optional(),
-  // Step 1 — Business Details
+  // Step 3 — Business Identity
   businessName:                          z.string().max(120).optional(),
   legalEntityName:                       z.string().max(120).optional(),
   abn:                                   z.string().max(20).optional(),
@@ -23,31 +23,33 @@ export const planManagerProfileSchema = z.object({
   financeTeamEmail:                      z.string().email().optional(),
   accountsPayablePhone:                  z.string().max(30).optional(),
   yearsInOperation:                      z.string().max(20).optional(),
-  // Step 3 — NDIS Registration
+  // Step 4 — NDIS Registration
   ndisRegistrationStatus:                z.string().max(40).optional(),
   ndisRegistered:                        z.boolean().optional(),
   ndisProviderNumber:                    z.string().max(40).optional(),
   registrationExpiryDate:                z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   approvedRegistrationGroups:            z.array(z.string()).optional(),
-  // Step 4 — Capability
+  // Step 5 — Plan Management Capability
   planTypesSupported:                    z.array(z.string()).optional(),
   silSdaInvoicing:                       z.boolean().optional(),
   servicesProvided:                      z.array(z.string()).optional(),
   plansRecurringInvoices:                z.boolean().optional(),
   plansOnceOffInvoices:                  z.boolean().optional(),
   providesBudgetStatements:              z.boolean().optional(),
-  // Step 5 — Participant Scope
+  // Step 6 — Participant / Funding Scope
   participantTypesSupported:             z.array(z.string()).optional(),
   participantComplexityExperience:       z.array(z.string()).optional(),
-  // Step 6 — Service Coverage
+  // Step 7 — Service Coverage
   serviceCoverageType:                   z.string().max(40).optional(),
   stateCoverage:                         z.array(z.string()).optional(),
   serviceAreas:                          z.array(z.string()).optional(),
   postcodesServed:                       z.array(z.string()).optional(),
   timezone:                              z.string().max(60).optional(),
   operatingHours:                        z.string().max(60).optional(),
+  phoneSupportHours:                     z.string().max(60).optional(),
+  emailResponseSla:                      z.string().max(60).optional(),
   invoiceTurnaroundTime:                 z.string().max(60).optional(),
-  // Step 7 — Payment Operations
+  // Step 8 — Payment Operations
   invoiceIntakeMethod:                   z.array(z.string()).optional(),
   primaryInvoiceContactEmail:            z.string().email().optional(),
   accountsContactName:                   z.string().max(120).optional(),
@@ -59,9 +61,11 @@ export const planManagerProfileSchema = z.object({
   disputeHandlingContact:                z.string().max(200).optional(),
   staffFinanceTeamEmail:                 z.string().email().optional(),
   acceptsRegisteredProvidersOnly:        z.boolean().optional(),
+  acceptsUnregisteredProviders:          z.boolean().optional(),
   requiresServiceDatesOnInvoices:        z.boolean().optional(),
   requiresSupportCategoryCode:           z.boolean().optional(),
-  // Step 8 — Compliance
+  requiresParticipantConsentConfirmation: z.boolean().optional(),
+  // Step 9 — Compliance & Governance
   recordKeepingDeclaration:              z.boolean().optional(),
   conflictOfInterestDeclaration:         z.boolean().optional(),
   noMisuseOfFundsDeclaration:            z.boolean().optional(),
@@ -72,32 +76,35 @@ export const planManagerProfileSchema = z.object({
   incidentEscalationContact:             z.string().max(200).optional(),
   privacyContact:                        z.string().max(200).optional(),
   recordsRetentionContact:               z.string().max(200).optional(),
-  // Step 9 — Staff Model
+  // Step 10 — Staff / User Access Control
   organisationUserModel:                 z.string().max(40).optional(),
   staffAdminName:                        z.string().max(120).optional(),
   staffAdminEmail:                       z.string().email().optional(),
   staffSeatsRequired:                    z.number().int().min(0).max(9999).optional(),
-  // Step 10 — Participant Linking
+  // Step 11 — Participant Linking Setup
   participantLinkingMethod:              z.array(z.string()).optional(),
   linkApprovalRequired:                  z.boolean().optional(),
   requiresServiceAgreementBeforeInvoicing: z.boolean().optional(),
-  // Step 11 — Provider Interaction
+  // Step 12 — Provider Interaction Settings
   invoiceAcceptanceRules:                z.array(z.string()).optional(),
   acceptsRecurringClaims:                z.boolean().optional(),
   acceptsOnceOffClaims:                  z.boolean().optional(),
+  acceptsTransportClaims:                z.boolean().optional(),
+  acceptsAlliedHealthInvoices:           z.boolean().optional(),
+  requiresDocsForHighValueInvoices:      z.boolean().optional(),
   allowsProviderPortalMessaging:         z.boolean().optional(),
-  // Step 13 — Communication
+  // Step 14 — Communication Preferences (Step 13 = document uploads)
   invoiceNotificationEmail:              z.string().email().optional(),
   complianceNoticesEmail:                z.string().email().optional(),
   escalationContactForFailedPayments:    z.string().max(200).optional(),
   smsAlertsEnabled:                      z.boolean().optional(),
-  // Step 14 — Commercial
+  // Step 15 — Subscription / Commercial Setup
   subscriptionPlan:                      z.string().max(40).optional(),
   billingContactName:                    z.string().max(120).optional(),
   billingContactEmail:                   z.string().email().optional(),
   billingAddress:                        z.string().max(200).optional(),
   gstRegistered:                         z.boolean().optional(),
-  // Step 15 — Terms
+  // Step 16 — Terms, Privacy & Platform Rules
   acceptingClients:                      z.boolean().optional(),
   privacyPolicyAccepted:                 z.boolean().optional(),
   confirmAuthorityToRegister:            z.boolean().optional(),

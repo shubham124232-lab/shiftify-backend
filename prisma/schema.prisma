@@ -681,7 +681,7 @@ model PlanManagerProfile {
   // Step 2 — Role Type
   pmRoleType                              String?   // PLAN_MANAGER | PM_ORG_ADMIN | PM_STAFF_MEMBER
 
-  // Step 1 — Business Identity
+  // Step 3 — Business Identity
   businessName                            String
   legalEntityName                         String?
   abn                                     String?
@@ -701,14 +701,14 @@ model PlanManagerProfile {
   accountsPayablePhone                    String?
   yearsInOperation                        String?
 
-  // Step 2 — NDIS Registration
+  // Step 4 — NDIS Registration
   ndisRegistrationStatus                  String?   // REGISTERED | IN_PROGRESS | NOT_REGISTERED
   ndisRegistered                          Boolean   @default(false) // kept for backward compat
   ndisProviderNumber                      String?
   registrationExpiryDate                  DateTime?
   approvedRegistrationGroups              Json?
 
-  // Step 3 — Plan Management Capability
+  // Step 5 — Plan Management Capability
   planTypesSupported                      Json?     // String[] — Plan-managed | Agency-managed | Self-managed
   silSdaInvoicing                         Boolean   @default(false)
   servicesProvided                        Json?     // String[]
@@ -716,20 +716,22 @@ model PlanManagerProfile {
   plansOnceOffInvoices                    Boolean   @default(false)
   providesBudgetStatements                Boolean   @default(false)
 
-  // Step 4 — Participant Scope
+  // Step 6 — Participant / Funding Scope
   participantTypesSupported               Json?     // String[]
   participantComplexityExperience         Json?
 
-  // Step 5 — Service Coverage
+  // Step 7 — Service Coverage
   serviceCoverageType                     String?   // AUSTRALIA_WIDE | STATE_BASED | REGION_BASED
   serviceAreas                            Json?
   stateCoverage                           Json?     // String[]
   postcodesServed                         Json?
   timezone                                String?
   operatingHours                          String?
+  phoneSupportHours                       String?
+  emailResponseSla                        String?
   invoiceTurnaroundTime                   String?
 
-  // Step 6 — Payment Operations
+  // Step 8 — Payment Operations
   invoiceIntakeMethod                     Json?     // String[]
   primaryInvoiceContactEmail              String?
   accountsContactName                     String?
@@ -741,10 +743,12 @@ model PlanManagerProfile {
   disputeHandlingContact                  String?
   staffFinanceTeamEmail                   String?
   acceptsRegisteredProvidersOnly          Boolean   @default(false)
+  acceptsUnregisteredProviders            Boolean   @default(false)
   requiresServiceDatesOnInvoices          Boolean   @default(false)
   requiresSupportCategoryCode             Boolean   @default(false)
+  requiresParticipantConsentConfirmation  Boolean   @default(false)
 
-  // Step 7 — Compliance & Governance
+  // Step 9 — Compliance & Governance
   recordKeepingDeclaration                Boolean   @default(false)
   conflictOfInterestDeclaration           Boolean   @default(false)
   noMisuseOfFundsDeclaration              Boolean   @default(false)
@@ -756,30 +760,33 @@ model PlanManagerProfile {
   privacyContact                          String?
   recordsRetentionContact                 String?
 
-  // Step 8 — Staff / User Model
+  // Step 10 — Staff / User Access Control
   organisationUserModel                   String?   // SINGLE | MULTI_USER
   staffAdminName                          String?
   staffAdminEmail                         String?
   staffSeatsRequired                      Int?
 
-  // Step 9 — Participant Linking
+  // Step 11 — Participant Linking Setup
   participantLinkingMethod                Json?     // String[]
   linkApprovalRequired                    Boolean   @default(true)
   requiresServiceAgreementBeforeInvoicing Boolean   @default(false)
 
-  // Step 10 — Provider Interaction
+  // Step 12 — Provider Interaction Settings
   invoiceAcceptanceRules                  Json?
   acceptsRecurringClaims                  Boolean   @default(true)
   acceptsOnceOffClaims                    Boolean   @default(true)
+  acceptsTransportClaims                  Boolean   @default(true)
+  acceptsAlliedHealthInvoices             Boolean   @default(true)
+  requiresDocsForHighValueInvoices        Boolean   @default(false)
   allowsProviderPortalMessaging           Boolean   @default(false)
 
-  // Step 12 — Communication Preferences
+  // Step 14 — Communication Preferences (Step 13 = document uploads)
   invoiceNotificationEmail                String?
   complianceNoticesEmail                  String?
   smsAlertsEnabled                        Boolean   @default(false)
   escalationContactForFailedPayments      String?
 
-  // Step 13 — Commercial Setup
+  // Step 15 — Subscription / Commercial Setup
   subscriptionPlan                        String?
   billingContactName                      String?
   billingContactEmail                     String?
@@ -789,7 +796,7 @@ model PlanManagerProfile {
   // Directory visibility
   acceptingClients                        Boolean   @default(true)
 
-  // Step 14 — Terms & Declaration
+  // Step 16 — Terms, Privacy & Platform Rules
   termsAccepted                           Boolean   @default(false)
   ndisCodeAccepted                        Boolean   @default(false)
   privacyPolicyAccepted                   Boolean   @default(false)
