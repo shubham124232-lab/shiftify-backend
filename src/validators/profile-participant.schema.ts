@@ -33,7 +33,7 @@ export const participantProfileSchema = z.object({
   languagePreference:           z.string().max(80).optional(),
   culturalPreference:           z.string().max(120).optional(),
   preferredDays:                z.array(z.string()).optional(),
-  preferredTime:                z.string().max(40).optional(),
+  preferredTime:                z.union([z.string(), z.array(z.string())]).transform(v => Array.isArray(v) ? v.join(', ') : v).optional(),
   // Emergency contact
   emergencyContactName:         z.string().max(120).optional(),
   emergencyContactPhone:        z.string().max(30).optional(),
