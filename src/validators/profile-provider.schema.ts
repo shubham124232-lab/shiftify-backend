@@ -34,11 +34,11 @@ export const providerProfileSchema = z.object({
   // Insurance
   publicLiabilityPolicyNumber:       z.string().max(80).optional(),
   publicLiabilityCoverageAmount:     z.string().max(40).optional(),
-  publicLiabilityExpiryDate:         z.string().datetime({ offset: true }).optional(),
+  publicLiabilityExpiryDate:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   professionalIndemnityPolicyNumber: z.string().max(80).optional(),
-  professionalIndemnityExpiryDate:   z.string().datetime({ offset: true }).optional(),
+  professionalIndemnityExpiryDate:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   workersCompPolicyNumber:           z.string().max(80).optional(),
-  workersCompExpiryDate:             z.string().datetime({ offset: true }).optional(),
+  workersCompExpiryDate:             z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   // Services
   coreServices:                      z.array(z.string()).optional(),
   offersSil:                         z.boolean().optional(),

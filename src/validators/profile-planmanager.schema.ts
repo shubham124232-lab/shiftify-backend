@@ -27,7 +27,7 @@ export const planManagerProfileSchema = z.object({
   ndisRegistrationStatus:                z.string().max(40).optional(),
   ndisRegistered:                        z.boolean().optional(),
   ndisProviderNumber:                    z.string().max(40).optional(),
-  registrationExpiryDate:                z.string().datetime({ offset: true }).optional(),
+  registrationExpiryDate:                z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   approvedRegistrationGroups:            z.array(z.string()).optional(),
   // Step 4 — Capability
   planTypesSupported:                    z.array(z.string()).optional(),

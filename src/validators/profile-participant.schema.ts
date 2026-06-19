@@ -15,8 +15,8 @@ export const participantProfileSchema = z.object({
   ndisNumber:                   z.string().max(20).optional(),
   fundingManagementType:        z.enum(["SELF", "PLAN", "NDIA"]).optional(),
   supportCoordinationFunding:   z.string().max(80).optional(),
-  ndisStartDate:                z.string().datetime({ offset: true }).optional(),
-  ndisEndDate:                  z.string().datetime({ offset: true }).optional(),
+  ndisStartDate:                z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
+  ndisEndDate:                  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   // Support needs
   primaryDisability:            z.string().max(120).optional(),
   primarySupportNeeds:          z.array(z.string()).optional(),
