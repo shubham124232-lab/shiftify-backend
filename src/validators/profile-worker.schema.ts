@@ -93,33 +93,17 @@ export const workerProfileSchema = z.object({
   cprExpiry:                 z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   driversLicenceExpiry:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   infectionControlCompleted: z.boolean().optional(),
-  // Availability
+  // Availability schedule
   availableDays:             z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).optional(),
   timeBlocks:                z.array(z.enum(["MORNING", "AFTERNOON", "EVENING", "OVERNIGHT"])).optional(),
   minimumShiftHours:         z.number().min(0).max(24).optional(),
-  // Documents / compliance
-  manualHandlingCompleted:   z.boolean().optional(),
-  firstAidCertType:          z.string().max(40).optional(),
+  // References
+  references:                z.array(referenceSchema).optional(),
   // Declarations
   termsAccepted:             z.boolean().optional(),
-  ndisCodeAccepted:          z.boolean().optional(),
   privacyPolicyAccepted:     z.boolean().optional(),
-  declarationStatement:      z.boolean().optional(),
-  // References
-  references:                z.array(referenceSchema).max(3).optional(),
-  // Availability slots
-  availability:              z.array(availabilitySlotSchema).optional(),
-});
-
-export const availabilitySlotsSchema = z.object({
-  slots: z.array(availabilitySlotSchema).min(0).max(50),
-});
-
-export const unavailabilitySchema = z.object({
-  date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD"),
-  reason: z.string().max(255).optional(),
+  ndisCodeAccepted:          z.boolean().optional(),
 });
 
 export type WorkerProfileInput  = z.infer<typeof workerProfileSchema>;
-export type AvailabilitySlots   = z.infer<typeof availabilitySlotsSchema>;
-export type UnavailabilityInput = z.infer<typeof unavailabilitySchema>;
+export type AvailabilitySlotInput = z.infer<typeof availabilitySlotSchema>;

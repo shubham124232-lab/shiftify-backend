@@ -351,7 +351,7 @@ model ParticipantProfile {
 
   // Step 2 — NDIS Details
   ndisNumber                    String?
-  fundingManagementType         String?  // SELF | PLAN | NDIA
+  fundingManagementType         String?  // SELF_MANAGED | PLAN_MANAGED | NDIA_MANAGED
   supportCoordinationFunding    String?  // NONE | LEVEL_1 | LEVEL_2 | LEVEL_3
   ndisStartDate                 DateTime?
   ndisEndDate                   DateTime?
@@ -369,11 +369,11 @@ model ParticipantProfile {
 
   // Step 4 — Preferences & Availability
   preferredWorkerGender         String?
-  languagePreference            String?
-  culturalPreference            String?
+  languagePreference            Json?    // String[]
+  culturalPreference            Json?    // String[]
   skillsRequired                Json?    // String[]
   preferredDays                 Json?    // String[]
-  preferredTime                 String?  // MORNING | AFTERNOON | EVENING | OVERNIGHT
+  preferredTime                 Json?    // String[] — MORNING | AFTERNOON | EVENING | OVERNIGHT
 
   // Step 5 — Emergency Contact
   emergencyContactName          String?

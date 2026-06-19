@@ -2,9 +2,9 @@ import { z } from "zod";
 
 export const planManagerProfileSchema = z.object({
   profileStep:                           z.number().int().min(0).max(20).optional(),
-  // Step 2 — Role Type
+  // Step 2 -- Role Type
   pmRoleType:                            z.enum(["PLAN_MANAGER", "PM_ORG_ADMIN", "PM_STAFF_MEMBER"]).optional(),
-  // Step 3 — Business Identity
+  // Step 3 -- Business Identity
   businessName:                          z.string().max(120).optional(),
   legalEntityName:                       z.string().max(120).optional(),
   abn:                                   z.string().max(20).optional(),
@@ -23,23 +23,23 @@ export const planManagerProfileSchema = z.object({
   financeTeamEmail:                      z.string().email().optional(),
   accountsPayablePhone:                  z.string().max(30).optional(),
   yearsInOperation:                      z.string().max(20).optional(),
-  // Step 4 — NDIS Registration
+  // Step 4 -- NDIS Registration
   ndisRegistrationStatus:                z.string().max(40).optional(),
   ndisRegistered:                        z.boolean().optional(),
   ndisProviderNumber:                    z.string().max(40).optional(),
   registrationExpiryDate:                z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   approvedRegistrationGroups:            z.array(z.string()).optional(),
-  // Step 5 — Plan Management Capability
+  // Step 5 -- Plan Management Capability
   planTypesSupported:                    z.array(z.string()).optional(),
   silSdaInvoicing:                       z.boolean().optional(),
   servicesProvided:                      z.array(z.string()).optional(),
   plansRecurringInvoices:                z.boolean().optional(),
   plansOnceOffInvoices:                  z.boolean().optional(),
   providesBudgetStatements:              z.boolean().optional(),
-  // Step 6 — Participant / Funding Scope
+  // Step 6 -- Participant / Funding Scope
   participantTypesSupported:             z.array(z.string()).optional(),
   participantComplexityExperience:       z.array(z.string()).optional(),
-  // Step 7 — Service Coverage
+  // Step 7 -- Service Coverage
   serviceCoverageType:                   z.string().max(40).optional(),
   stateCoverage:                         z.array(z.string()).optional(),
   serviceAreas:                          z.array(z.string()).optional(),
@@ -49,7 +49,7 @@ export const planManagerProfileSchema = z.object({
   phoneSupportHours:                     z.string().max(60).optional(),
   emailResponseSla:                      z.string().max(60).optional(),
   invoiceTurnaroundTime:                 z.string().max(60).optional(),
-  // Step 8 — Payment Operations
+  // Step 8 -- Payment Operations
   invoiceIntakeMethod:                   z.array(z.string()).optional(),
   primaryInvoiceContactEmail:            z.string().email().optional(),
   accountsContactName:                   z.string().max(120).optional(),
@@ -65,7 +65,7 @@ export const planManagerProfileSchema = z.object({
   requiresServiceDatesOnInvoices:        z.boolean().optional(),
   requiresSupportCategoryCode:           z.boolean().optional(),
   requiresParticipantConsentConfirmation: z.boolean().optional(),
-  // Step 9 — Compliance & Governance
+  // Step 9 -- Compliance & Governance
   recordKeepingDeclaration:              z.boolean().optional(),
   conflictOfInterestDeclaration:         z.boolean().optional(),
   noMisuseOfFundsDeclaration:            z.boolean().optional(),
@@ -76,16 +76,16 @@ export const planManagerProfileSchema = z.object({
   incidentEscalationContact:             z.string().max(200).optional(),
   privacyContact:                        z.string().max(200).optional(),
   recordsRetentionContact:               z.string().max(200).optional(),
-  // Step 10 — Staff / User Access Control
+  // Step 10 -- Staff / User Access Control
   organisationUserModel:                 z.string().max(40).optional(),
   staffAdminName:                        z.string().max(120).optional(),
   staffAdminEmail:                       z.string().email().optional(),
   staffSeatsRequired:                    z.number().int().min(0).max(9999).optional(),
-  // Step 11 — Participant Linking Setup
+  // Step 11 -- Participant Linking Setup
   participantLinkingMethod:              z.array(z.string()).optional(),
   linkApprovalRequired:                  z.boolean().optional(),
   requiresServiceAgreementBeforeInvoicing: z.boolean().optional(),
-  // Step 12 — Provider Interaction Settings
+  // Step 12 -- Provider Interaction Settings
   invoiceAcceptanceRules:                z.array(z.string()).optional(),
   acceptsRecurringClaims:                z.boolean().optional(),
   acceptsOnceOffClaims:                  z.boolean().optional(),
@@ -93,27 +93,24 @@ export const planManagerProfileSchema = z.object({
   acceptsAlliedHealthInvoices:           z.boolean().optional(),
   requiresDocsForHighValueInvoices:      z.boolean().optional(),
   allowsProviderPortalMessaging:         z.boolean().optional(),
-  // Step 14 — Communication Preferences (Step 13 = document uploads)
+  // Step 14 -- Communication Preferences (Step 13 = document uploads)
   invoiceNotificationEmail:              z.string().email().optional(),
   complianceNoticesEmail:                z.string().email().optional(),
   escalationContactForFailedPayments:    z.string().max(200).optional(),
   smsAlertsEnabled:                      z.boolean().optional(),
-  // Step 15 — Subscription / Commercial Setup
+  // Step 15 -- Subscription / Commercial Setup
   subscriptionPlan:                      z.string().max(40).optional(),
   billingContactName:                    z.string().max(120).optional(),
   billingContactEmail:                   z.string().email().optional(),
   billingAddress:                        z.string().max(200).optional(),
   gstRegistered:                         z.boolean().optional(),
-  // Step 16 — Terms, Privacy & Platform Rules
+  // Step 16 -- Terms, Privacy & Platform Rules
   acceptingClients:                      z.boolean().optional(),
-  privacyPolicyAccepted:                 z.boolean().optional(),
-  confirmAuthorityToRegister:            z.boolean().optional(),
-  confirmDetailsAccurate:                z.boolean().optional(),
-  consentToVerification:                 z.boolean().optional(),
-  consentToParticipantLinkingControls:   z.boolean().optional(),
-  consentToInvoiceRoutingRules:          z.boolean().optional(),
   termsAccepted:                         z.boolean().optional(),
+  privacyPolicyAccepted:                 z.boolean().optional(),
   ndisCodeAccepted:                      z.boolean().optional(),
+  complianceDeclaration:                 z.boolean().optional(),
+  consentForVerification:                z.boolean().optional(),
 });
 
 export type PlanManagerProfileInput = z.infer<typeof planManagerProfileSchema>;

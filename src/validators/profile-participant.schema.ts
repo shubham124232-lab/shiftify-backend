@@ -13,7 +13,7 @@ export const participantProfileSchema = z.object({
   fullAddress:                  z.string().max(300).optional(),
   // NDIS
   ndisNumber:                   z.string().max(20).optional(),
-  fundingManagementType:        z.enum(["SELF", "PLAN", "NDIA"]).optional(),
+  fundingManagementType:        z.enum(["SELF_MANAGED", "PLAN_MANAGED", "NDIA_MANAGED"]).optional(),
   supportCoordinationFunding:   z.string().max(80).optional(),
   ndisStartDate:                z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
   ndisEndDate:                  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
@@ -30,10 +30,10 @@ export const participantProfileSchema = z.object({
   supportPreferences:           z.array(z.string()).optional(),
   preferredSupportType:         z.string().max(80).optional(),
   preferredWorkerGender:        z.string().max(40).optional(),
-  languagePreference:           z.string().max(80).optional(),
-  culturalPreference:           z.string().max(120).optional(),
+  languagePreference:           z.array(z.string()).optional(),
+  culturalPreference:           z.array(z.string()).optional(),
   preferredDays:                z.array(z.string()).optional(),
-  preferredTime:                z.union([z.string(), z.array(z.string())]).transform(v => Array.isArray(v) ? v.join(', ') : v).optional(),
+  preferredTime:                z.array(z.string()).optional(),
   // Emergency contact
   emergencyContactName:         z.string().max(120).optional(),
   emergencyContactPhone:        z.string().max(30).optional(),
