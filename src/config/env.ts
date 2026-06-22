@@ -13,7 +13,7 @@ const EnvSchema = z.object({
 
   JWT_ACCESS_SECRET: z.string().min(16, "JWT_ACCESS_SECRET must be at least 16 chars"),
   JWT_REFRESH_SECRET: z.string().min(16, "JWT_REFRESH_SECRET must be at least 16 chars"),
-  JWT_ACCESS_EXPIRES_IN: z.string().default("30d"),
+  JWT_ACCESS_EXPIRES_IN: z.string().default("1d"),
   JWT_REFRESH_EXPIRES_IN: z.string().default("30d"),
 
   CORS_ORIGIN: z.string().default(
