@@ -56,60 +56,95 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): number 
 
   const pct = (filled: number, total: number) => Math.round((filled / total) * 100);
   const has  = (v: unknown) => v !== null && v !== undefined && v !== "";
+  // Non-empty JSON array (stored as Json? — runtime value is unknown)
+  const hasArr = (v: unknown) => Array.isArray(v) ? v.length > 0 : has(v);
 
   switch (activeRole) {
     case "PARTICIPANT": {
       const fields = [
+        // Identity & contact
         user.phoneVerified,
         hasSuburb,
         has(pp?.preferredName),
-        has(pp?.primaryDisability),
-        has(pp?.fundingManagementType),
-        has(pp?.emergencyContactName),
+        // NDIS
         has(pp?.ndisNumber),
+        has(pp?.fundingManagementType),
+        // Support needs
+        has(pp?.primaryDisability),
+        hasArr(pp?.primarySupportNeeds),
+        has(pp?.preferredSupportType),
+        // Emergency contact
+        has(pp?.emergencyContactName),
+        has(pp?.emergencyContactPhone),
+        // Declaration
+        pp?.termsAccepted === true,
       ];
       return pct(fields.filter(Boolean).length, fields.length);
     }
 
     case "SUPPORT_WORKER": {
       const fields = [
+        // Identity & contact
         user.phoneVerified,
         hasSuburb,
+        has(wp?.gender),
+        // Right to work
         has(wp?.rightToWork),
-        has(wp?.servicesOffered),
+        // Work type
+        has(wp?.workType),
+        // Services
+        hasArr(wp?.servicesOffered),
         has(wp?.experienceLevel),
+        hasArr(wp?.serviceAreas),
+        // Availability
         has(wp?.availabilityType),
-        has(wp?.bio),
-        has(wp?.hourlyRate),
         wp && (wp.availability?.length ?? 0) > 0,
+        // Financials & bio
+        has(wp?.hourlyRate),
+        has(wp?.bio),
       ];
       return pct(fields.filter(Boolean).length, fields.length);
     }
 
     case "COORDINATOR": {
       const fields = [
+        // Identity & contact
         user.phoneVerified,
+        hasSuburb,
+        // Professional identity
         has(cp?.roleType),
         has(cp?.organisationName),
-        has(cp?.serviceAreas),
-        has(cp?.bio),
-        has(cp?.hourlyRate),
+        // Qualifications
+        hasArr(cp?.qualifications),
+        // Service capability
+        hasArr(cp?.supportCoordinationLevel),
         has(cp?.serviceMode),
-        has(cp?.supportCoordinationLevel),
+        hasArr(cp?.serviceAreas),
+        // Availability
+        has(cp?.availabilityType),
+        // Rates & bio
+        has(cp?.hourlyRate),
+        has(cp?.bio),
       ];
       return pct(fields.filter(Boolean).length, fields.length);
     }
 
     case "PROVIDER": {
       const fields = [
+        // Identity & contact
         user.phoneVerified,
         has(pr?.businessName),
         has(pr?.abn),
-        has(pr?.coreServices),
-        has(pr?.serviceAreas),
         has(pr?.primaryContactName),
-        has(pr?.businessDescription),
+        has(pr?.primaryContactPhone),
+        // Services
+        hasArr(pr?.coreServices),
         has(pr?.serviceMode),
+        hasArr(pr?.serviceAreas),
+        // About
+        has(pr?.businessDescription),
+        has(pr?.workforceSize),
+        // Subscription
         user.status === "ACTIVE",
       ];
       return pct(fields.filter(Boolean).length, fields.length);
@@ -117,10 +152,16 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): number 
 
     case "PLAN_MANAGER": {
       const fields = [
+        // Identity & contact
         user.phoneVerified,
         has(pm?.businessName),
         has(pm?.abn),
-        has(pm?.serviceAreas),
+        has(pm?.pmRoleType),
+        has(pm?.businessPhone ?? pm?.businessEmail),
+        // Capability
+        hasArr(pm?.planTypesSupported),
+        hasArr(pm?.serviceAreas),
+        // Subscription
         user.status === "ACTIVE",
       ];
       return pct(fields.filter(Boolean).length, fields.length);
@@ -166,7 +207,50 @@ export async function updateProfile(userId: string, input: UpdateProfileInput) {
 
   // Address: upsert the isDefault address
   if (address) {
-    const defaultAddr = await prisma.address.findFirst({
+        const defaultAddr = await prisma.address.findFirst({
+      where: { userId, isDefault: true },
+    });
+    if (defaultAddr) {
+      await prisma.address.update({
+        where: { id: defaultAddr.id },
+        data: {
+          unitApartment: address.unitApartment ?? null,
+          street:        address.street ?? null,
+          suburb:        address.suburb,
+          state:         address.state ?? null,
+          postcode:      address.postcode ?? null,
+          notes:         address.notes ?? null,
+        },
+      });
+    } else {
+      await prisma.address.create({
+        data: {
+          userId,
+          isDefault:     true,
+          unitApartment: address.unitApartment ?? null,
+          street:        address.street ?? null,
+          suburb:        address.suburb,
+          state:         address.state ?? null,
+          postcode:      address.postcode ?? null,
+          notes:         address.notes ?? null,
+        },
+      });
+    }
+
+    // Mirror suburb to user.defaultSuburb for quick access
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        defaultSuburb:   address.suburb,
+        defaultState:    address.state ?? null,
+        defaultPostcode: address.postcode ?? null,
+      },
+    });
+  }
+
+  return getUserById(userId);
+}
+t defaultAddr = await prisma.address.findFirst({
       where: { userId, isDefault: true },
     });
     if (defaultAddr) {
