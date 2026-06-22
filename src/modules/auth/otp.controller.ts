@@ -8,6 +8,7 @@ import {
 import * as otpService from "./otp.service";
 import { success } from "../../utils/response";
 import { UnauthorizedError } from "../../lib/errors";
+import { signAccessToken } from "../../lib/jwt";
 
 // POST /auth/verify/request — send an OTP to the caller's email or phone.
 export async function requestVerification(req: Request, res: Response): Promise<void> {
@@ -21,6 +22,8 @@ export async function requestVerification(req: Request, res: Response): Promise<
 }
 
 // POST /auth/verify/confirm — submit the OTP to mark email/phone verified.
+// Returns a fresh access token so Flutter/mobile clients can continue immediately
+// without a separate /auth/refresh call (which requires HttpOnly cookie support).
 export async function confirmVerification(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const body = verifyConfirmSchema.parse(req.body);
@@ -29,7 +32,18 @@ export async function confirmVerification(req: Request, res: Response): Promise<
     channel: body.channel,
     code: body.code,
   });
-  success(res, { verified: true, phoneVerified: result.phoneVerified, emailVerified: result.emailVerified });
+  const accessToken = signAccessToken({
+    sub:        req.user.id,
+    activeRole: req.user.activeRole,
+    roles:      req.user.roles,
+    status:     req.user.status,
+  });
+  success(res, {
+    verified:      true,
+    phoneVerified: result.phoneVerified,
+    emailVerified: result.emailVerified,
+    accessToken,
+  });
 }
 
 // POST /auth/password/forgot — request a password-reset code (unauthenticated).
