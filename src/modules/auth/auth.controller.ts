@@ -105,7 +105,14 @@ export async function refresh(req: Request, res: Response): Promise<void> {
     (req.cookies?.[REFRESH_COOKIE_NAME] as string | undefined) ?? req.body?.refreshToken;
   const r = await authService.refresh(token ?? "");
   setRefreshCookie(res, r.tokens.refreshToken, r.tokens.refreshTokenExpiresAt);
-  success(res, { accessToken: r.tokens.accessToken, refreshToken: r.tokens.refreshToken, activeRole: r.activeRole, roles: r.roles });
+  success(res, {
+    accessToken:   r.tokens.accessToken,
+    refreshToken:  r.tokens.refreshToken,
+    activeRole:    r.activeRole,
+    roles:         r.roles,
+    phoneVerified: r.user.phoneVerified,
+    emailVerified: r.user.emailVerified,
+  });
 }
 
 export async function logout(req: Request, res: Response): Promise<void> {

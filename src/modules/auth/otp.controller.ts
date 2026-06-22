@@ -24,12 +24,12 @@ export async function requestVerification(req: Request, res: Response): Promise<
 export async function confirmVerification(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const body = verifyConfirmSchema.parse(req.body);
-  await otpService.confirmVerification({
+  const result = await otpService.confirmVerification({
     userId: req.user.id,
     channel: body.channel,
     code: body.code,
   });
-  success(res, { verified: true });
+  success(res, { verified: true, phoneVerified: result.phoneVerified, emailVerified: result.emailVerified });
 }
 
 // POST /auth/password/forgot — request a password-reset code (unauthenticated).

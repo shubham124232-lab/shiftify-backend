@@ -166,11 +166,16 @@ export async function confirmVerification(input: {
   userId: string;
   channel: "email" | "phone";
   code: string;
-}): Promise<void> {
+}): Promise<{ phoneVerified: boolean; emailVerified: boolean }> {
   const ch = channelEnum(input.channel);
   await consumeCode(input.userId, ch, purposeForChannel(ch), input.code);
   const update = ch === "EMAIL" ? { emailVerified: true } : { phoneVerified: true };
-  await prisma.user.update({ where: { id: input.userId }, data: update });
+  const user = await prisma.user.update({
+    where: { id: input.userId },
+    data: update,
+    select: { phoneVerified: true, emailVerified: true },
+  });
+  return user;
 }
 
 // POST /auth/password/forgot — constant-time response to prevent enumeration.
