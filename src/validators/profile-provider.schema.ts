@@ -12,10 +12,10 @@ export const providerProfileSchema = z.object({
   businessName:                      z.string().max(120).optional(),
   legalEntityName:                   z.string().max(120).optional(),
   abn:                               z.string().max(20).optional(),
-  businessStructure:                 z.enum(["SOLE_TRADER", "PARTNERSHIP", "COMPANY", "TRUST"]).optional(),
+  businessStructure:                 z.enum(["SOLE_TRADER", "PARTNERSHIP", "COMPANY", "TRUST", "NOT_FOR_PROFIT", "GOVERNMENT"]).optional(),
   ndisRegistered:                    z.boolean().optional(),
   ndisProviderNumber:                z.string().max(40).optional(),
-  ndisAuditStatus:                   z.enum(["VERIFIED", "PENDING", "EXPIRED"]).optional(),
+  ndisAuditStatus:                   z.string().max(60).optional(),
   gstRegistered:                     z.boolean().optional(),
   yearsInOperation:                  z.string().max(20).optional(),
   // Primary contact
