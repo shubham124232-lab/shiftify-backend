@@ -34,8 +34,8 @@ export async function confirmVerification(req: Request, res: Response): Promise<
   });
   const accessToken = signAccessToken({
     sub:        req.user.id,
-    activeRole: req.user.activeRole,
-    roles:      req.user.roles,
+    activeRole: req.activeRole ?? req.user.status,
+    roles:      req.roles ?? [],
     status:     req.user.status,
   });
   success(res, {

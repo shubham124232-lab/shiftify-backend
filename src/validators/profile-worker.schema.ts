@@ -108,5 +108,19 @@ export const workerProfileSchema = z.object({
   declarationStatement:      z.boolean().optional(),
 });
 
-export type WorkerProfileInput  = z.infer<typeof workerProfileSchema>;
+// availability array accepted inline with profile save
+const workerProfileSchemaWithAvailability = workerProfileSchema.extend({
+  availability: z.array(availabilitySlotSchema).optional(),
+});
+
+export const availabilitySlotsSchema = z.object({
+  slots: z.array(availabilitySlotSchema),
+});
+
+export const unavailabilitySchema = z.object({
+  date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date"),
+  reason: z.string().max(200).optional(),
+});
+
+export type WorkerProfileInput    = z.infer<typeof workerProfileSchemaWithAvailability>;
 export type AvailabilitySlotInput = z.infer<typeof availabilitySlotSchema>;

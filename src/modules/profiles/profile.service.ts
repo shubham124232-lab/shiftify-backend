@@ -193,7 +193,11 @@ export async function upsertProviderProfile(userId: string, data: ProviderProfil
 // ─── Coordinator ─────────────────────────────────────────────────────────────
 
 export async function upsertCoordinatorProfile(userId: string, data: CoordinatorProfileInput) {
-  const { profileStep: incomingStep, ...fields } = data;
+  const { profileStep: incomingStep, ...raw } = data;
+  const fields = datesToDates(raw as Record<string, unknown>, [
+    "policeCheckExpiry", "wwccExpiry", "ndisScreeningExpiry",
+    "professionalIndemnityExpiry", "publicLiabilityExpiry",
+  ]);
 
   const existing = await prisma.coordinatorProfile.findUnique({ where: { userId } });
   const nextStep  = Math.max(existing?.profileStep ?? 0, incomingStep ?? 0);

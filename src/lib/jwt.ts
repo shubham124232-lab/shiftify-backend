@@ -7,6 +7,7 @@ export interface AccessTokenPayload {
   activeRole: string; // the role this token is currently operating as
   roles: string[]; // every role the account holds (for the client switcher)
   status: string;
+  name?: string; // display name — cached so first render shows correct greeting
 }
 
 export interface RefreshTokenPayload {

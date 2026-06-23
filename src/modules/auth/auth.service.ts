@@ -56,7 +56,7 @@ async function issueTokens(
   const sessionId  = randomUUID();
   const expiresAt  = new Date(Date.now() + expiresInMs(env.JWT_REFRESH_EXPIRES_IN));
 
-  const accessToken  = signAccessToken({ sub: user.id, activeRole, roles, status: user.status });
+  const accessToken  = signAccessToken({ sub: user.id, activeRole, roles, status: user.status, name: user.name ?? undefined });
   const refreshToken = signRefreshToken({ sub: user.id, jti: sessionId });
 
   await prisma.session.create({
@@ -299,7 +299,7 @@ export async function refresh(refreshToken: string): Promise<AuthResult> {
 
   const { roles: _r, ...user } = session.user;
 
-  const accessToken  = signAccessToken({ sub: user.id, activeRole, roles, status: user.status });
+  const accessToken  = signAccessToken({ sub: user.id, activeRole, roles, status: user.status, name: user.name ?? undefined });
   const refreshTokenNew = signRefreshToken({ sub: user.id, jti: session.id });
   const expiresAt = new Date(Date.now() + expiresInMs(env.JWT_REFRESH_EXPIRES_IN));
 
