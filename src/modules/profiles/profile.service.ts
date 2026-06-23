@@ -43,7 +43,7 @@ export async function getPlanManagerProfile(userId: string) {
 const ROLE_TOTAL_STEPS: Record<string, number> = {
   PARTICIPANT:    8,
   SUPPORT_WORKER: 9,
-  PROVIDER:       12,
+  PROVIDER:       14,
   COORDINATOR:    9,
   PLAN_MANAGER:   14,
 };
