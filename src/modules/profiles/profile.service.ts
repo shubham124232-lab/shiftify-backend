@@ -44,7 +44,7 @@ const ROLE_TOTAL_STEPS: Record<string, number> = {
   PARTICIPANT:    8,
   SUPPORT_WORKER: 9,
   PROVIDER:       14,
-  COORDINATOR:    9,
+  COORDINATOR:    11,
   PLAN_MANAGER:   14,
 };
 
