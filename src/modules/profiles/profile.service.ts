@@ -40,12 +40,13 @@ export async function getPlanManagerProfile(userId: string) {
 
 // ─── Profile progress ─────────────────────────────────────────────────────────
 
+// Must match the wizard step array lengths in Web/lib/registration/stepComponents.ts.
 const ROLE_TOTAL_STEPS: Record<string, number> = {
-  PARTICIPANT:    8,
+  PARTICIPANT:    5,
   SUPPORT_WORKER: 9,
-  PROVIDER:       14,
+  PROVIDER:       12,
   COORDINATOR:    9,
-  PLAN_MANAGER:   14,
+  PLAN_MANAGER:   15,
 };
 
 export async function getProfileProgress(userId: string, activeRole: string) {
