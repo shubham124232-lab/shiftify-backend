@@ -19,7 +19,7 @@ export type LoginVerifyInput = z.infer<typeof loginVerifySchema>;
 // Self-registration. Pick ONE initial role; more can be added later via /auth/roles.
 // Phone is required for SELF accounts (primary identity gate). Email is optional.
 export const baseRegisterSchema = z.object({
-  email: z.string().email().optional(),
+  email: z.string().email("Enter a valid email address").optional(),
   phone: z
     .string()
     .min(5)

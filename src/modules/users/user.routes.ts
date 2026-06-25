@@ -15,6 +15,8 @@ router.get("/:id",                requireAuth, asyncHandler(ctrl.getChild));
 router.patch("/:id",              requireAuth, asyncHandler(ctrl.patchChild));
 // Parent saves role-specific profile for a managed child
 router.post("/:id/profile/:role",    requireAuth, asyncHandler(ctrl.patchChildProfile));
+// Parent (Provider) sets a managed worker's availability slots
+router.put ("/:id/availability",     requireAuth, asyncHandler(ctrl.putChildAvailability));
 // Parent resets managed child's password
 router.post("/:id/reset-password",   requireAuth, asyncHandler(ctrl.resetChildPassword));
 

@@ -301,23 +301,23 @@ async function main() {
   console.log("[seed] Seeding subscription plans...");
 
   const plans = [
-  { key: "WORKER_FREE",          role: "SUPPORT_WORKER" as const, name: "Worker — Free",            amountAud: 0     },
-  { key: "WORKER_BASIC",         role: "SUPPORT_WORKER" as const, name: "Worker — Basic",           amountAud: 49.99 },
-  { key: "WORKER_AVAILABLE_NOW", role: "SUPPORT_WORKER" as const, name: "Worker — Available Now",   amountAud: 24.99 },
-  { key: "COORDINATOR_FREE",     role: "COORDINATOR"    as const, name: "Coordinator — Free",       amountAud: 0     },
-  { key: "COORDINATOR_BASIC",    role: "COORDINATOR"    as const, name: "Coordinator — Basic",      amountAud: 49.99 },
-  { key: "COORDINATOR_GROWTH",   role: "COORDINATOR"    as const, name: "Coordinator — Growth",     amountAud: 29.99 },
-  { key: "COORDINATOR_SPEED",    role: "COORDINATOR"    as const, name: "Coordinator — Speed",      amountAud: 19.99 },
-  { key: "PROVIDER_BASIC",       role: "PROVIDER"       as const, name: "Provider — Basic",         amountAud: 99.99 },
-  { key: "PROVIDER_GROWTH",      role: "PROVIDER"       as const, name: "Provider — Growth",        amountAud: 39.99 },
-  { key: "PROVIDER_SPEED",       role: "PROVIDER"       as const, name: "Provider — Speed",         amountAud: 29.99 },
-  { key: "PLAN_MANAGER_BASIC",   role: "PLAN_MANAGER"   as const, name: "Plan Manager — Basic",     amountAud: 19.99 },
+  { key: "WORKER_FREE",          role: "SUPPORT_WORKER" as const, name: "Worker — Free",            amountAud: 0,     isAddOn: false, features: ["Basic profile listing", "Apply to open shifts", "Standard support"] },
+  { key: "WORKER_BASIC",         role: "SUPPORT_WORKER" as const, name: "Worker — Basic",           amountAud: 49.99, isAddOn: false, features: ["Priority profile placement", "Unlimited shift applications", "Priority support"] },
+  { key: "WORKER_AVAILABLE_NOW", role: "SUPPORT_WORKER" as const, name: "Worker — Available Now",   amountAud: 24.99, isAddOn: true,  features: ["\"Available Now\" badge on profile", "Boosted visibility in urgent searches"] },
+  { key: "COORDINATOR_FREE",     role: "COORDINATOR"    as const, name: "Coordinator — Free",       amountAud: 0,     isAddOn: false, features: ["Basic profile listing", "Standard support"] },
+  { key: "COORDINATOR_BASIC",    role: "COORDINATOR"    as const, name: "Coordinator — Basic",      amountAud: 49.99, isAddOn: false, features: ["Priority profile placement", "Priority support"] },
+  { key: "COORDINATOR_GROWTH",   role: "COORDINATOR"    as const, name: "Coordinator — Growth",     amountAud: 29.99, isAddOn: true,  features: ["Advanced analytics dashboard", "Lead generation tools"] },
+  { key: "COORDINATOR_SPEED",    role: "COORDINATOR"    as const, name: "Coordinator — Speed",      amountAud: 19.99, isAddOn: true,  features: ["Faster client matching", "Priority placement boost"] },
+  { key: "PROVIDER_BASIC",       role: "PROVIDER"       as const, name: "Provider — Basic",         amountAud: 99.99, isAddOn: false, features: ["Up to 20 active job listings", "Verified badge on profile", "Basic analytics dashboard", "Standard support"] },
+  { key: "PROVIDER_GROWTH",      role: "PROVIDER"       as const, name: "Provider — Growth",        amountAud: 39.99, isAddOn: true,  features: ["Up to 40 active job listings", "Priority in search results", "Advanced analytics dashboard", "Priority support"] },
+  { key: "PROVIDER_SPEED",       role: "PROVIDER"       as const, name: "Provider — Speed",         amountAud: 29.99, isAddOn: true,  features: ["Up to 10 active job listings", "Fast onboarding tools", "Standard support"] },
+  { key: "PLAN_MANAGER_BASIC",   role: "PLAN_MANAGER"   as const, name: "Plan Manager — Basic",     amountAud: 19.99, isAddOn: false, features: ["Manage up to 50 participant plans", "Budget tracking & reporting", "Claim submission tools", "Priority support"] },
 ];
 
   for (const plan of plans) {
     await (prisma as any).plan.upsert({
       where:  { key: plan.key },
-      update: { name: plan.name, amountAud: plan.amountAud, active: true },
+      update: { name: plan.name, amountAud: plan.amountAud, active: true, features: plan.features, isAddOn: plan.isAddOn },
       create: { ...plan },
     });
     console.log(`  ✓ plan: ${plan.key} (AUD ${plan.amountAud})`);

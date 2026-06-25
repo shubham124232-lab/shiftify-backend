@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { phoneOptional } from "./shared";
 
 export const participantProfileSchema = z.object({
   profileStep:                  z.number().int().min(0).max(20).optional(),
@@ -36,7 +37,7 @@ export const participantProfileSchema = z.object({
   preferredTime:                z.array(z.string()).optional(),
   // Emergency contact
   emergencyContactName:         z.string().max(120).optional(),
-  emergencyContactPhone:        z.string().max(30).optional(),
+  emergencyContactPhone:        phoneOptional,
   emergencyContactRelationship: z.string().max(80).optional(),
   // Declarations
   seekingPlanManager:           z.boolean().optional(),

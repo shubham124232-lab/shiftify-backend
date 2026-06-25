@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { phoneOptional, emailOptional } from "./shared";
 
 const socialLinksSchema = z.object({
   facebook:  z.string().max(200).optional(),
@@ -6,7 +7,7 @@ const socialLinksSchema = z.object({
   linkedin:  z.string().max(200).optional(),
 });
 
-export const providerProfileSchema = z.object({
+const providerProfileBaseSchema = z.object({
   profileStep:                       z.number().int().min(0).max(20).optional(),
   // Business identity
   businessName:                      z.string().max(120).optional(),
@@ -21,16 +22,16 @@ export const providerProfileSchema = z.object({
   // Primary contact
   primaryContactName:                z.string().max(120).optional(),
   primaryContactRole:                z.string().max(80).optional(),
-  primaryContactPhone:               z.string().max(30).optional(),
-  primaryContactEmail:               z.string().email().optional(),
+  primaryContactPhone:               phoneOptional,
+  primaryContactEmail:               emailOptional,
   // Accounts contact
   accountsContactName:               z.string().max(120).optional(),
-  accountsContactEmail:              z.string().email().optional(),
+  accountsContactEmail:              emailOptional,
   // Secondary contact
   secondaryContactName:              z.string().max(120).optional(),
   secondaryContactRole:              z.string().max(80).optional(),
-  secondaryContactPhone:             z.string().max(30).optional(),
-  secondaryContactEmail:             z.string().email().optional(),
+  secondaryContactPhone:             phoneOptional,
+  secondaryContactEmail:             emailOptional,
   // Insurance
   publicLiabilityPolicyNumber:       z.string().max(80).optional(),
   publicLiabilityCoverageAmount:     z.string().max(40).optional(),
@@ -86,6 +87,19 @@ export const providerProfileSchema = z.object({
   serviceAgreementAccepted:          z.boolean().optional(),
   platformRulesAccepted:             z.boolean().optional(),
   complianceDeclaration:             z.boolean().optional(),
+});
+
+export const providerProfileSchema = providerProfileBaseSchema.superRefine((data, ctx) => {
+  if (data.ndisRegistered && !data.ndisProviderNumber) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ndisProviderNumber"], message: "NDIS provider number is required for NDIS-registered providers" });
+  }
+  if (data.offersSil) {
+    if (!data.silType) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["silType"], message: "SIL type is required when offering SIL" });
+    if (!data.silSupportLevel) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["silSupportLevel"], message: "SIL support level is required when offering SIL" });
+  }
+  if (data.offersSda && !data.sdaDesignCategory?.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["sdaDesignCategory"], message: "SDA design category is required when offering SDA" });
+  }
 });
 
 export type ProviderProfileInput = z.infer<typeof providerProfileSchema>;

@@ -6,7 +6,7 @@ const optDate = z.preprocess(
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
 );
 
-export const coordinatorProfileSchema = z.object({
+const coordinatorProfileBaseSchema = z.object({
   profileStep:                       z.number().int().min(0).max(20).optional(),
   // Step 1 -- Professional Identity
   roleType:                          z.enum(["INDEPENDENT", "AGENCY_EMPLOYED"]).optional(),
@@ -56,6 +56,15 @@ export const coordinatorProfileSchema = z.object({
   ndisCodeAccepted:                  z.boolean().optional(),
   complianceDeclaration:             z.boolean().optional(),
   consentForVerification:            z.boolean().optional(),
+});
+
+export const coordinatorProfileSchema = coordinatorProfileBaseSchema.superRefine((data, ctx) => {
+  if (data.roleType === "AGENCY_EMPLOYED" && !data.organisationName) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["organisationName"], message: "Organisation name is required for agency-employed coordinators" });
+  }
+  if (data.ndisRegistered && !data.ndisProviderNumber) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ndisProviderNumber"], message: "NDIS provider number is required for NDIS-registered coordinators" });
+  }
 });
 
 export type CoordinatorProfileInput = z.infer<typeof coordinatorProfileSchema>;

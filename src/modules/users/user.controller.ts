@@ -9,7 +9,7 @@ import * as documentService from "../documents/document.service";
 import { uploadDocumentSchema } from "../../validators/document.schema";
 import { hashPassword } from "../../lib/hash";
 import { prisma } from "../../lib/prisma";
-import { workerProfileSchema } from "../../validators/profile-worker.schema";
+import { workerProfileSchema, availabilitySlotsSchema } from "../../validators/profile-worker.schema";
 import { participantProfileSchema } from "../../validators/profile-participant.schema";
 import type { UserRole } from "@prisma/client";
 
@@ -109,6 +109,17 @@ export async function patchChildProfile(req: Request, res: Response): Promise<vo
   }
 
   throw new ValidationError("Unknown role: " + role, []);
+}
+
+// PUT /users/:id/availability — parent (Provider) sets a managed worker's
+// availability slots. Mirrors PUT /users/me/availability but parent-scoped;
+// availability lives outside workerProfileSchema (its own table), so it can't
+// be set via POST /users/:id/profile/worker.
+export async function putChildAvailability(req: Request, res: Response): Promise<void> {
+  await requireManagedChild(req);
+  const { slots } = availabilitySlotsSchema.parse(req.body);
+  const availability = await profileService.replaceAvailabilitySlots(req.params.id, slots);
+  success(res, { availability });
 }
 
 export async function patchMe(req: Request, res: Response): Promise<void> {

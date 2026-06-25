@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { phoneOptional, emailOptional } from "./shared";
 
 export const availabilitySlotSchema = z.object({
   dayOfWeek: z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]),
@@ -17,8 +18,8 @@ const vehicleDetailsSchema = z.object({
 const referenceSchema = z.object({
   name:         z.string().max(100),
   relationship: z.string().max(60),
-  phone:        z.string().max(30).optional(),
-  email:        z.string().email().optional(),
+  phone:        phoneOptional,
+  email:        emailOptional,
 });
 
 const weekendNightRatesSchema = z.object({
@@ -27,7 +28,19 @@ const weekendNightRatesSchema = z.object({
   publicHolidayRate: z.number().min(0).max(9999).optional(),
 });
 
-export const workerProfileSchema = z.object({
+function applyWorkerRefinements<Shape extends z.ZodRawShape>(schema: z.ZodObject<Shape>) {
+  return schema.superRefine((data, ctx) => {
+    if (data.workType === "CONTRACTOR" && !data.abn) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["abn"], message: "ABN is required for contractors" });
+    }
+    if (data.rightToWork === "VISA_HOLDER") {
+      if (!data.visaType) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["visaType"], message: "Visa type is required for visa holders" });
+      if (!data.visaExpiry) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["visaExpiry"], message: "Visa expiry is required for visa holders" });
+    }
+  });
+}
+
+const workerProfileBaseSchema = z.object({
   profileStep:               z.number().int().min(0).max(20).optional(),
   // Personal
   dob:                       z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
@@ -108,10 +121,14 @@ export const workerProfileSchema = z.object({
   declarationStatement:      z.boolean().optional(),
 });
 
+export const workerProfileSchema = applyWorkerRefinements(workerProfileBaseSchema);
+
 // availability array accepted inline with profile save
-const workerProfileSchemaWithAvailability = workerProfileSchema.extend({
-  availability: z.array(availabilitySlotSchema).optional(),
-});
+const workerProfileSchemaWithAvailability = applyWorkerRefinements(
+  workerProfileBaseSchema.extend({
+    availability: z.array(availabilitySlotSchema).optional(),
+  }),
+);
 
 export const availabilitySlotsSchema = z.object({
   slots: z.array(availabilitySlotSchema),

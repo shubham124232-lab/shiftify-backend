@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { phoneOptional, emailOptional } from "./shared";
 
-export const planManagerProfileSchema = z.object({
+const planManagerProfileBaseSchema = z.object({
   profileStep:                           z.number().int().min(0).max(20).optional(),
   // Step 2 -- Role Type
   pmRoleType:                            z.enum(["PLAN_MANAGER", "PM_ORG_ADMIN", "PM_STAFF_MEMBER"]).optional(),
@@ -17,11 +18,11 @@ export const planManagerProfileSchema = z.object({
   businessSuburb:                        z.string().max(100).optional(),
   businessState:                         z.string().max(10).optional(),
   businessPostcode:                      z.string().max(10).optional(),
-  businessPhone:                         z.string().max(30).optional(),
-  businessEmail:                         z.string().email().optional(),
+  businessPhone:                         phoneOptional,
+  businessEmail:                         emailOptional,
   websiteUrl:                            z.string().url().optional().or(z.literal("")),
-  financeTeamEmail:                      z.string().email().optional(),
-  accountsPayablePhone:                  z.string().max(30).optional(),
+  financeTeamEmail:                      emailOptional,
+  accountsPayablePhone:                  phoneOptional,
   yearsInOperation:                      z.string().max(20).optional(),
   // Step 4 -- NDIS Registration
   ndisRegistrationStatus:                z.enum(["REGISTERED", "IN_PROGRESS", "NOT_REGISTERED"]).optional(),
@@ -51,15 +52,15 @@ export const planManagerProfileSchema = z.object({
   invoiceTurnaroundTime:                 z.string().max(60).optional(),
   // Step 8 -- Payment Operations
   invoiceIntakeMethod:                   z.array(z.string()).optional(),
-  primaryInvoiceContactEmail:            z.string().email().optional(),
+  primaryInvoiceContactEmail:            emailOptional,
   accountsContactName:                   z.string().max(120).optional(),
   paymentEnquiryContactName:             z.string().max(120).optional(),
-  paymentEnquiryContactEmail:            z.string().email().optional(),
-  paymentEnquiryContactPhone:            z.string().max(30).optional(),
+  paymentEnquiryContactEmail:            emailOptional,
+  paymentEnquiryContactPhone:            phoneOptional,
   invoiceReferenceFormat:                z.string().max(120).optional(),
   remittanceAdvice:                      z.string().max(200).optional(),
   disputeHandlingContact:                z.string().max(200).optional(),
-  staffFinanceTeamEmail:                 z.string().email().optional(),
+  staffFinanceTeamEmail:                 emailOptional,
   acceptsRegisteredProvidersOnly:        z.boolean().optional(),
   acceptsUnregisteredProviders:          z.boolean().optional(),
   requiresServiceDatesOnInvoices:        z.boolean().optional(),
@@ -72,14 +73,14 @@ export const planManagerProfileSchema = z.object({
   taxComplianceDeclaration:              z.boolean().optional(),
   informationAccurateDeclaration:        z.boolean().optional(),
   complaintsContactName:                 z.string().max(120).optional(),
-  complaintsContactEmail:                z.string().email().optional(),
+  complaintsContactEmail:                emailOptional,
   incidentEscalationContact:             z.string().max(200).optional(),
   privacyContact:                        z.string().max(200).optional(),
   recordsRetentionContact:               z.string().max(200).optional(),
   // Step 10 -- Staff / User Access Control
   organisationUserModel:                 z.enum(["SINGLE", "MULTI_USER"]).optional(),
   staffAdminName:                        z.string().max(120).optional(),
-  staffAdminEmail:                       z.string().email().optional(),
+  staffAdminEmail:                       emailOptional,
   staffSeatsRequired:                    z.number().int().min(0).max(9999).optional(),
   // Step 11 -- Participant Linking Setup
   participantLinkingMethod:              z.array(z.string()).optional(),
@@ -94,14 +95,14 @@ export const planManagerProfileSchema = z.object({
   requiresDocsForHighValueInvoices:      z.boolean().optional(),
   allowsProviderPortalMessaging:         z.boolean().optional(),
   // Step 14 -- Communication Preferences
-  invoiceNotificationEmail:              z.string().email().optional(),
-  complianceNoticesEmail:                z.string().email().optional(),
+  invoiceNotificationEmail:              emailOptional,
+  complianceNoticesEmail:                emailOptional,
   escalationContactForFailedPayments:    z.string().max(200).optional(),
   smsAlertsEnabled:                      z.boolean().optional(),
   // Step 15 -- Subscription / Commercial Setup
   subscriptionPlan:                      z.string().max(40).optional(),
   billingContactName:                    z.string().max(120).optional(),
-  billingContactEmail:                   z.string().email().optional(),
+  billingContactEmail:                   emailOptional,
   billingAddress:                        z.string().max(200).optional(),
   gstRegistered:                         z.boolean().optional(),
   // Step 16 -- Terms, Privacy & Platform Rules
@@ -111,6 +112,13 @@ export const planManagerProfileSchema = z.object({
   ndisCodeAccepted:                      z.boolean().optional(),
   complianceDeclaration:                 z.boolean().optional(),
   consentForVerification:                z.boolean().optional(),
+});
+
+export const planManagerProfileSchema = planManagerProfileBaseSchema.superRefine((data, ctx) => {
+  if (data.ndisRegistrationStatus === "REGISTERED") {
+    if (!data.ndisProviderNumber) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ndisProviderNumber"], message: "NDIS provider number is required when registered" });
+    if (!data.registrationExpiryDate) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["registrationExpiryDate"], message: "Registration expiry date is required when registered" });
+  }
 });
 
 export type PlanManagerProfileInput = z.infer<typeof planManagerProfileSchema>;

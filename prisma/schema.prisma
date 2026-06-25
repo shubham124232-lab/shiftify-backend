@@ -1165,6 +1165,11 @@ model Plan {
   // Stripe price ID — null until Phase 2 swap-in
   stripePriceId   String?
   active          Boolean  @default(true)
+  // Feature bullet points shown on the plan card (pricing_plans.md)
+  features        String[] @default([])
+  // Add-ons (e.g. COORDINATOR_GROWTH) stack alongside a base plan rather than
+  // replacing it — a user can hold one base plan + multiple active add-ons.
+  isAddOn         Boolean  @default(false)
   createdAt       DateTime @default(now())
 
   subscriptions   UserSubscription[]
