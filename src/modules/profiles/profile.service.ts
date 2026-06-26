@@ -127,6 +127,8 @@ export async function upsertWorkerProfile(userId: string, data: WorkerProfileInp
   const { availability, profileStep: incomingStep, ...raw } = data;
   const profileData = datesToDates(raw as Record<string, unknown>, [
     "dob", "visaExpiry", "publicLiabilityExpiry", "personalAccidentExpiry",
+    "ndisScreeningExpiry", "policeCheckIssueDate", "policeCheckExpiry",
+    "wwccExpiry", "firstAidExpiry", "cprExpiry", "driversLicenceExpiry",
   ]);
 
   const existing  = await prisma.workerProfile.findUnique({ where: { userId } });
