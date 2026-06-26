@@ -1,13 +1,12 @@
 import { z } from "zod";
-
-const phoneRegex = /^\+?[0-9]{5,20}$/;
+import { phoneRequired } from "./shared";
 
 // All fields optional - PATCH semantics (only update what is sent).
 export const updateProfileSchema = z.object({
   name:            z.string().min(1).max(120).optional(),
   email:           z.string().email().max(255).optional(),
   username:        z.string().min(3).max(40).optional(),
-  phone:           z.string().regex(phoneRegex, "Phone must be digits, optionally starting with +").optional(),
+  phone:           phoneRequired.optional(),
   avatarUrl:       z.string().url("Must be a valid URL").max(1000).optional(),
   defaultSuburb:   z.string().max(80).optional(),
   defaultState:    z.string().max(40).optional(),

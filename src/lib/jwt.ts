@@ -44,7 +44,7 @@ export interface PendingTokenPayload {
 
 export function signPendingToken(userId: string): string {
   return jwt.sign({ sub: userId, scope: "login-pending" }, env.JWT_ACCESS_SECRET, {
-    expiresIn: "10m",
+    expiresIn: "1d",
   } as SignOptions);
 }
 

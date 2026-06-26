@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { USER_ROLES, ALL_USER_ROLES } from "../config/constants";
+import { phoneRequired } from "./shared";
 
 // Login accepts a SINGLE identifier — email, phone, or username — plus password.
 // The backend resolves which kind it is (see auth.service.login).
@@ -20,11 +21,7 @@ export type LoginVerifyInput = z.infer<typeof loginVerifySchema>;
 // Phone is required for SELF accounts (primary identity gate). Email is optional.
 export const baseRegisterSchema = z.object({
   email: z.string().email("Enter a valid email address").optional(),
-  phone: z
-    .string()
-    .min(5)
-    .max(20)
-    .regex(/^\+?[0-9]+$/, "Phone must be digits, optionally starting with +"),
+  phone: phoneRequired,
   username: z
     .string()
     .min(3)
