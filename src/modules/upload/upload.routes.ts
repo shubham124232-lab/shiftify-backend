@@ -7,7 +7,6 @@ import * as ctrl from "./upload.controller";
 
 const router = Router();
 
-// Image-only multer for avatar uploads (5 MB max)
 const AVATAR_MIME = ["image/jpeg", "image/png", "image/heic", "image/webp"];
 const avatarUpload = multer({
   storage: multer.memoryStorage(),
@@ -21,13 +20,12 @@ const avatarUpload = multer({
   },
 });
 
-// GET /upload/presign
-router.get("/presign", requireAuth, asyncHandler(ctrl.presign));
-
-// POST /upload/avatar -- multipart, saves to local disk
-router.post("/avatar", requireAuth, avatarUpload.single("avatar"), asyncHandler(ctrl.uploadAvatar));
-
-// POST /upload/register-document
+router.get("/presign",            requireAuth, asyncHandler(ctrl.presign));
+router.post("/avatar",            requireAuth, avatarUpload.single("avatar"), asyncHandler(ctrl.uploadAvatar));
 router.post("/register-document", requireAuth, asyncHandler(ctrl.registerDocument));
+router.post("/document/presign",  requireAuth, asyncHandler(ctrl.documentPresign));
+router.post("/document/confirm",  requireAuth, asyncHandler(ctrl.documentConfirm));
+router.get("/document",           requireAuth, asyncHandler(ctrl.listUserDocuments));
+router.delete("/document/:id",    requireAuth, asyncHandler(ctrl.deleteUserDocument));
 
 export default router;

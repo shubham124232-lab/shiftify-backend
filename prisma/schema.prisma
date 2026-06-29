@@ -77,6 +77,9 @@ enum DocumentType {
   NDIS_REGISTRATION_PROOF
   BUSINESS_REP_PROOF
   POLICIES_PROCEDURES
+  BUSINESS_ADDRESS_EVIDENCE
+  CONTACT_IDENTITY_EVIDENCE
+  BANK_FINANCE_EVIDENCE
   OTHER
 }
 
@@ -886,6 +889,7 @@ model Document {
   user               User            @relation("UserDocuments", fields: [userId], references: [id], onDelete: Cascade)
   docType            DocumentType
   filePath           String
+  publicUrl          String?
   fileName           String
   mimeType           String
   sizeBytes          Int

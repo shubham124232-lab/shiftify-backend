@@ -29,11 +29,13 @@ export async function getMe(req: Request, res: Response): Promise<void> {
   const activeRole = req.activeRole as UserRole | undefined;
   const safe       = sanitizeUser(user);
 
-  const profileCompletion = activeRole ? computeCompletion(user, activeRole) : null;
+  const completion        = activeRole ? computeCompletion(user, activeRole) : null;
+  const profileCompletion = completion?.pct ?? null;
+  const completionMissing = completion?.missing ?? [];
   const profileStep       = activeRole ? computeProfileStep(user, activeRole) : 0;
   const marketplace       = activeRole ? await canAccessMarketplace(req.user.id, activeRole) : null;
 
-  success(res, { user: safe, profileCompletion, profileStep, phoneVerified: user.phoneVerified, marketplace });
+  success(res, { user: safe, profileCompletion, completionMissing, profileStep, phoneVerified: user.phoneVerified, marketplace });
 }
 
 // GET /users/:id — parent fetches full profile of a managed child
@@ -165,7 +167,7 @@ export async function listChildDocuments(req: Request, res: Response): Promise<v
   success(res, { documents });
 }
 
-// DELETE /users/:id/documents/:docId — parent deletes a managed child's document
+// DELETE /users/:id/documents/:docId - parent deletes a managed child's document
 export async function deleteChildDocument(req: Request, res: Response): Promise<void> {
   const target = await requireManagedChild(req);
   await documentService.deleteDocument(target.id, req.params.docId);
