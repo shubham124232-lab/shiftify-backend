@@ -179,3 +179,16 @@ export async function subscriptionGated(userId: string, role: UserRole): Promise
   });
   return sub !== null;
 }
+
+// ─── Active base-plan key (free-tier detection) ──────────────────────────────
+// Returns the plan key (e.g. WORKER_FREE, COORDINATOR_BASIC) of the user's
+// active non-add-on subscription for the given role, or null if none.
+
+export async function getActiveBasePlanKey(userId: string, role: UserRole): Promise<string | null> {
+  const sub = await (prisma as any).userSubscription.findFirst({
+    where:   { userId, status: "ACTIVE", plan: { role, isAddOn: false } },
+    include: { plan: { select: { key: true } } },
+    orderBy: { activatedAt: "desc" },
+  });
+  return sub?.plan?.key ?? null;
+}
