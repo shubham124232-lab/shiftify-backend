@@ -127,6 +127,27 @@ export async function selectApplicant(req: Request, res: Response): Promise<void
   success(res, { job });
 }
 
+// PATCH /jobs/:id/applications/:appId/shortlist
+export async function shortlistApplicant(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const app = await svc.shortlistApplicant(req.params.id, req.params.appId, req.user.id);
+  success(res, { application: app });
+}
+
+// PATCH /jobs/:id/applications/:appId/decline
+export async function declineApplicant(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const app = await svc.declineApplicant(req.params.id, req.params.appId, req.user.id);
+  success(res, { application: app });
+}
+
+// PATCH /jobs/:id/applications/:appId/withdraw
+export async function withdrawApplication(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const app = await svc.withdrawApplication(req.params.id, req.user.id);
+  success(res, { application: app });
+}
+
 // POST /jobs/:id/messages
 export async function sendMessage(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();

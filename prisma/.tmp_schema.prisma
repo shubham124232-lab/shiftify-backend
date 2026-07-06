@@ -1244,24 +1244,18 @@ model VerificationCode {
   expiresAt   DateTime
   consumedAt  DateTime?
   createdAt   DateTime   @default(now())
-
+ 
   @@index([userId, purpose])
   @@index([expiresAt])
 }
-
-// ───────────────────────────────────────────────────────────────────────────
-// Provider listings — capacity/service adverts (SERVICE) + SIL/SDA housing
-// vacancies (HOUSING). Posted by Providers; string fields mirror the Web
-// forms (post-service + sil-vacancy pages). Additive — Phase 1E+.
-// ───────────────────────────────────────────────────────────────────────────
 
 model ProviderListing {
   id               String   @id @default(uuid())
   providerUserId   String
   provider         User     @relation("ProviderListings", fields: [providerUserId], references: [id], onDelete: Cascade)
 
-  listingCategory  String   // SERVICE | HOUSING
-  status           String   @default("ACTIVE") // ACTIVE | PAUSED | FILLED | CLOSED
+  listingCategory  String
+  status           String   @default("ACTIVE")
 
   title            String
   description      String
@@ -1269,20 +1263,18 @@ model ProviderListing {
   state            String?
   postcode         String?
 
-  // SERVICE listings (post-service form)
-  listingType      String?  // IMMEDIATE_INTAKE | RECURRING_CAPACITY | ONE_TIME_SLOT | SHORT_TERM | URGENT_FILL | WAITLIST_OPENING | ONGOING_REFERRALS
+  listingType      String?
   serviceCategory  String?
-  serviceMode      String?  // IN_PERSON | REMOTE | BOTH
-  fundingTypes     Json?    // String[]
+  serviceMode      String?
+  fundingTypes     Json?
 
-  // HOUSING vacancies (sil-vacancy form)
-  vacancyCategory  String?  // SIL | SDA | SIL_SDA | RESPITE | MEDIUM_TERM | SHORT_TERM | OTHER
+  vacancyCategory  String?
   propertyType     String?
   vacancyCount     Int?
   supportModel     String?
-  suitableFor      Json?    // String[]
-  fundingRoutes    Json?    // String[]
-  urgency          String?  // AVAILABLE_NOW | AVAILABLE_SOON | FUTURE | EXPRESSION_OF_INTEREST
+  suitableFor      Json?
+  fundingRoutes    Json?
+  urgency          String?
 
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

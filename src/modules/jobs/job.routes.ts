@@ -26,6 +26,9 @@ router.patch ("/:id/confirm",                         asyncHandler(ctrl.confirmJ
 router.post  ("/:id/apply",                           asyncHandler(ctrl.applyToJob));
 router.get   ("/:id/applications",                    asyncHandler(ctrl.listApplications));
 router.patch ("/:id/applications/:appId/select",      asyncHandler(ctrl.selectApplicant));
+router.patch ("/:id/applications/:appId/shortlist",   asyncHandler(ctrl.shortlistApplicant));
+router.patch ("/:id/applications/:appId/decline",     asyncHandler(ctrl.declineApplicant));
+router.patch ("/:id/applications/:appId/withdraw",    asyncHandler(ctrl.withdrawApplication));
 
 // ── Messaging ──────────────────────────────────────────────────────────────
 router.post  ("/:id/messages",                        asyncHandler(ctrl.sendMessage));
