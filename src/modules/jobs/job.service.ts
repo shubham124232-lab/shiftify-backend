@@ -502,9 +502,33 @@ export async function getJob(jobId: string, userId: string, activeRole: UserRole
 
 // ─── Cancel ──────────────────────────────────────────────────────────────────
 
+// #65 — attribute a cancellation to the right reliability counter. Only runs
+// when the job already had a selected/assigned counterparty (ASSIGNED or
+// IN_PROGRESS). Client-side cancels count against the assigned worker/provider
+// profile as totalCancelledByClient; worker/provider-initiated cancels count
+// on the canceller's own profile as totalCancelledByWorker.
+async function attributeCancellation(
+  job: { status: JobStatus; selectedApplicantUserId: string | null; assignedWorkerUserId: string | null },
+  cancellerUserId: string,
+  cancellerRole: UserRole,
+): Promise<void> {
+  if (!["ASSIGNED", "IN_PROGRESS"].includes(job.status)) return;
+  const workerSide = cancellerRole === "SUPPORT_WORKER" || cancellerRole === "PROVIDER";
+  const field = workerSide ? "totalCancelledByWorker" : "totalCancelledByClient";
+  const targetUserId = workerSide
+    ? cancellerUserId
+    : (job.assignedWorkerUserId ?? job.selectedApplicantUserId);
+  if (!targetUserId) return;
+  await Promise.all([
+    (prisma as any).workerProfile.updateMany({ where: { userId: targetUserId }, data: { [field]: { increment: 1 } } }),
+    (prisma as any).providerProfile.updateMany({ where: { userId: targetUserId }, data: { [field]: { increment: 1 } } }),
+  ]);
+}
+
 export async function cancelJob(
   jobId: string,
   userId: string,
+  activeRole: UserRole,
   input: CancelJobInput,
 ) {
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
@@ -513,6 +537,9 @@ export async function cancelJob(
   if (["COMPLETED","CONFIRMED","CANCELLED"].includes(job!.status)) {
     throw new BadRequestError(`Cannot cancel a ${job!.status} job`);
   }
+
+  // #65 — reliability attribution (before status flips)
+  await attributeCancellation(job!, userId, activeRole);
 
   const hoursToStart =
     (new Date(job!.scheduledStartAt).getTime() - Date.now()) / (1000 * 60 * 60);
@@ -527,6 +554,7 @@ export async function cancelJob(
           status:            "CANCELLED",
           cancelledAt:       new Date(),
           cancelledByUserId: userId,
+          cancelledByRole:   activeRole,
           cancelReason:      input.reason ?? null,
         },
       }),
@@ -582,6 +610,7 @@ export async function cancelJob(
         status:            "CANCELLED",
         cancelledAt:       new Date(),
         cancelledByUserId: userId,
+        cancelledByRole:   activeRole,
         cancelReason:      input.reason ?? null,
       },
     }),
@@ -924,6 +953,11 @@ export async function confirmJob(jobId: string, posterId: string) {
   });
   const recipientId = job!.assignedWorkerUserId ?? job!.selectedApplicantUserId;
   if (recipientId) {
+    // #66 — reliability counter: completed job credited to the assigned party
+    await Promise.all([
+      (prisma as any).workerProfile.updateMany({ where: { userId: recipientId }, data: { totalCompleted: { increment: 1 } } }),
+      (prisma as any).providerProfile.updateMany({ where: { userId: recipientId }, data: { totalCompleted: { increment: 1 } } }),
+    ]);
     void notify.sendPushNotification(
       recipientId, "Job confirmed",
       `"${job!.title}" has been confirmed by the poster`, { jobId }, "JOB_CONFIRMED",

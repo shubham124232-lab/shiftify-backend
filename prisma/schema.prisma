@@ -489,6 +489,10 @@ model WorkerProfile {
   // Stats
   rating                    Float    @default(0)
   totalReviews              Int      @default(0)
+  // Reliability counters (#44/#65/#66) — incremented on confirm/cancel
+  totalCompleted            Int      @default(0)
+  totalCancelledByWorker    Int      @default(0)
+  totalCancelledByClient    Int      @default(0)
   lat                       Float?
   lng                       Float?
 
@@ -600,6 +604,13 @@ model ProviderProfile {
   serviceAgreementAccepted        Boolean  @default(false)
   platformRulesAccepted           Boolean  @default(false)
 
+  // Reliability counters (#44/#65/#66) — incremented on confirm/cancel
+  totalCompleted                  Int      @default(0)
+  totalCancelledByWorker          Int      @default(0)
+  totalCancelledByClient          Int      @default(0)
+  averageRating                   Float    @default(0)
+  totalRatings                    Int      @default(0)
+
   availability                    ProviderAvailability[]
 
   createdAt                       DateTime @default(now())
@@ -671,6 +682,13 @@ model CoordinatorProfile {
   ndisCodeAccepted                     Boolean  @default(false)
   complianceDeclaration                Boolean  @default(false)
   consentForVerification               Boolean  @default(false)
+
+  // Reliability counters (#44/#65/#66) — incremented on confirm/cancel
+  totalCompleted                       Int      @default(0)
+  totalCancelledByWorker               Int      @default(0)
+  totalCancelledByClient               Int      @default(0)
+  averageRating                        Float    @default(0)
+  totalRatings                         Int      @default(0)
 
   createdAt                            DateTime @default(now())
   updatedAt                            DateTime @updatedAt
@@ -996,6 +1014,7 @@ model SupportRequest {
   cancelledAt              DateTime?
   cancelledByUserId        String?
   cancelledBy              User?        @relation("CancelledBy", fields: [cancelledByUserId], references: [id])
+  cancelledByRole          UserRole?    // #65 — role that initiated the cancellation
   cancelReason             String?
 
   // True when this job was reopened+escalated to EMERGENCY by a near-start cancellation.

@@ -65,7 +65,7 @@ export async function getJob(req: Request, res: Response): Promise<void> {
 export async function cancelJob(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const data = parse(cancelJobSchema, req.body);
-  const job  = await svc.cancelJob(req.params.id, req.user.id, data);
+  const job  = await svc.cancelJob(req.params.id, req.user.id, role(req), data);
   success(res, { job });
 }
 

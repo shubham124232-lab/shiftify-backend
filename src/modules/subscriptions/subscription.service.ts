@@ -84,6 +84,11 @@ export async function activateAccount(
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new NotFoundError("User not found");
 
+  // #68 — Plan Managers must verify their phone before activation (no free path exists for PM).
+  if (activeRole === "PLAN_MANAGER" && !user.phoneVerified) {
+    throw new BadRequestError("Verify your phone number before activating a Plan Manager account.");
+  }
+
   const needsPlan = PLAN_REQUIRED_ROLES.includes(activeRole);
 
   let subscriptionRow: { id: string; mockReceiptRef: string | null } | null = null;
