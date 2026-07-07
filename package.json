@@ -15,6 +15,7 @@
     "prisma:reset": "prisma migrate reset",
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
+    "smoke": "tsx scripts/smoke.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

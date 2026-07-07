@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma";
 import {
+  ApiError,
   NotFoundError,
   ForbiddenError,
   BadRequestError,
@@ -7,6 +8,8 @@ import {
 } from "../../lib/errors";
 import { notify } from "../../lib/notify";
 import { canAccessMarketplace } from "../../middleware/marketplace.middleware";
+import { subscriptionGated, getActiveBasePlanKey } from "../subscriptions/subscription.service";
+import { FREE_TIER_LIMIT } from "../../config/constants";
 import type { UserRole, JobCategory, JobUrgency, JobStatus } from "@prisma/client";
 import { ShiftType, FundingType } from "@prisma/client";
 import type {
@@ -120,6 +123,30 @@ export async function createJob(
 
   if (activeRole !== "PARTICIPANT" && activeRole !== "COORDINATOR") {
     throw new ForbiddenError("Only participants and coordinators can post jobs");
+  }
+
+  // Subscription gate (#51/#52) — coordinators need an active plan; participants are free.
+  if (activeRole === "COORDINATOR") {
+    if (!(await subscriptionGated(posterId, activeRole))) {
+      throw new ApiError(
+        403,
+        "SUBSCRIPTION_REQUIRED",
+        "An active subscription is required to post jobs. Choose a plan on the Subscription page to continue.",
+      );
+    }
+    const planKey = await getActiveBasePlanKey(posterId, activeRole);
+    if (planKey?.endsWith("_FREE")) {
+      const openPosts = await prisma.supportRequest.count({
+        where: { postedByUserId: posterId, status: { in: ["DRAFT", "OPEN"] } },
+      });
+      if (openPosts >= FREE_TIER_LIMIT) {
+        throw new ApiError(
+          403,
+          "SUBSCRIPTION_LIMIT",
+          `Free plan limit reached (${FREE_TIER_LIMIT} open job posts). Upgrade your plan to post more.`,
+        );
+      }
+    }
   }
 
   let forParticipantUserId: string;
@@ -423,16 +450,17 @@ export async function listMyJobs(userId: string, activeRole: UserRole, status?: 
 
   const jobs = await prisma.supportRequest.findMany({
     where:   where as any,
-    select:  JOB_SUMMARY_SELECT,
+    select:  { ...JOB_SUMMARY_SELECT, _count: { select: { applications: true } } },
     orderBy: [{ scheduledStartAt: "desc" }],
     take:    100,
   });
 
   return {
-    jobs: jobs.map(({ createdAt, totalHours, ...rest }) => ({
+    jobs: jobs.map(({ createdAt, totalHours, _count, ...rest }) => ({
       ...rest,
       postedAt:      createdAt,
       totalHours,
+      _count,
     })),
   };
 }
@@ -474,9 +502,33 @@ export async function getJob(jobId: string, userId: string, activeRole: UserRole
 
 // ─── Cancel ──────────────────────────────────────────────────────────────────
 
+// #65 — attribute a cancellation to the right reliability counter. Only runs
+// when the job already had a selected/assigned counterparty (ASSIGNED or
+// IN_PROGRESS). Client-side cancels count against the assigned worker/provider
+// profile as totalCancelledByClient; worker/provider-initiated cancels count
+// on the canceller's own profile as totalCancelledByWorker.
+async function attributeCancellation(
+  job: { status: JobStatus; selectedApplicantUserId: string | null; assignedWorkerUserId: string | null },
+  cancellerUserId: string,
+  cancellerRole: UserRole,
+): Promise<void> {
+  if (!["ASSIGNED", "IN_PROGRESS"].includes(job.status)) return;
+  const workerSide = cancellerRole === "SUPPORT_WORKER" || cancellerRole === "PROVIDER";
+  const field = workerSide ? "totalCancelledByWorker" : "totalCancelledByClient";
+  const targetUserId = workerSide
+    ? cancellerUserId
+    : (job.assignedWorkerUserId ?? job.selectedApplicantUserId);
+  if (!targetUserId) return;
+  await Promise.all([
+    (prisma as any).workerProfile.updateMany({ where: { userId: targetUserId }, data: { [field]: { increment: 1 } } }),
+    (prisma as any).providerProfile.updateMany({ where: { userId: targetUserId }, data: { [field]: { increment: 1 } } }),
+  ]);
+}
+
 export async function cancelJob(
   jobId: string,
   userId: string,
+  activeRole: UserRole,
   input: CancelJobInput,
 ) {
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
@@ -485,6 +537,9 @@ export async function cancelJob(
   if (["COMPLETED","CONFIRMED","CANCELLED"].includes(job!.status)) {
     throw new BadRequestError(`Cannot cancel a ${job!.status} job`);
   }
+
+  // #65 — reliability attribution (before status flips)
+  await attributeCancellation(job!, userId, activeRole);
 
   const hoursToStart =
     (new Date(job!.scheduledStartAt).getTime() - Date.now()) / (1000 * 60 * 60);
@@ -499,6 +554,7 @@ export async function cancelJob(
           status:            "CANCELLED",
           cancelledAt:       new Date(),
           cancelledByUserId: userId,
+          cancelledByRole:   activeRole,
           cancelReason:      input.reason ?? null,
         },
       }),
@@ -554,6 +610,7 @@ export async function cancelJob(
         status:            "CANCELLED",
         cancelledAt:       new Date(),
         cancelledByUserId: userId,
+        cancelledByRole:   activeRole,
         cancelReason:      input.reason ?? null,
       },
     }),
@@ -583,6 +640,28 @@ export async function applyToJob(
     throw new ForbiddenError(
       `Complete your profile before applying: ${access.missing.join("; ")}`,
     );
+  }
+
+  // Subscription gate (#51/#52) — workers/providers need an active plan for their role.
+  if (!(await subscriptionGated(applicantId, activeRole))) {
+    throw new ApiError(
+      403,
+      "SUBSCRIPTION_REQUIRED",
+      "An active subscription is required to apply for jobs. Choose a plan on the Subscription page to continue.",
+    );
+  }
+  const applicantPlanKey = await getActiveBasePlanKey(applicantId, activeRole);
+  if (applicantPlanKey?.endsWith("_FREE")) {
+    const pendingApps = await prisma.jobApplication.count({
+      where: { applicantUserId: applicantId, status: "INTERESTED" },
+    });
+    if (pendingApps >= FREE_TIER_LIMIT) {
+      throw new ApiError(
+        403,
+        "SUBSCRIPTION_LIMIT",
+        `Free plan limit reached (${FREE_TIER_LIMIT} pending applications). Upgrade your plan to apply for more jobs.`,
+      );
+    }
   }
 
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
@@ -728,6 +807,47 @@ export async function selectApplicant(jobId: string, appId: string, posterId: st
   return prisma.supportRequest.findUnique({ where: { id: jobId }, select: JOB_WRITE_SELECT });
 }
 
+// ─── Shortlist applicant ──────────────────────────────────────────────────────
+
+export async function shortlistApplicant(jobId: string, appId: string, posterId: string) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can shortlist");
+
+  const app = await prisma.jobApplication.findUnique({ where: { id: appId } });
+  if (!app || app.jobId !== jobId) throw new NotFoundError("Application not found");
+  if (app.status !== "INTERESTED") throw new BadRequestError("Can only shortlist INTERESTED applicants");
+
+  return prisma.jobApplication.update({ where: { id: appId }, data: { status: "SHORTLISTED" } });
+}
+
+// ─── Decline applicant ────────────────────────────────────────────────────────
+
+export async function declineApplicant(jobId: string, appId: string, posterId: string) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can decline applicants");
+
+  const app = await prisma.jobApplication.findUnique({ where: { id: appId } });
+  if (!app || app.jobId !== jobId) throw new NotFoundError("Application not found");
+  if (["SELECTED", "WITHDRAWN"].includes(app.status)) throw new BadRequestError("Cannot decline this application");
+
+  return prisma.jobApplication.update({ where: { id: appId }, data: { status: "DECLINED" } });
+}
+
+// ─── Worker withdraw ──────────────────────────────────────────────────────────
+
+export async function withdrawApplication(jobId: string, applicantId: string) {
+  const app = await prisma.jobApplication.findUnique({
+    where: { jobId_applicantUserId: { jobId, applicantUserId: applicantId } },
+  });
+  if (!app) throw new NotFoundError("Application not found");
+  if (app.status === "SELECTED") throw new BadRequestError("Cannot withdraw after being selected");
+  if (app.status === "WITHDRAWN") throw new BadRequestError("Already withdrawn");
+
+  return prisma.jobApplication.update({ where: { id: app.id }, data: { status: "WITHDRAWN" } });
+}
+
 // ─── Assign worker (provider → their team member) ────────────────────────────
 
 export async function assignWorker(
@@ -833,6 +953,11 @@ export async function confirmJob(jobId: string, posterId: string) {
   });
   const recipientId = job!.assignedWorkerUserId ?? job!.selectedApplicantUserId;
   if (recipientId) {
+    // #66 — reliability counter: completed job credited to the assigned party
+    await Promise.all([
+      (prisma as any).workerProfile.updateMany({ where: { userId: recipientId }, data: { totalCompleted: { increment: 1 } } }),
+      (prisma as any).providerProfile.updateMany({ where: { userId: recipientId }, data: { totalCompleted: { increment: 1 } } }),
+    ]);
     void notify.sendPushNotification(
       recipientId, "Job confirmed",
       `"${job!.title}" has been confirmed by the poster`, { jobId }, "JOB_CONFIRMED",
@@ -882,8 +1007,7 @@ export async function getMessages(jobId: string, userId: string) {
   });
 }
 
-// ─── Invoice ──────────────────────────────────────────────────────────────────
-
+// ─── Invoice ────────────────────────────────────────────�
 export async function createInvoice(
   jobId: string,
   senderId: string,
@@ -894,61 +1018,59 @@ export async function createInvoice(
   if (!allowed.includes(activeRole)) {
     throw new ForbiddenError("Only coordinators, providers, and workers can create invoices");
   }
+
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
   if (!["COMPLETED","CONFIRMED","ASSIGNED","IN_PROGRESS"].includes(job!.status)) {
     throw new BadRequestError("Can only invoice a completed or in-progress job");
   }
+
   const app = await prisma.jobApplication.findFirst({
-    where: { jobId, applicantUserId: senderId, status: { in: ["SELECTED", "SHORTLISTED"] } },
+    where: { jobId, applicantUserId: senderId, status: { in: ["SELECTED","INTERESTED"] } },
   });
-  if (!app && job!.postedByUserId !== senderId) {
-    throw new ForbiddenError("Only the poster or the assigned worker/provider can create an invoice");
+  const isCoordinator = job!.postedByUserId === senderId && activeRole === "COORDINATOR";
+  if (!app && !isCoordinator) throw new ForbiddenError("You are not involved in this job");
+
+  const pm = await prisma.user.findUnique({
+    where: { id: input.planManagerUserId },
+    include: { roles: true },
+  });
+  if (!pm || !pm.roles.some((r) => r.role === "PLAN_MANAGER")) {
+    throw new NotFoundError("Plan manager not found");
   }
-  const invoice = await prisma.invoice.create({
+
+  return prisma.invoice.create({
     data: {
       jobId,
       senderUserId:      senderId,
       planManagerUserId: input.planManagerUserId,
       participantUserId: input.participantUserId,
       hours:             input.hours ?? null,
-      note:              input.note  ?? null,
+      note:              input.note ?? null,
     },
     include: {
       sender:      { select: { id: true, name: true } },
-      planManager: { select: { id: true, name: true } },
+      planManager: { select: { id: true, name: true, email: true } },
       participant: { select: { id: true, name: true } },
-      job:         { select: { id: true, title: true } },
+      job:         { select: { id: true, title: true, suburb: true, scheduledStartAt: true } },
     },
   });
-  await notify.sendPushNotification(
-    input.planManagerUserId,
-    "New invoice received",
-    `An invoice has been sent for job: ${job!.title}`,
-    { jobId, invoiceId: invoice.id },
-    "INVOICE_RECEIVED",
-  );
-  return invoice;
 }
 
 export async function listInvoices(userId: string, activeRole: UserRole) {
-  const where: Record<string, unknown> = {};
-  switch (activeRole) {
-    case "PLAN_MANAGER":  where.planManagerUserId = userId; break;
-    case "COORDINATOR":
-    case "PROVIDER":
-    case "SUPPORT_WORKER": where.senderUserId = userId; break;
-    case "PARTICIPANT":   where.participantUserId = userId; break;
-    default:              where.senderUserId = userId;
-  }
+  const where =
+    activeRole === "PLAN_MANAGER"  ? { planManagerUserId: userId } :
+    activeRole === "PARTICIPANT"   ? { participantUserId: userId }  :
+                                     { senderUserId: userId };
+
   return prisma.invoice.findMany({
     where,
+    orderBy: { sentAt: "desc" },
     include: {
       sender:      { select: { id: true, name: true } },
       planManager: { select: { id: true, name: true } },
       participant: { select: { id: true, name: true } },
-      job:         { select: { id: true, title: true, status: true } },
+      job:         { select: { id: true, title: true, suburb: true, scheduledStartAt: true } },
     },
-    orderBy: { sentAt: "desc" },
   });
 }

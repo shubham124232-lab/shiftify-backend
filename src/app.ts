@@ -16,6 +16,7 @@ import dashboardRoutes    from "./modules/dashboard/dashboard.routes";
 import jobRoutes          from "./modules/jobs/job.routes";
 import pmRoutes           from "./modules/pm/pm.routes";
 import uploadRoutes       from "./modules/upload/upload.routes";
+import listingRoutes      from "./modules/listings/listing.routes";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { requireAuth }    from "./middleware/auth.middleware";
 import { asyncHandler }   from "./utils/async-handler";
@@ -72,6 +73,7 @@ app.use("/jobs",          jobRoutes);
 app.get ("/invoices",     requireAuth, asyncHandler(listInvoices));
 app.use("/pm",            pmRoutes);
 app.use("/upload",        uploadRoutes);
+app.use("/provider/listings", listingRoutes);
 
 // ── 404 ─────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
