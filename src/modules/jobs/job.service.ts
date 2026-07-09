@@ -163,8 +163,8 @@ export async function createJob(
       if (!participant.roles.some((r) => r.role === "PARTICIPANT")) {
         throw new BadRequestError("That user is not a participant");
       }
-      if (participant.parentUserId && participant.parentUserId !== posterId) {
-        throw new ForbiddenError("That participant is managed by a different coordinator");
+      if (participant.parentUserId !== posterId) {
+        throw new ForbiddenError("You can only post for a participant you manage");
       }
       forParticipantUserId = input.forParticipantUserId;
 
@@ -187,7 +187,9 @@ export async function createJob(
       forParticipantUserId = newParticipant.id;
 
     } else {
-      forParticipantUserId = posterId;
+      throw new BadRequestError(
+        "forParticipantUserId or inlineParticipant is required for coordinators",
+      );
     }
   }
 
