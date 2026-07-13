@@ -112,10 +112,13 @@ enum JobCategory {
 }
 
 // Revised: three tiers (was STANDARD/LAST_MINUTE/URGENT/EMERGENCY)
+// REPLACEMENT added separately — a named special post type (worker cancelled,
+// need a replacement urgently), distinct from a generic EMERGENCY post.
 enum JobUrgency {
   EMERGENCY
   SAME_DAY
   SCHEDULED
+  REPLACEMENT
 }
 
 // Revised flow: OPEN accumulates expressions of interest; poster selects → ASSIGNED.
@@ -371,6 +374,7 @@ model ParticipantProfile {
   medicalConsiderations         Json?
   riskSafetyNotes               String?
   supportPreferences            Json?
+  personalCareSupportLevel      String?  // None | Basic assistance | Moderate assistance | Full assistance | High intensity support
 
   // Step 4 — Preferences & Availability
   preferredWorkerGender         String?
@@ -515,6 +519,7 @@ model ProviderProfile {
 
   // Step 2 — Business Identity
   businessName                    String
+  abnConfirmed                    Boolean  @default(false)
   legalEntityName                 String?
   abn                             String?  @unique
   businessStructure               String?
@@ -963,6 +968,10 @@ model SupportRequest {
 
   workerPreferences        Json?
 
+  // ── Step 4: Participant support needs (safety-critical) ─────────────────────
+  riskSafetyNotes      String?       @db.Text
+  medicalNotes         String?       @db.Text
+  behaviourNotes       String?       @db.Text
 
   // ── Step 1: Service details ──────────────────────────────────────────────────
   supportGoal          String?       // e.g. DAILY_LIVING, INDEPENDENCE, SOCIAL_PARTICIPATION
