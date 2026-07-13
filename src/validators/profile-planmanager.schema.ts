@@ -110,8 +110,11 @@ const planManagerProfileBaseSchema = z.object({
   termsAccepted:                         z.boolean().optional(),
   privacyPolicyAccepted:                 z.boolean().optional(),
   ndisCodeAccepted:                      z.boolean().optional(),
-  complianceDeclaration:                 z.boolean().optional(),
-  consentForVerification:                z.boolean().optional(),
+  confirmAuthorityToRegister:            z.boolean().optional(),
+  confirmDetailsAccurate:                z.boolean().optional(),
+  consentToVerification:                 z.boolean().optional(),
+  consentToParticipantLinkingControls:   z.boolean().optional(),
+  consentToInvoiceRoutingRules:          z.boolean().optional(),
 });
 
 export const planManagerProfileSchema = planManagerProfileBaseSchema.superRefine((data, ctx) => {

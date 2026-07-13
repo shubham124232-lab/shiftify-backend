@@ -11,14 +11,11 @@ import { hashPassword } from "../../lib/hash";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../lib/errors";
 import * as profileService from "../profiles/profile.service";
 import * as documentService from "../documents/document.service";
+import { REQUIRED_DOCS_BY_ROLE } from "../../middleware/marketplace.middleware";
 import type { WorkerProfileInput } from "../../validators/profile-worker.schema";
 import type { ParticipantProfileInput } from "../../validators/profile-participant.schema";
 import type { UploadDocumentInput } from "../../validators/document.schema";
 import type { UserRole, UserStatus } from "@prisma/client";
-
-// Mandatory pieces of a managed worker's onboarding — mirrors the self-registration
-// requirements. A DRAFT worker can only be activated once all of these are present.
-const REQUIRED_WORKER_DOCS = ["POLICE_CHECK", "NDIS_SCREENING", "WWCC", "FIRST_AID"] as const;
 
 export interface ManagedAccountResult {
   id: string;
@@ -115,7 +112,7 @@ async function checkWorkerOnboarding(workerId: string): Promise<WorkerOnboarding
   if (wp?.travelRadiusKm == null) missing.push("Travel radius");
 
   const uploadedTypes = new Set(worker.documents.map((d) => d.docType));
-  for (const docType of REQUIRED_WORKER_DOCS) {
+  for (const docType of REQUIRED_DOCS_BY_ROLE.SUPPORT_WORKER ?? []) {
     if (!uploadedTypes.has(docType)) missing.push(`${docType.replace(/_/g, " ")} document`);
   }
 

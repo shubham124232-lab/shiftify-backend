@@ -44,7 +44,7 @@ const workerProfileBaseSchema = z.object({
   profileStep:               z.number().int().min(0).max(20).optional(),
   // Personal
   dob:                       z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
-  gender:                    z.string().max(40).optional(),
+  gender:                    z.string().max(40).nullable().optional(),
   suburb:                    z.string().max(100).optional(),
   postcode:                  z.string().max(10).optional(),
   state:                     z.string().max(10).optional(),

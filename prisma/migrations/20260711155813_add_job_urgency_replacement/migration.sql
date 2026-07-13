@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "JobUrgency" ADD VALUE 'REPLACEMENT';

@@ -19,7 +19,7 @@ const FundingTypeEnum = z.enum([
   "SELF_MANAGED","PLAN_MANAGED","NDIA_MANAGED","PRIVATE","MIXED","DISCUSS",
 ]);
 
-const UrgencyEnum = z.enum(["EMERGENCY","SAME_DAY","SCHEDULED"]);
+const UrgencyEnum = z.enum(["EMERGENCY","SAME_DAY","SCHEDULED","REPLACEMENT"]);
 
 // ─── Create / draft ───────────────────────────────────────────────────────────
 
@@ -83,6 +83,11 @@ export const createJobSchema = z.object({
   caseReference:          z.string().max(120).optional(),
   // NEW_SUPPORT | REPLACEMENT | URGENT_INTERIM | HOSPITAL_DISCHARGE | SIL_SDA | etc.
   requestPurposeCategory: z.string().max(80).optional(),
+
+  // ── Step 4: Participant support needs (safety-critical) ───────────────────
+  riskSafetyNotes:        z.string().max(2000).optional(),
+  medicalNotes:           z.string().max(2000).optional(),
+  behaviourNotes:         z.string().max(2000).optional(),
 
   // ── Submit mode ──────────────────────────────────────────────────────────
   asDraft:                z.boolean().default(false),

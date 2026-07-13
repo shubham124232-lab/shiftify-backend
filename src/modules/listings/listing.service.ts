@@ -2,7 +2,32 @@
 // Phase 1E+: in-app records only (no views/enquiries tracking yet).
 
 import { prisma } from "../../lib/prisma";
+import { ApiError } from "../../lib/errors";
+import { subscriptionGated } from "../subscriptions/subscription.service";
 import type { CreateListingInput, ListListingsQuery } from "../../validators/listing.schema";
+import type { UserRole } from "@prisma/client";
+
+// Per-tier active-listing caps, matching the "Up to N active job listings"
+// copy advertised per plan (Backend/prisma/seed.ts, Web/lib/constants/plans.ts).
+// A Provider can hold Basic (required base) plus Growth and/or Speed add-ons
+// simultaneously — the cap applied is the highest one they're entitled to.
+const LISTING_CAP_BY_PLAN_KEY: Record<string, number> = {
+  PROVIDER_BASIC:  20,
+  PROVIDER_GROWTH: 40,
+  PROVIDER_SPEED:  10,
+};
+const DEFAULT_LISTING_CAP = 20;
+
+async function getListingCap(providerUserId: string): Promise<number> {
+  const subs = await (prisma as any).userSubscription.findMany({
+    where:   { userId: providerUserId, status: "ACTIVE", plan: { role: "PROVIDER" } },
+    include: { plan: { select: { key: true } } },
+  });
+  const caps = subs
+    .map((s: any) => LISTING_CAP_BY_PLAN_KEY[s.plan?.key as string])
+    .filter((n: number | undefined): n is number => typeof n === "number");
+  return caps.length > 0 ? Math.max(...caps) : DEFAULT_LISTING_CAP;
+}
 
 const LISTING_SELECT = {
   id: true,
@@ -28,7 +53,28 @@ const LISTING_SELECT = {
   updatedAt: true,
 } as const;
 
-export async function createListing(providerUserId: string, input: CreateListingInput) {
+export async function createListing(providerUserId: string, activeRole: UserRole, input: CreateListingInput) {
+  if (!(await subscriptionGated(providerUserId, activeRole))) {
+    throw new ApiError(
+      403,
+      "SUBSCRIPTION_REQUIRED",
+      "An active subscription is required to create listings. Choose a plan on the Subscription page to continue.",
+    );
+  }
+
+  const activeListingLimit = await getListingCap(providerUserId);
+
+  const activeCount = await (prisma as any).providerListing.count({
+    where: { providerUserId, status: "ACTIVE" },
+  });
+  if (activeCount >= activeListingLimit) {
+    throw new ApiError(
+      403,
+      "SUBSCRIPTION_LIMIT",
+      `Active listing limit reached (${activeListingLimit}). Pause or close an existing listing to create a new one.`,
+    );
+  }
+
   // acknowledgement is a form-only declaration — not persisted.
   const { acknowledgement: _ack, ...data } = input;
 
