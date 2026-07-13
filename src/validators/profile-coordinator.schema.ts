@@ -28,17 +28,18 @@ const coordinatorProfileBaseSchema = z.object({
   publicLiabilityPolicyNumber:       z.string().max(80).optional(),
   publicLiabilityExpiry:             optDate,
   // Step 3 -- Service Capability
-  coordinationLevels:                z.array(z.string()).optional(),
-  participantComplexity:             z.array(z.string()).optional(),
-  additionalServices:                z.array(z.string()).optional(),
+  supportCoordinationLevel:          z.array(z.string()).optional(),
+  participantComplexityExperience:   z.array(z.string()).optional(),
+  servicesOfferedBeyondCoordination: z.array(z.string()).optional(),
   // Step 4 -- Service Coverage
   serviceAreas:                      z.array(z.string()).optional(),
   serviceMode:                       z.enum(["IN_PERSON", "TELEHEALTH", "HYBRID"]).optional(),
   // Step 5 -- Availability & Capacity
-  capacityStatus:                    z.string().max(80).optional(),
+  currentCapacityStatus:             z.string().max(80).optional(),
   availabilityType:                  z.enum(["FULL_TIME", "PART_TIME", "CASUAL"]).optional(),
   maxParticipantLoad:                z.number().int().min(0).max(500).optional(),
   // Step 6 -- Plan Management Handling
+  participantTypesAccepted:          z.array(z.string()).optional(),
   fundingTypeCompatibility:          z.array(z.string()).optional(),
   billingMethodPreference:           z.string().max(80).optional(),
   // Step 7 -- Rates & Commercials
@@ -48,7 +49,7 @@ const coordinatorProfileBaseSchema = z.object({
   bio:                               z.string().max(2000).optional(),
   profilePhoto:                      z.string().max(500).optional(),
   languages:                         z.array(z.string()).optional(),
-  gender:                            z.string().max(40).optional(),
+  gender:                            z.string().max(40).nullable().optional(),
   seekingPlanManager:                z.boolean().optional(),
   // Step 9 -- Platform Rules & Compliance
   termsAccepted:                     z.boolean().optional(),

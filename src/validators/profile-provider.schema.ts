@@ -11,6 +11,7 @@ const providerProfileBaseSchema = z.object({
   profileStep:                       z.number().int().min(0).max(20).optional(),
   // Business identity
   businessName:                      z.string().max(120).optional(),
+  abnConfirmed:                      z.boolean().optional(),
   legalEntityName:                   z.string().max(120).optional(),
   abn:                               z.string().max(20).optional(),
   businessStructure:                 z.enum(["SOLE_TRADER", "PARTNERSHIP", "COMPANY", "TRUST", "NOT_FOR_PROFIT", "GOVERNMENT"]).optional(),
