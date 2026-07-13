@@ -7,7 +7,7 @@ import {
   ConflictError,
 } from "../../lib/errors";
 import { notify } from "../../lib/notify";
-import { canAccessMarketplace } from "../../middleware/marketplace.middleware";
+import { canAccessMarketplace, missingRequiredDocs } from "../../middleware/marketplace.middleware";
 import { subscriptionGated, getActiveBasePlanKey } from "../subscriptions/subscription.service";
 import { FREE_TIER_LIMIT } from "../../config/constants";
 import type { UserRole, JobCategory, JobUrgency, JobStatus } from "@prisma/client";
@@ -103,7 +103,7 @@ function withContactDetails<T extends {
 }
 
 function requireJob(job: { status: JobStatus } | null, jobId: string) {
-  if (!job) throw new NotFoundError(`Job ${jobId} not found`);
+  if (!job) throw new NotFoundError("We couldn't find that job. It may have been removed.");
   return job;
 }
 
@@ -188,7 +188,7 @@ export async function createJob(
 
     } else {
       throw new BadRequestError(
-        "forParticipantUserId or inlineParticipant is required for coordinators",
+        "Please select which participant this job is for.",
       );
     }
   }
@@ -247,6 +247,10 @@ export async function createJob(
       internalNote:         input.internalNote ?? null,
       caseReference:        input.caseReference ?? null,
       requestPurposeCategory: input.requestPurposeCategory ?? null,
+      // Step 4 (safety-critical)
+      riskSafetyNotes:      input.riskSafetyNotes ?? null,
+      medicalNotes:         input.medicalNotes ?? null,
+      behaviourNotes:       input.behaviourNotes ?? null,
       status,
     },
     select: JOB_WRITE_SELECT,
@@ -259,7 +263,7 @@ export async function publishJob(jobId: string, posterId: string) {
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
   if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can publish this job");
-  if (job!.status !== "DRAFT") throw new BadRequestError("Job is not in DRAFT status");
+  if (job!.status !== "DRAFT") throw new BadRequestError("Only a draft job can be published.");
   return prisma.supportRequest.update({
     where: { id: jobId },
     data:  { status: "OPEN" },
@@ -477,7 +481,7 @@ export async function getJob(jobId: string, userId: string, activeRole: UserRole
   requireJob(job, jobId);
 
   if (job!.status === "DRAFT" && job!.postedByUserId !== userId) {
-    throw new NotFoundError(`Job ${jobId} not found`);
+    throw new NotFoundError("We couldn't find that job. It may have been removed.");
   }
 
   if (activeRole === "SUPPORT_WORKER" || activeRole === "PROVIDER") {
@@ -488,7 +492,7 @@ export async function getJob(jobId: string, userId: string, activeRole: UserRole
       job!.selectedApplicantUserId !== userId &&
       job!.assignedWorkerUserId !== userId
     ) {
-      throw new ForbiddenError("Job not visible");
+      throw new ForbiddenError("You don't have access to view this job.");
     }
   }
 
@@ -537,7 +541,7 @@ export async function cancelJob(
   requireJob(job, jobId);
   if (job!.postedByUserId !== userId) throw new ForbiddenError("Only the poster can cancel");
   if (["COMPLETED","CONFIRMED","CANCELLED"].includes(job!.status)) {
-    throw new BadRequestError(`Cannot cancel a ${job!.status} job`);
+    throw new BadRequestError("This job can no longer be cancelled — it's already finished or was cancelled before.");
   }
 
   // #65 — reliability attribution (before status flips)
@@ -694,7 +698,7 @@ export async function applyToJob(
       });
       if (existingApps >= 1) {
         throw new ForbiddenError(
-          "Complete your worker profile (Steps 1 & 4) to apply to more than one job",
+          "Finish setting up your worker profile (your rights-to-work check and the services you offer) before applying to more than one job.",
         );
       }
     }
@@ -818,7 +822,7 @@ export async function shortlistApplicant(jobId: string, appId: string, posterId:
 
   const app = await prisma.jobApplication.findUnique({ where: { id: appId } });
   if (!app || app.jobId !== jobId) throw new NotFoundError("Application not found");
-  if (app.status !== "INTERESTED") throw new BadRequestError("Can only shortlist INTERESTED applicants");
+  if (app.status !== "INTERESTED") throw new BadRequestError("This application can no longer be shortlisted.");
 
   return prisma.jobApplication.update({ where: { id: appId }, data: { status: "SHORTLISTED" } });
 }
@@ -863,7 +867,7 @@ export async function assignWorker(
     throw new ForbiddenError("Only the selected provider can assign a worker");
   }
   if (!["ASSIGNED"].includes(job!.status)) {
-    throw new BadRequestError("Can only assign a worker to an ASSIGNED job");
+    throw new BadRequestError("You can only assign a worker after you've been selected for this job.");
   }
 
   const worker = await prisma.user.findUnique({
@@ -876,6 +880,13 @@ export async function assignWorker(
   }
   if (!worker.roles.some((r) => r.role === "SUPPORT_WORKER")) {
     throw new BadRequestError("That user is not a support worker");
+  }
+
+  const missingDocs = await missingRequiredDocs(worker.id, "SUPPORT_WORKER");
+  if (missingDocs.length > 0) {
+    throw new ForbiddenError(
+      `This worker can't be assigned until their documents are submitted: ${missingDocs.join("; ")}`,
+    );
   }
 
   const updated = await prisma.supportRequest.update({
@@ -904,7 +915,7 @@ export async function startJob(jobId: string, userId: string) {
     throw new ForbiddenError("Only the selected worker/provider can start this job");
   }
   if (job!.status !== "ASSIGNED") {
-    throw new BadRequestError(`Job must be ASSIGNED to start (current: ${job!.status})`);
+    throw new BadRequestError("This job can't be started yet — it needs to be assigned first.");
   }
   const updated = await prisma.supportRequest.update({
     where: { id: jobId },
@@ -925,7 +936,7 @@ export async function completeJob(jobId: string, userId: string) {
     throw new ForbiddenError("Only the assigned worker/provider can mark this job complete");
   }
   if (job!.status !== "IN_PROGRESS") {
-    throw new BadRequestError(`Job must be IN_PROGRESS to complete (current: ${job!.status})`);
+    throw new BadRequestError("This job can't be marked complete yet — it hasn't been started.");
   }
   const updated = await prisma.supportRequest.update({
     where: { id: jobId },
@@ -946,7 +957,7 @@ export async function confirmJob(jobId: string, posterId: string) {
     throw new ForbiddenError("Only the poster can confirm job completion");
   }
   if (job!.status !== "COMPLETED") {
-    throw new BadRequestError(`Job must be COMPLETED to confirm (current: ${job!.status})`);
+    throw new BadRequestError("This job can't be confirmed yet — it hasn't been marked complete.");
   }
   const updated = await prisma.supportRequest.update({
     where: { id: jobId },
@@ -982,7 +993,7 @@ export async function sendMessage(jobId: string, senderId: string, input: SendMe
     job!.selectedApplicantUserId === senderId ||
     job!.assignedWorkerUserId    === senderId ||
     job!.applications.some((a) => a.applicantUserId === senderId);
-  if (!isParty) throw new ForbiddenError("You are not a participant in this job");
+  if (!isParty) throw new ForbiddenError("You don't have access to this job's messages.");
   return prisma.jobMessage.create({
     data: { jobId, senderUserId: senderId, body: input.body },
     include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
@@ -1001,7 +1012,7 @@ export async function getMessages(jobId: string, userId: string) {
     job!.selectedApplicantUserId === userId ||
     job!.assignedWorkerUserId    === userId ||
     job!.applications.some((a) => a.applicantUserId === userId);
-  if (!isParty) throw new ForbiddenError("You are not a participant in this job");
+  if (!isParty) throw new ForbiddenError("You don't have access to this job's messages.");
   return prisma.jobMessage.findMany({
     where:   { jobId },
     orderBy: { createdAt: "asc" },
@@ -1054,7 +1065,7 @@ export async function createInvoice(
       sender:      { select: { id: true, name: true } },
       planManager: { select: { id: true, name: true, email: true } },
       participant: { select: { id: true, name: true } },
-      job:         { select: { id: true, title: true, suburb: true, scheduledStartAt: true } },
+      job:         { select: { id: true, title: true, status: true, suburb: true, scheduledStartAt: true } },
     },
   });
 }
@@ -1072,7 +1083,7 @@ export async function listInvoices(userId: string, activeRole: UserRole) {
       sender:      { select: { id: true, name: true } },
       planManager: { select: { id: true, name: true } },
       participant: { select: { id: true, name: true } },
-      job:         { select: { id: true, title: true, suburb: true, scheduledStartAt: true } },
+      job:         { select: { id: true, title: true, status: true, suburb: true, scheduledStartAt: true } },
     },
   });
 }
