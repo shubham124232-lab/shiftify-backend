@@ -137,9 +137,6 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): Complet
         ["Availability type",               has(wp?.availabilityType)],
         ["Emergency availability",          isTrue(wp?.emergencyAvailability)],
         ["Can transport participants",      isTrue(wp?.canTransportParticipants)],
-        ["Sleeper availability",            isTrue(wp?.sleeperAvailability)],
-        ["Available days",                  hasArr(wp?.availableDays)],
-        ["Time blocks",                     hasArr(wp?.timeBlocks)],
         ["Minimum shift hours",             has(wp?.minimumShiftHours)],
         ["Availability slots",              !!(wp && (wp.availability?.length ?? 0) > 0)],
         ["Service areas",                   hasArr(wp?.serviceAreas)],
@@ -413,9 +410,9 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): Complet
         conditional.push(["State coverage", hasArr(pm?.stateCoverage)]);
       }
       if (pm?.serviceCoverageType === "REGION_BASED") {
-        conditional.push(["Service areas", hasArr(pm?.serviceAreas)], ["Postcodes served", hasArr(pm?.postcodesServed)]);
+        conditional.push(["Postcodes served", hasArr(pm?.postcodesServed)]);
       }
-      if (pm?.organisationUserModel === "MULTI_USER") {
+      if (pm?.organisationUserModel === "SMALL_TEAM" || pm?.organisationUserModel === "LARGE_ORGANISATION") {
         conditional.push(
           ["Staff admin name",     has(pm?.staffAdminName)],
           ["Staff admin email",    has(pm?.staffAdminEmail)],
