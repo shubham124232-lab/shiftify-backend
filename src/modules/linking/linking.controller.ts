@@ -113,6 +113,17 @@ export async function upsertParticipantProfile(req: Request, res: Response): Pro
   success(res, { profile });
 }
 
+// GET /linking/participants/:id/profile — Coordinator reads a managed participant's
+// profile (used to prefill a job posted on the participant's behalf).
+export async function getParticipantProfile(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const profile = await linkingService.getManagedParticipantProfile({
+    parentUserId:  req.user.id,
+    participantId: req.params.id,
+  });
+  success(res, { profile });
+}
+
 // GET /linking/workers — Provider lists their managed workers.
 export async function listWorkers(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();

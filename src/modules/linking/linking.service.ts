@@ -281,6 +281,16 @@ export async function upsertManagedParticipantProfile(input: {
   return profileService.upsertParticipantProfile(input.participantId, input.data);
 }
 
+// GET /linking/participants/:id/profile — Coordinator reads a managed participant's
+// profile (used to prefill a job posting made on the participant's behalf).
+export async function getManagedParticipantProfile(input: {
+  parentUserId: string;
+  participantId: string;
+}) {
+  await assertManagedChild(input.parentUserId, input.participantId, "PARTICIPANT");
+  return profileService.getParticipantProfile(input.participantId);
+}
+
 // Generic unlink. Called by the two public wrappers below.
 // Does NOT delete — sets parentUserId null + SUSPENDED so data is kept.
 async function unlinkManagedAccount(input: {
