@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { phoneOptional } from "./shared";
 
-export const participantProfileSchema = z.object({
+const participantProfileBaseSchema = z.object({
   profileStep:                  z.number().int().min(0).max(20).optional(),
   // Personal
   preferredName:                z.string().max(80).optional(),
@@ -45,6 +45,19 @@ export const participantProfileSchema = z.object({
   privacyPolicyAccepted:        z.boolean().optional(),
   termsAccepted:                z.boolean().optional(),
   ndisCodeAccepted:             z.boolean().optional(),
+});
+
+export const participantProfileSchema = participantProfileBaseSchema.superRefine((data, ctx) => {
+  // Final-submission checks — only enforced once the applicant reaches the declaration step,
+  // so in-progress step-by-step saves are never blocked.
+  if (data.termsAccepted === true) {
+    if (!data.fundingManagementType) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fundingManagementType"], message: "Plan Management Type is required" });
+    }
+    if (!data.supportCoordinationFunding) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["supportCoordinationFunding"], message: "Support Coordination Funding is required" });
+    }
+  }
 });
 
 export type ParticipantProfileInput = z.infer<typeof participantProfileSchema>;
