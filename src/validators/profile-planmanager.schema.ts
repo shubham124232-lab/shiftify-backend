@@ -37,13 +37,14 @@ const planManagerProfileBaseSchema = z.object({
   plansRecurringInvoices:                z.boolean().optional(),
   plansOnceOffInvoices:                  z.boolean().optional(),
   providesBudgetStatements:              z.boolean().optional(),
+  statementContactName:                  z.string().max(120).optional(),
+  statementContactEmail:                 emailOptional,
   // Step 6 -- Participant / Funding Scope
   participantTypesSupported:             z.array(z.string()).optional(),
   participantComplexityExperience:       z.array(z.string()).optional(),
   // Step 7 -- Service Coverage
   serviceCoverageType:                   z.enum(["AUSTRALIA_WIDE", "STATE_BASED", "REGION_BASED"]).optional(),
   stateCoverage:                         z.array(z.string()).optional(),
-  serviceAreas:                          z.array(z.string()).optional(),
   postcodesServed:                       z.array(z.string()).optional(),
   timezone:                              z.string().max(60).optional(),
   operatingHours:                        z.string().max(60).optional(),
@@ -78,11 +79,14 @@ const planManagerProfileBaseSchema = z.object({
   privacyContact:                        z.string().max(200).optional(),
   recordsRetentionContact:               z.string().max(200).optional(),
   // Step 10 -- Staff / User Access Control
-  organisationUserModel:                 z.enum(["SINGLE", "MULTI_USER"]).optional(),
+  organisationUserModel:                 z.enum(["SINGLE", "SMALL_TEAM", "LARGE_ORGANISATION"]).optional(),
   staffAdminName:                        z.string().max(120).optional(),
   staffAdminEmail:                       emailOptional,
   staffSeatsRequired:                    z.number().int().min(0).max(9999).optional(),
+  staffRoles:                            z.array(z.string()).optional(),
+  adminOnlyBillingMode:                  z.boolean().optional(),
   // Step 11 -- Participant Linking Setup
+  participantReferenceIdLabel:           z.string().max(60).optional(),
   participantLinkingMethod:              z.array(z.string()).optional(),
   linkApprovalRequired:                  z.boolean().optional(),
   requiresServiceAgreementBeforeInvoicing: z.boolean().optional(),

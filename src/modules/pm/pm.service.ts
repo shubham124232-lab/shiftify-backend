@@ -393,7 +393,7 @@ export async function listConnections(userId: string, activeRole: UserRole) {
           name: true,
           email: true,
           planManagerProfile: {
-            select: { businessName: true, serviceAreas: true, acceptingClients: true },
+            select: { businessName: true, stateCoverage: true, acceptingClients: true },
           },
         },
       },

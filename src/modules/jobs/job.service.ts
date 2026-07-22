@@ -32,7 +32,19 @@ const JOB_DETAIL_INCLUDE = {
   selectedApplicant: { select: { id: true, name: true, avatarUrl: true } },
   assignedWorker:    { select: { id: true, name: true, avatarUrl: true } },
   applications: {
-    include: { applicant: { select: { id: true, name: true, avatarUrl: true } } },
+    include: {
+      applicant: {
+        select: {
+          id: true, name: true, avatarUrl: true,
+          workerProfile: {
+            select: { rating: true, totalReviews: true, hourlyRate: true, servicesOffered: true, experienceLevel: true, suburb: true, state: true, travelRadiusKm: true },
+          },
+          providerProfile: {
+            select: { averageRating: true, totalRatings: true, coreServices: true },
+          },
+        },
+      },
+    },
     orderBy: { score: "desc" as const },
     take: 10,
   },
@@ -251,6 +263,9 @@ export async function createJob(
       riskSafetyNotes:      input.riskSafetyNotes ?? null,
       medicalNotes:         input.medicalNotes ?? null,
       behaviourNotes:       input.behaviourNotes ?? null,
+      emergencyContactName:         input.emergencyContactName ?? null,
+      emergencyContactPhone:        input.emergencyContactPhone ?? null,
+      emergencyContactRelationship: input.emergencyContactRelationship ?? null,
       status,
     },
     select: JOB_WRITE_SELECT,

@@ -33,13 +33,13 @@ const coordinatorProfileBaseSchema = z.object({
   servicesOfferedBeyondCoordination: z.array(z.string()).optional(),
   // Step 4 -- Service Coverage
   serviceAreas:                      z.array(z.string()).optional(),
+  serviceRadius:                     z.number().int().min(0).max(500).optional(),
   serviceMode:                       z.enum(["IN_PERSON", "TELEHEALTH", "HYBRID"]).optional(),
   // Step 5 -- Availability & Capacity
   currentCapacityStatus:             z.string().max(80).optional(),
-  availabilityType:                  z.enum(["FULL_TIME", "PART_TIME", "CASUAL"]).optional(),
-  maxParticipantLoad:                z.number().int().min(0).max(500).optional(),
+  availabilityType:                  z.enum(["BUSINESS_HOURS", "FLEXIBLE", "EMERGENCY_AVAILABLE"]).optional(),
+  maxParticipantLoad:                z.number().int().min(0).max(200).optional(),
   // Step 6 -- Plan Management Handling
-  participantTypesAccepted:          z.array(z.string()).optional(),
   fundingTypeCompatibility:          z.array(z.string()).optional(),
   billingMethodPreference:           z.string().max(80).optional(),
   // Step 7 -- Rates & Commercials
@@ -65,6 +65,19 @@ export const coordinatorProfileSchema = coordinatorProfileBaseSchema.superRefine
   }
   if (data.ndisRegistered && !data.ndisProviderNumber) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ndisProviderNumber"], message: "NDIS provider number is required for NDIS-registered coordinators" });
+  }
+  // Final-submission checks — only enforced once the applicant reaches the declaration step,
+  // so in-progress step-by-step saves are never blocked.
+  if (data.termsAccepted === true) {
+    if (!data.abn) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["abn"], message: "ABN is required" });
+    }
+    if (!data.supportCoordinationLevel || data.supportCoordinationLevel.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["supportCoordinationLevel"], message: "Support Coordination Level Offered is required" });
+    }
+    if (!data.participantComplexityExperience || data.participantComplexityExperience.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["participantComplexityExperience"], message: "Participant Complexity Experience is required" });
+    }
   }
 });
 

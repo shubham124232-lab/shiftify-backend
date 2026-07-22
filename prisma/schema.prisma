@@ -453,10 +453,7 @@ model WorkerProfile {
 
   // Step 6 — Availability
   availabilityType          String?
-  availableDays             Json?    // String[] — MON | TUE | WED | THU | FRI | SAT | SUN
-  timeBlocks                Json?    // String[] — MORNING | AFTERNOON | EVENING | OVERNIGHT
   emergencyAvailability     Boolean  @default(false)
-  sleeperAvailability       Boolean  @default(false)
   minimumShiftHours         Float?
 
   // Step 7 — Service Areas & Travel
@@ -566,6 +563,7 @@ model ProviderProfile {
 
   // Step 6 — Service Coverage
   serviceAreas                    Json?
+  stateCoverage                   Json?    // String[] — simple states-covered list
   serviceMode                     String?
   multipleLocations               Json?    // branch address array
 
@@ -666,7 +664,6 @@ model CoordinatorProfile {
   availabilityType                     String?  // BUSINESS_HOURS | FLEXIBLE | EMERGENCY_AVAILABLE
 
   // Step 7 — Plan Management Handling
-  participantTypesAccepted             Json?
   fundingTypeCompatibility             Json?
   billingMethodPreference              String?
 
@@ -743,6 +740,8 @@ model PlanManagerProfile {
   plansRecurringInvoices                  Boolean   @default(false)
   plansOnceOffInvoices                    Boolean   @default(false)
   providesBudgetStatements                Boolean   @default(false)
+  statementContactName                    String?
+  statementContactEmail                   String?
 
   // Step 6 — Participant / Funding Scope
   participantTypesSupported               Json?     // String[]
@@ -750,7 +749,6 @@ model PlanManagerProfile {
 
   // Step 7 — Service Coverage
   serviceCoverageType                     String?   // AUSTRALIA_WIDE | STATE_BASED | REGION_BASED
-  serviceAreas                            Json?
   stateCoverage                           Json?     // String[]
   postcodesServed                         Json?
   timezone                                String?
@@ -789,12 +787,15 @@ model PlanManagerProfile {
   recordsRetentionContact                 String?
 
   // Step 10 — Staff / User Access Control
-  organisationUserModel                   String?   // SINGLE | MULTI_USER
+  organisationUserModel                   String?   // SINGLE | SMALL_TEAM | LARGE_ORGANISATION
   staffAdminName                          String?
   staffAdminEmail                         String?
   staffSeatsRequired                      Int?
+  staffRoles                              Json?     // String[] — e.g. Billing Officer, Account Manager, Compliance Officer
+  adminOnlyBillingMode                    Boolean   @default(false)
 
   // Step 11 — Participant Linking Setup
+  participantReferenceIdLabel             String?   // e.g. "Client ID", "Member Number" — how this org refers to participants internally
   participantLinkingMethod                Json?     // String[]
   linkApprovalRequired                    Boolean   @default(true)
   requiresServiceAgreementBeforeInvoicing Boolean   @default(false)
@@ -972,6 +973,13 @@ model SupportRequest {
   riskSafetyNotes      String?       @db.Text
   medicalNotes         String?       @db.Text
   behaviourNotes       String?       @db.Text
+
+  // Per-job emergency contact — overrides the participant profile's default
+  // emergency contact for this specific booking (e.g. a different family member
+  // covering that day). Falls back to the participant profile's contact if blank.
+  emergencyContactName         String?
+  emergencyContactPhone        String?
+  emergencyContactRelationship String?
 
   // ── Step 1: Service details ──────────────────────────────────────────────────
   supportGoal          String?       // e.g. DAILY_LIVING, INDEPENDENCE, SOCIAL_PARTICIPATION

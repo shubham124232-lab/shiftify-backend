@@ -312,7 +312,6 @@ async function main() {
           serviceMode: "BOTH",
           currentCapacityStatus: "Accepting New Participants",
           maxParticipantLoad: 25,
-          participantTypesAccepted: ["Plan-managed", "Self-managed"],
           billingMethodPreference: "Through plan manager",
           bio: "Independent support coordinator covering inner-north Melbourne.",
         },

@@ -55,6 +55,7 @@ const providerProfileBaseSchema = z.object({
   sdaDetails:                        z.record(z.unknown()).optional(),
   // Service areas
   serviceAreas:                      z.array(z.string()).optional(),
+  stateCoverage:                     z.array(z.string()).optional(),
   multipleLocations:                 z.array(z.string()).optional(),
   serviceMode:                       z.enum(["IN_PERSON", "REMOTE", "BOTH"]).optional(),
   // Workforce

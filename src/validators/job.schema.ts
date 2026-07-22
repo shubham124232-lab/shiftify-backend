@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { phoneOptional } from "./shared";
 
 // ─── Enums (mirror Prisma) ────────────────────────────────────────────────────
 
@@ -88,6 +89,11 @@ export const createJobSchema = z.object({
   riskSafetyNotes:        z.string().max(2000).optional(),
   medicalNotes:           z.string().max(2000).optional(),
   behaviourNotes:         z.string().max(2000).optional(),
+  // Per-job emergency contact override — falls back to the participant profile's
+  // own emergency contact if left blank.
+  emergencyContactName:         z.string().max(120).optional(),
+  emergencyContactPhone:        phoneOptional,
+  emergencyContactRelationship: z.string().max(80).optional(),
 
   // ── Submit mode ──────────────────────────────────────────────────────────
   asDraft:                z.boolean().default(false),

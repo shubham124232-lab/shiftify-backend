@@ -73,7 +73,6 @@ const workerProfileBaseSchema = z.object({
   availabilityType:          z.enum(["CASUAL", "PART_TIME", "FULL_TIME", "ON_DEMAND"]).optional(),
   emergencyAvailability:     z.boolean().optional(),
   canTransportParticipants:  z.boolean().optional(),
-  sleeperAvailability:       z.boolean().optional(),
   // Location
   serviceAreas:              z.array(z.string()).optional(),
   lat:                       z.number().min(-90).max(90).optional(),
@@ -109,8 +108,6 @@ const workerProfileBaseSchema = z.object({
   infectionControlCompleted: z.boolean().optional(),
   manualHandlingCompleted:   z.boolean().optional(),
   // Availability schedule
-  availableDays:             z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).optional(),
-  timeBlocks:                z.array(z.enum(["MORNING", "AFTERNOON", "EVENING", "OVERNIGHT"])).optional(),
   minimumShiftHours:         z.number().min(0).max(24).optional(),
   // References
   references:                z.array(referenceSchema).optional(),
