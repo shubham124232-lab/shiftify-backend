@@ -4,7 +4,7 @@
 import { prisma } from "../../lib/prisma";
 import { ApiError } from "../../lib/errors";
 import { subscriptionGated } from "../subscriptions/subscription.service";
-import type { CreateListingInput, ListListingsQuery } from "../../validators/listing.schema";
+import type { CreateListingInput, ListListingsQuery, UpdateListingInput } from "../../validators/listing.schema";
 import type { UserRole } from "@prisma/client";
 
 // Per-tier active-listing caps, matching the "Up to N active job listings"
@@ -85,6 +85,24 @@ export async function createListing(providerUserId: string, activeRole: UserRole
       fundingTypes:  data.fundingTypes ?? undefined,
       suitableFor:   data.suitableFor ?? undefined,
       fundingRoutes: data.fundingRoutes ?? undefined,
+    },
+    select: LISTING_SELECT,
+  });
+}
+
+export async function updateListing(providerUserId: string, listingId: string, input: UpdateListingInput) {
+  const existing = await (prisma as any).providerListing.findUnique({ where: { id: listingId } });
+  if (!existing || existing.providerUserId !== providerUserId) {
+    throw new ApiError(404, "NOT_FOUND", "Listing not found");
+  }
+
+  return (prisma as any).providerListing.update({
+    where: { id: listingId },
+    data: {
+      ...input,
+      fundingTypes:  input.fundingTypes  ?? undefined,
+      suitableFor:   input.suitableFor   ?? undefined,
+      fundingRoutes: input.fundingRoutes ?? undefined,
     },
     select: LISTING_SELECT,
   });

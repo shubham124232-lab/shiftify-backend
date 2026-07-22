@@ -2,6 +2,8 @@ import { Router } from "express";
 import { asyncHandler } from "../../utils/async-handler";
 import { requireAuth } from "../../middleware/auth.middleware";
 import * as ctrl from "./job.controller";
+import * as reviewCtrl from "./review.controller";
+import * as assignmentCtrl from "./job-assignment.controller";
 
 const router = Router();
 
@@ -22,6 +24,11 @@ router.patch ("/:id/start",                           asyncHandler(ctrl.startJob
 router.patch ("/:id/complete",                        asyncHandler(ctrl.completeJob));
 router.patch ("/:id/confirm",                         asyncHandler(ctrl.confirmJob));
 
+// ── Multi-worker roster (additive to assign-worker above) ──────────────────
+router.post  ("/:id/assignments",                     asyncHandler(assignmentCtrl.createAssignment));
+router.get   ("/:id/assignments",                     asyncHandler(assignmentCtrl.listAssignments));
+router.patch ("/:id/assignments/:assignmentId/status", asyncHandler(assignmentCtrl.updateAssignmentStatus));
+
 // ── Applications ───────────────────────────────────────────────────────────
 router.post  ("/:id/apply",                           asyncHandler(ctrl.applyToJob));
 router.get   ("/:id/applications",                    asyncHandler(ctrl.listApplications));
@@ -36,5 +43,9 @@ router.get   ("/:id/messages",                        asyncHandler(ctrl.getMessa
 
 // ── Invoices ───────────────────────────────────────────────────────────────
 router.post  ("/:id/invoice",                         asyncHandler(ctrl.createInvoice));
+
+// ── Reviews ────────────────────────────────────────────────────────────────
+router.post  ("/:id/reviews",                         asyncHandler(reviewCtrl.createReview));
+router.get   ("/:id/reviews",                         asyncHandler(reviewCtrl.listReviews));
 
 export default router;

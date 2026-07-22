@@ -45,12 +45,14 @@ const coordinatorProfileBaseSchema = z.object({
   // Step 7 -- Rates & Commercials
   hourlyRate:                        z.number().min(0).max(9999).optional(),
   travelCharges:                     z.enum(["NONE", "INCLUDED", "CHARGED_SEPARATELY"]).optional(),
+  showRatePublicly:                  z.boolean().optional(),
   // Step 8 -- Profile & Trust Layer
   bio:                               z.string().max(2000).optional(),
   profilePhoto:                      z.string().max(500).optional(),
   languages:                         z.array(z.string()).optional(),
   gender:                            z.string().max(40).nullable().optional(),
   seekingPlanManager:                z.boolean().optional(),
+  isPubliclyListed:                  z.boolean().optional(),
   // Step 9 -- Platform Rules & Compliance
   termsAccepted:                     z.boolean().optional(),
   privacyPolicyAccepted:             z.boolean().optional(),

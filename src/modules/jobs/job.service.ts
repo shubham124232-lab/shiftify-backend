@@ -10,6 +10,7 @@ import { notify } from "../../lib/notify";
 import { canAccessMarketplace, missingRequiredDocs } from "../../middleware/marketplace.middleware";
 import { subscriptionGated, getActiveBasePlanKey } from "../subscriptions/subscription.service";
 import { FREE_TIER_LIMIT } from "../../config/constants";
+import { computeApplicationScore } from "./job-scoring";
 import type { UserRole, JobCategory, JobUrgency, JobStatus } from "@prisma/client";
 import { ShiftType, FundingType } from "@prisma/client";
 import type {
@@ -726,6 +727,13 @@ export async function applyToJob(
     throw new ConflictError("You have already applied to this job");
   }
 
+  const score = await computeApplicationScore(
+    applicantId,
+    activeRole,
+    input.proposedRate ?? null,
+    job!.budgetPerHour != null ? Number(job!.budgetPerHour) : null,
+  );
+
   const applicationPayload = {
     status:           "INTERESTED" as const,
     note:             input.note ?? null,
@@ -734,6 +742,7 @@ export async function applyToJob(
     proposedRate:     input.proposedRate ?? null,
     introduction:     input.introduction ?? null,
     applicationData:  (input.applicationData ?? undefined) as any,
+    score,
   };
 
   const app = existing

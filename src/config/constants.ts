@@ -11,6 +11,17 @@ export type UserRoleSignup = (typeof USER_ROLES)[number];
 
 export const ALL_USER_ROLES = [...USER_ROLES, "ADMIN"] as const;
 
+// Human-readable labels for roles — used anywhere a role name is shown to a user
+// (e.g. error messages), so people never see raw enum tokens like "PLAN_MANAGER".
+export const ROLE_LABELS: Record<string, string> = {
+  PARTICIPANT:    "Participant",
+  SUPPORT_WORKER: "Support Worker",
+  PROVIDER:       "Provider",
+  COORDINATOR:    "Support Coordinator",
+  PLAN_MANAGER:   "Plan Manager",
+  ADMIN:          "Admin",
+};
+
 export const USER_STATUSES = ["PENDING", "ACTIVE", "APPROVED", "REJECTED", "SUSPENDED"] as const;
 
 export const ADMIN_TIERS = ["SUPER_ADMIN", "REVIEWER"] as const;

@@ -9,5 +9,6 @@ const router = Router();
 // Provider-only: post + list own listings (Web posts to /provider/listings).
 router.post("/", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.createListing));
 router.get("/",  requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.listMyListings));
+router.patch("/:id", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.updateListing));
 
 export default router;

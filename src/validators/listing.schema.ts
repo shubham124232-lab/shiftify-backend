@@ -66,3 +66,41 @@ export const listListingsQuerySchema = z.object({
 });
 
 export type ListListingsQuery = z.infer<typeof listListingsQuerySchema>;
+
+// ─── Update (edit fields / pause / close / reactivate) ────────────────────────
+
+export const updateListingSchema = z.object({
+  status:          z.enum(["ACTIVE", "PAUSED", "FILLED", "CLOSED"]).optional(),
+  title:           z.string().min(5).max(200).optional(),
+  description:     z.string().min(10).max(5000).optional(),
+  suburb:          z.string().min(2).max(120).optional(),
+  state:           z.string().max(10).optional(),
+  postcode:        z.string().max(10).optional(),
+  listingType: z
+    .enum([
+      "IMMEDIATE_INTAKE",
+      "RECURRING_CAPACITY",
+      "ONE_TIME_SLOT",
+      "SHORT_TERM",
+      "URGENT_FILL",
+      "WAITLIST_OPENING",
+      "ONGOING_REFERRALS",
+    ])
+    .optional(),
+  serviceCategory: z.string().max(120).optional(),
+  serviceMode:     z.enum(["IN_PERSON", "REMOTE", "BOTH"]).optional(),
+  fundingTypes:    z.array(z.string().max(60)).max(10).optional(),
+  vacancyCategory: z
+    .enum(["SIL", "SDA", "SIL_SDA", "RESPITE", "MEDIUM_TERM", "SHORT_TERM", "OTHER"])
+    .optional(),
+  propertyType: z.string().max(120).optional(),
+  vacancyCount: z.number().int().min(1).max(50).optional(),
+  supportModel: z.string().max(120).optional(),
+  suitableFor:  z.array(z.string().max(80)).max(15).optional(),
+  fundingRoutes: z.array(z.string().max(60)).max(10).optional(),
+  urgency: z
+    .enum(["AVAILABLE_NOW", "AVAILABLE_SOON", "FUTURE", "EXPRESSION_OF_INTEREST"])
+    .optional(),
+});
+
+export type UpdateListingInput = z.infer<typeof updateListingSchema>;

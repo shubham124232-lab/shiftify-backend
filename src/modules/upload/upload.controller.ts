@@ -5,9 +5,11 @@ import { UnauthorizedError, ValidationError, BadRequestError, NotFoundError, For
 import { generatePresignedUrl, buildFileKey, buildFileUrl, saveFile, deleteFile } from "../../lib/storage";
 import { prisma } from "../../lib/prisma";
 import { updateProfile } from "../users/user.service";
+import { ROLE_LABELS } from "../../config/constants";
 import type { DocumentType, UserRole } from "@prisma/client";
 
 const AVATAR_CONTENT_TYPES = ["image/jpeg", "image/png", "image/heic", "image/webp"] as const;
+const AVATAR_LABELS = AVATAR_CONTENT_TYPES.map((t) => t.split("/")[1].toUpperCase()).join(", ");
 
 const presignQuerySchema = z.object({
   fileName:    z.string().min(1).max(255),
@@ -47,7 +49,7 @@ export async function presign(req: Request, res: Response): Promise<void> {
 
   if (category === "avatars" && !(AVATAR_CONTENT_TYPES as readonly string[]).includes(contentType)) {
     throw new BadRequestError(
-      "Avatar uploads must be one of: " + AVATAR_CONTENT_TYPES.join(", "),
+      "Avatar must be a " + AVATAR_LABELS + " image.",
     );
   }
 
@@ -71,7 +73,7 @@ export async function uploadAvatar(req: Request, res: Response): Promise<void> {
   if (!file) throw new BadRequestError("No file provided");
 
   if (!(AVATAR_CONTENT_TYPES as readonly string[]).includes(file.mimetype)) {
-    throw new BadRequestError("Avatar must be one of: " + AVATAR_CONTENT_TYPES.join(", "));
+    throw new BadRequestError("Avatar must be a " + AVATAR_LABELS + " image.");
   }
 
   const saved = await saveFile({
@@ -248,7 +250,9 @@ export async function documentPresign(req: Request, res: Response): Promise<void
 
   const allowed = ROLE_DOC_ALLOWLIST[role] ?? [];
   if (!allowed.includes(docType as DocumentType)) {
-    throw new BadRequestError(`Document type ${docType} is not allowed for role ${role}`);
+    const docLabel  = docType.replace(/_/g, " ");
+    const roleLabel = ROLE_LABELS[role] ?? role;
+    throw new BadRequestError(`${docLabel} is not a document type required for a ${roleLabel} account`);
   }
 
   const fileKey = buildFileKey({ originalName: fileName, userId: req.user.id, category: "compliance" });
