@@ -134,6 +134,11 @@ export async function upsertWorkerProfile(userId: string, data: WorkerProfileInp
   const existing  = await prisma.workerProfile.findUnique({ where: { userId } });
   const nextStep  = Math.max(existing?.profileStep ?? 0, incomingStep ?? 0);
 
+  // Start/clear the 24h "Available Now" window whenever the toggle changes.
+  if ("isAvailableNow" in profileData) {
+    (profileData as Record<string, unknown>).availableNowSetAt = profileData.isAvailableNow ? new Date() : null;
+  }
+
   const profile = await prisma.workerProfile.upsert({
     where:  { userId },
     create: { userId, profileStep: nextStep, ...(profileData as any) },
