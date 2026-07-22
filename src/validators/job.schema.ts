@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { phoneOptional } from "./shared";
+import { paginationSchema } from "./pagination.schema";
 
 // ─── Enums (mirror Prisma) ────────────────────────────────────────────────────
 
@@ -139,8 +140,7 @@ export const jobFiltersSchema = z.object({
   // Poster role type filter
   postedByRole:     z.enum(["PARTICIPANT","COORDINATOR","PLAN_MANAGER"]).optional(),
   // Pagination
-  page:             z.coerce.number().int().min(1).default(1),
-  limit:            z.coerce.number().int().min(1).max(100).default(20),
+  ...paginationSchema.shape,
   // Sort
   sortBy:           z.enum(["newest","urgency","startDate","bestMatch"]).default("urgency"),
 });
@@ -185,6 +185,23 @@ export const sendMessageSchema = z.object({
   body: z.string().min(1).max(5000),
 });
 
+// ─── Multi-worker roster (additive to the single assignedWorkerUserId flow) ──
+
+export const createAssignmentSchema = z.object({
+  workerUserId: z.string().uuid(),
+});
+
+export const updateAssignmentStatusSchema = z.object({
+  status: z.enum(["COMPLETED", "CANCELLED"]),
+});
+
+// ─── Reviews ─────────────────────────────────────────────────────────────────
+
+export const createReviewSchema = z.object({
+  rating:  z.number().int().min(1).max(5),
+  comment: z.string().max(1000).optional(),
+});
+
 // ─── Invoice ─────────────────────────────────────────────────────────────────
 
 export const createInvoiceSchema = z.object({
@@ -203,3 +220,6 @@ export type CancelJobInput      = z.infer<typeof cancelJobSchema>;
 export type AssignWorkerInput   = z.infer<typeof assignWorkerSchema>;
 export type SendMessageInput    = z.infer<typeof sendMessageSchema>;
 export type CreateInvoiceInput  = z.infer<typeof createInvoiceSchema>;
+export type CreateReviewInput   = z.infer<typeof createReviewSchema>;
+export type CreateAssignmentInput       = z.infer<typeof createAssignmentSchema>;
+export type UpdateAssignmentStatusInput = z.infer<typeof updateAssignmentStatusSchema>;

@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
-import { UnauthorizedError, ValidationError } from "../../lib/errors";
+import { UnauthorizedError } from "../../lib/errors";
 import { success } from "../../utils/response";
+import { parse } from "../../utils/validate";
 import * as svc from "./job.service";
 import {
   createJobSchema,
@@ -17,17 +18,6 @@ import type { UserRole } from "@prisma/client";
 function role(req: Request): UserRole {
   if (!req.activeRole) throw new UnauthorizedError("No active role");
   return req.activeRole;
-}
-
-function parse<T>(schema: { safeParse(v: unknown): { success: boolean; data?: T; error?: { errors: { path: (string|number)[]; message: string }[] } } }, body: unknown): T {
-  const r = schema.safeParse(body);
-  if (!r.success) {
-    throw new ValidationError(
-      r.error!.errors[0]?.message ?? "Invalid input",
-      r.error!.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
-    );
-  }
-  return r.data!;
 }
 
 // POST /jobs

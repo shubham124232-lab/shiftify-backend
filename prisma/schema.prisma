@@ -300,6 +300,9 @@ model User {
   jobsAssigned            SupportRequest[]  @relation("AssignedWorker")
   jobsCancelled           SupportRequest[]  @relation("CancelledBy")
   jobApplications         JobApplication[]
+  jobAssignments          JobAssignment[]   @relation("JobAssignmentWorker")
+  reviewsGiven            Review[]          @relation("ReviewsGiven")
+  reviewsReceived         Review[]          @relation("ReviewsReceived")
 
   messagesSent            JobMessage[]
   notifications           Notification[]
@@ -455,6 +458,10 @@ model WorkerProfile {
   availabilityType          String?
   emergencyAvailability     Boolean  @default(false)
   minimumShiftHours         Float?
+  acceptsSleepoverShifts    Boolean  @default(false)
+  acceptsActiveOvernightShifts Boolean @default(false)
+  isPubliclyListed          Boolean  @default(false)
+  listingHeadline           String?
 
   // Step 7 — Service Areas & Travel
   serviceAreas              Json?
@@ -691,6 +698,10 @@ model CoordinatorProfile {
   totalCancelledByClient               Int      @default(0)
   averageRating                        Float    @default(0)
   totalRatings                         Int      @default(0)
+
+  // Public browse listing (mirrors WorkerProfile.isPubliclyListed)
+  isPubliclyListed                     Boolean  @default(false)
+  showRatePublicly                     Boolean  @default(true)
 
   createdAt                            DateTime @default(now())
   updatedAt                            DateTime @updatedAt
@@ -1045,6 +1056,8 @@ model SupportRequest {
   applications             JobApplication[]
   messages                 JobMessage[]
   invoices                 Invoice[]
+  assignments              JobAssignment[]
+  reviews                  Review[]
 
   @@index([status])
   @@index([urgency])
@@ -1063,6 +1076,41 @@ model SupportRequest {
   @@index([postedByUserId, status])
   @@index([assignedWorkerUserId, status])
   @@index([selectedApplicantUserId, status])
+}
+
+// Supports multiple workers on one job, without touching SupportRequest's
+// existing single assignedWorkerUserId column (still used for the
+// provider-selects-then-assigns-one-worker flow).
+model JobAssignment {
+  id           String         @id @default(uuid())
+  requestId    String
+  request      SupportRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  workerUserId String
+  workerUser   User           @relation("JobAssignmentWorker", fields: [workerUserId], references: [id])
+  status       String         @default("ASSIGNED") // ASSIGNED | COMPLETED | CANCELLED
+  assignedAt   DateTime       @default(now())
+
+  @@unique([requestId, workerUserId])
+  @@index([workerUserId])
+  @@index([requestId])
+}
+
+// One rating per (job, rater, reviewee) triple — feeds the existing aggregate
+// columns (WorkerProfile.rating/totalReviews, CoordinatorProfile.averageRating/totalRatings).
+model Review {
+  id             String         @id @default(uuid())
+  requestId      String
+  request        SupportRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  raterUserId    String
+  rater          User           @relation("ReviewsGiven", fields: [raterUserId], references: [id])
+  revieweeUserId String
+  reviewee       User           @relation("ReviewsReceived", fields: [revieweeUserId], references: [id])
+  rating         Int
+  comment        String?
+  createdAt      DateTime       @default(now())
+
+  @@unique([requestId, raterUserId, revieweeUserId])
+  @@index([revieweeUserId])
 }
 
 model JobApplication {

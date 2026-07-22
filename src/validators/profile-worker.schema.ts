@@ -72,6 +72,10 @@ const workerProfileBaseSchema = z.object({
   // Availability
   availabilityType:          z.enum(["CASUAL", "PART_TIME", "FULL_TIME", "ON_DEMAND"]).optional(),
   emergencyAvailability:     z.boolean().optional(),
+  acceptsSleepoverShifts:    z.boolean().optional(),
+  acceptsActiveOvernightShifts: z.boolean().optional(),
+  isPubliclyListed:          z.boolean().optional(),
+  listingHeadline:           z.string().max(140).optional(),
   canTransportParticipants:  z.boolean().optional(),
   // Location
   serviceAreas:              z.array(z.string()).optional(),
