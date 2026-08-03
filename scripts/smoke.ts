@@ -93,6 +93,46 @@ async function workerProfile(a: Actor, tag: string): Promise<void> {
   report(r.status === 200, `worker profile ${tag}`, JSON.stringify(r.body).slice(0, 150));
 }
 
+// Mirrors Backend/src/middleware/marketplace.middleware.ts REQUIRED_DOCS_BY_ROLE.
+// The doc-submission gate blocks canApply/canPost until these exist, so any
+// actor exercising apply/post must submit them first — otherwise every job
+// application in this suite fails on missing docs before it ever reaches the
+// gate the test actually means to check (subscription, limits, etc).
+const REQUIRED_DOCS: Record<string, string[]> = {
+  SUPPORT_WORKER: [
+    "POLICE_CHECK", "NDIS_SCREENING", "FIRST_AID", "CPR", "MANUAL_HANDLING",
+    "DRIVERS_LICENCE", "PUBLIC_LIABILITY_INSURANCE", "PERSONAL_ACCIDENT_INSURANCE",
+    "QUALIFICATION_CERTIFICATE",
+  ],
+  COORDINATOR: [
+    "POLICE_CHECK", "PROFESSIONAL_INDEMNITY", "PUBLIC_LIABILITY_INSURANCE",
+    "QUALIFICATION_CERTIFICATE",
+  ],
+  PROVIDER: ["PUBLIC_LIABILITY_INSURANCE", "PROFESSIONAL_INDEMNITY", "NDIS_AUDIT"],
+  PLAN_MANAGER: [
+    "ABN_CONFIRMATION", "NDIS_REGISTRATION_PROOF", "BUSINESS_REP_PROOF",
+    "BUSINESS_ADDRESS_EVIDENCE", "CONTACT_IDENTITY_EVIDENCE", "BANK_FINANCE_EVIDENCE",
+  ],
+};
+
+async function submitRequiredDocs(a: Actor, role: string, tag: string): Promise<void> {
+  const docTypes = REQUIRED_DOCS[role];
+  if (!docTypes) return;
+  let allOk = true;
+  for (const docType of docTypes) {
+    const form = new FormData();
+    form.append("docType", docType);
+    form.append("file", new Blob([`smoke test document — ${docType}`], { type: "application/pdf" }), `${docType}.pdf`);
+    const r = await fetch(BASE + "/users/me/documents", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${a.token}` },
+      body: form,
+    });
+    if (r.status !== 201) allOk = false;
+  }
+  report(allOk, `submit required docs (${tag})`, `types=${docTypes.length}`);
+}
+
 async function ensureParticipant(): Promise<Actor> {
   if (actors.participant) return actors.participant;
   const a = (await register("PARTICIPANT", "part"))!;
@@ -108,6 +148,7 @@ async function ensureWorker(): Promise<Actor> {
   const a = (await register("SUPPORT_WORKER", "work"))!;
   await verifyPhone(a, "worker");
   await workerProfile(a, "worker");
+  await submitRequiredDocs(a, "SUPPORT_WORKER", "worker");
   await activate(a, "worker", "WORKER_BASIC", "SUPPORT_WORKER");
   actors.worker = a;
   return a;
@@ -362,7 +403,8 @@ const sections: Record<string, () => Promise<void>> = {
     const p = await ensureParticipant();
     const g = await register("SUPPORT_WORKER", "gate");
     if (!g) return;
-    await workerProfile(g, "gate-worker"); // profiled but NOT subscribed
+    await workerProfile(g, "gate-worker"); // profiled + docs submitted, but NOT subscribed
+    await submitRequiredDocs(g, "SUPPORT_WORKER", "gate-worker");
 
     const r = await req("POST", "/jobs", jobBody("GateTest"), p.token);
     const jid = (data(r).job ?? data(r)).id;

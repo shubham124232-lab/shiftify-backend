@@ -4,7 +4,9 @@ import {
   ForbiddenError,
   ConflictError,
   BadRequestError,
+  ApiError,
 } from "../../lib/errors";
+import { subscriptionGated } from "../subscriptions/subscription.service";
 import type { UserRole, JobCategory, JobUrgency, FundingType } from "@prisma/client";
 import type {
   CreatePmConnectionInput,
@@ -421,6 +423,15 @@ export async function respondToConnection(
   }
   if (conn.status !== "PENDING") {
     throw new BadRequestError("Connection is already " + conn.status.toLowerCase());
+  }
+
+  // PM has no free tier — accepting a connection requires an active subscription.
+  if (isPm && input.action === "ACCEPT" && !(await subscriptionGated(userId, "PLAN_MANAGER"))) {
+    throw new ApiError(
+      403,
+      "SUBSCRIPTION_REQUIRED",
+      "An active subscription is required to accept connection requests. Choose a plan on the Subscription page to continue.",
+    );
   }
 
   const newStatus = input.action === "ACCEPT" ? "ACCEPTED" : "DECLINED";

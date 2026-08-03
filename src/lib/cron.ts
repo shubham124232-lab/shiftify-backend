@@ -28,11 +28,33 @@ async function expireGuestWindows(): Promise<void> {
   }
 }
 
+// ─── "Available Now" 24h auto-clear ───────────────────────────────────────────
+// Workers who flip isAvailableNow lose the badge 24h after setting it, so the
+// $24.99 add-on keeps signaling genuine right-now availability rather than a
+// flag someone forgot to turn off.
+
+async function clearExpiredAvailableNow(): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - 24 * HOUR_MS);
+    const result = await prisma.workerProfile.updateMany({
+      where: { isAvailableNow: true, availableNowSetAt: { lte: cutoff } },
+      data:  { isAvailableNow: false, availableNowSetAt: null },
+    });
+    if (result.count > 0) {
+      console.log(`[cron] Cleared "Available Now" for ${result.count} worker(s)`);
+    }
+  } catch (err) {
+    console.error("[cron] clearExpiredAvailableNow error:", err);
+  }
+}
+
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 
 export function startCronJobs(): void {
   // Run immediately on startup then every hour
   void expireGuestWindows();
+  void clearExpiredAvailableNow();
   setInterval(() => void expireGuestWindows(), HOUR_MS);
-  console.log("[cron] Background jobs started (guest expiry: every 1h)");
+  setInterval(() => void clearExpiredAvailableNow(), HOUR_MS);
+  console.log("[cron] Background jobs started (guest expiry + available-now clear: every 1h)");
 }

@@ -91,7 +91,7 @@ const providerProfileBaseSchema = z.object({
   complianceDeclaration:             z.boolean().optional(),
 });
 
-export const providerProfileSchema = providerProfileBaseSchema.superRefine((data, ctx) => {
+export const providerProfileSchema = providerProfileBaseSchema.strict().superRefine((data, ctx) => {
   if (data.ndisRegistered && !data.ndisProviderNumber) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ndisProviderNumber"], message: "NDIS provider number is required for NDIS-registered providers" });
   }

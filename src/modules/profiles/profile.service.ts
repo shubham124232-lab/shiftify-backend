@@ -3,7 +3,8 @@
 // profileStep is advanced only forward — Math.max(existing, submitted).
 
 import { prisma } from "../../lib/prisma";
-import { ConflictError, NotFoundError } from "../../lib/errors";
+import { ConflictError, NotFoundError, ApiError } from "../../lib/errors";
+import { hasActiveAddOn } from "../subscriptions/subscription.service";
 import type { ParticipantProfileInput  } from "../../validators/profile-participant.schema";
 import type { WorkerProfileInput       } from "../../validators/profile-worker.schema";
 import type { ProviderProfileInput     } from "../../validators/profile-provider.schema";
@@ -133,6 +134,18 @@ export async function upsertWorkerProfile(userId: string, data: WorkerProfileInp
 
   const existing  = await prisma.workerProfile.findUnique({ where: { userId } });
   const nextStep  = Math.max(existing?.profileStep ?? 0, incomingStep ?? 0);
+
+  // Start/clear the 24h "Available Now" window whenever the toggle changes.
+  if ("isAvailableNow" in profileData) {
+    if (profileData.isAvailableNow && !(await hasActiveAddOn(userId, "SUPPORT_WORKER", "WORKER_AVAILABLE_NOW"))) {
+      throw new ApiError(
+        403,
+        "SUBSCRIPTION_REQUIRED",
+        "The Available Now add-on is required to mark yourself as available now. Choose a plan on the Subscription page to continue.",
+      );
+    }
+    (profileData as Record<string, unknown>).availableNowSetAt = profileData.isAvailableNow ? new Date() : null;
+  }
 
   const profile = await prisma.workerProfile.upsert({
     where:  { userId },

@@ -5,6 +5,7 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import { REQUIRED_DOCS_BY_ROLE } from "../src/middleware/marketplace.middleware";
 
 const prisma = new PrismaClient();
 
@@ -80,6 +81,36 @@ async function main() {
     });
   }
 
+  // Uploads a placeholder copy of every document type REQUIRED_DOCS_BY_ROLE
+  // requires for `role` — without this, seeded accounts fail the submission
+  // gate in canAccessMarketplace() the moment they try to post/apply. Idempotent
+  // (skips a docType that's already on file for this user).
+  async function seedRequiredDocs(userId: string, role: keyof typeof REQUIRED_DOCS_BY_ROLE) {
+    const required = REQUIRED_DOCS_BY_ROLE[role];
+    if (!required || required.length === 0) return;
+
+    const existing = await prisma.document.findMany({
+      where:  { userId, docType: { in: required } },
+      select: { docType: true },
+    });
+    const have = new Set(existing.map((d) => d.docType));
+
+    for (const docType of required) {
+      if (have.has(docType)) continue;
+      await prisma.document.create({
+        data: {
+          userId,
+          docType,
+          filePath:  `seed/${userId}/${docType.toLowerCase()}.pdf`,
+          fileName:  `${docType.toLowerCase()}.pdf`,
+          mimeType:  "application/pdf",
+          sizeBytes: 1024,
+          status:    "UPLOADED",
+        },
+      });
+    }
+  }
+
   console.log("[seed] Creating test users...");
 
   // PARTICIPANT — also holds a SUPPORT_WORKER role to demo multi-role switching.
@@ -145,6 +176,7 @@ async function main() {
   });
   console.log(`  ✓ participant: ${participant.email}`);
   await activateSubscription(participant.id, "WORKER_FREE"); // covers her SUPPORT_WORKER hat
+  await seedRequiredDocs(participant.id, "SUPPORT_WORKER"); // covers her SUPPORT_WORKER hat
 
   // SUPPORT_WORKER (solo, self-registered)
   const worker = await prisma.user.upsert({
@@ -191,6 +223,7 @@ async function main() {
   });
   console.log(`  ✓ worker: ${worker.email}`);
   await activateSubscription(worker.id, "WORKER_FREE"); // needed to apply to jobs
+  await seedRequiredDocs(worker.id, "SUPPORT_WORKER");
 
   // PROVIDER
   const provider = await prisma.user.upsert({
@@ -242,6 +275,7 @@ async function main() {
   });
   console.log(`  ✓ provider: ${provider.email}`);
   await activateSubscription(provider.id, "PROVIDER_BASIC"); // no free tier — gated without this
+  await seedRequiredDocs(provider.id, "PROVIDER");
 
   // Provider's worker — a MANAGED account: logs in by username, no email/phone, parent-owned.
   const providerWorker = await prisma.user.upsert({
@@ -283,6 +317,7 @@ async function main() {
   });
   console.log(`  ✓ provider-worker (managed): ${providerWorker.username}`);
   await activateSubscription(providerWorker.id, "WORKER_FREE"); // needed to apply to jobs
+  await seedRequiredDocs(providerWorker.id, "SUPPORT_WORKER");
 
   // COORDINATOR
   const coordinator = await prisma.user.upsert({
@@ -328,6 +363,7 @@ async function main() {
   });
   console.log(`  ✓ coordinator: ${coordinator.email}`);
   await activateSubscription(coordinator.id, "COORDINATOR_FREE"); // job posting is gated on this
+  await seedRequiredDocs(coordinator.id, "COORDINATOR");
 
   // PLAN_MANAGER
   const planMgr = await prisma.user.upsert({
@@ -366,6 +402,7 @@ async function main() {
   });
   console.log(`  ✓ plan manager: ${planMgr.email}`);
   await activateSubscription(planMgr.id, "PLAN_MANAGER_BASIC"); // no free tier — gated without this
+  await seedRequiredDocs(planMgr.id, "PLAN_MANAGER");
 
   console.log("");
   console.log("[seed] Done. Login credentials (dev only):");

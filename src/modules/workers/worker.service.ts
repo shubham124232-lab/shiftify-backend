@@ -1,10 +1,34 @@
 import { prisma } from "../../lib/prisma";
+import { ApiError } from "../../lib/errors";
 import type { BrowseWorkersFiltersInput } from "../../validators/worker-browse.schema";
 import { cancellationRate } from "../jobs/job-scoring";
+import { hasActiveAddOn } from "../subscriptions/subscription.service";
+import type { UserRole } from "@prisma/client";
+
+// Coordinator/Provider need the Growth add-on to browse the support worker
+// list (pricing_plans.md: "Access to support worker list"). Participants and
+// Plan Managers are not gated — Growth isn't sold to those roles.
+const GROWTH_PLAN_KEY: Partial<Record<UserRole, string>> = {
+  COORDINATOR: "COORDINATOR_GROWTH",
+  PROVIDER:    "PROVIDER_GROWTH",
+};
 
 // GET /workers/available — public "Post My Availability" browse feed.
 // Only surfaces workers who have opted in via isPubliclyListed.
-export async function browseAvailableWorkers(filters: BrowseWorkersFiltersInput) {
+export async function browseAvailableWorkers(
+  filters: BrowseWorkersFiltersInput,
+  userId: string,
+  activeRole: UserRole,
+) {
+  const requiredAddOn = GROWTH_PLAN_KEY[activeRole];
+  if (requiredAddOn && !(await hasActiveAddOn(userId, activeRole, requiredAddOn))) {
+    throw new ApiError(
+      403,
+      "SUBSCRIPTION_REQUIRED",
+      "The Growth add-on is required to browse the support worker list. Choose a plan on the Subscription page to continue.",
+    );
+  }
+
   const { suburb, state, page, limit } = filters;
   const skip = (page - 1) * limit;
 

@@ -47,23 +47,6 @@ export async function getVerificationQueue(req: Request, res: Response): Promise
   success(res, result);
 }
 
-// ─── PATCH /admin/users/:id/verify ───────────────────────────────────────────
-
-export async function verifyUser(req: Request, res: Response): Promise<void> {
-  if (!req.user) throw new UnauthorizedError();
-  const { approved, reason } = req.body as { approved?: unknown; reason?: string };
-  if (typeof approved !== "boolean") {
-    throw new BadRequestError("approved must be a boolean");
-  }
-  const result = await adminService.verifyUser({
-    targetUserId: req.params.id,
-    adminUserId:  req.user.id,
-    approved,
-    reason,
-  });
-  success(res, result);
-}
-
 // ─── GET /admin/audit-log ─────────────────────────────────────────────────────
 
 export async function getAuditLog(req: Request, res: Response): Promise<void> {
@@ -78,6 +61,14 @@ export async function getAuditLog(req: Request, res: Response): Promise<void> {
 
 export async function getStats(_req: Request, res: Response): Promise<void> {
   const result = await adminService.getPlatformStats();
+  success(res, result);
+}
+
+// ─── GET /admin/flags ─────────────────────────────────────────────────────────
+
+export async function getFlags(req: Request, res: Response): Promise<void> {
+  const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit ?? "10"), 10) || 10));
+  const result = await adminService.listUrgentFlags(limit);
   success(res, result);
 }
 
@@ -99,6 +90,31 @@ export async function cancelJob(req: Request, res: Response): Promise<void> {
   const result = await adminService.adminCancelJob({
     jobId: req.params.id,
     adminUserId: req.user.id,
+    reason,
+  });
+  success(res, result);
+}
+
+// ─── GET /admin/listings ──────────────────────────────────────────────────────
+
+export async function listListings(req: Request, res: Response): Promise<void> {
+  const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),  10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "20"), 10) || 20));
+  const { status, listingCategory } = req.query as Record<string, string | undefined>;
+  const result = await adminService.listAdminListings({ status, listingCategory, page, limit });
+  success(res, result);
+}
+
+// ─── PATCH /admin/listings/:id/status ─────────────────────────────────────────
+
+export async function updateListingStatus(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const { status, reason } = req.body as { status?: string; reason?: string };
+  if (!status) throw new BadRequestError("status is required");
+  const result = await adminService.updateListingStatus({
+    listingId: req.params.id,
+    adminUserId: req.user.id,
+    status,
     reason,
   });
   success(res, result);

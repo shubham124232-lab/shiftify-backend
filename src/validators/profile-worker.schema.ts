@@ -29,7 +29,7 @@ const weekendNightRatesSchema = z.object({
 });
 
 function applyWorkerRefinements<Shape extends z.ZodRawShape>(schema: z.ZodObject<Shape>) {
-  return schema.superRefine((data, ctx) => {
+  return schema.strict().superRefine((data, ctx) => {
     if (data.workType === "CONTRACTOR" && !data.abn) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["abn"], message: "ABN is required for contractors" });
     }
@@ -98,6 +98,10 @@ const workerProfileBaseSchema = z.object({
   preferences:               z.string().max(1000).optional(),
   isAvailableNow:            z.boolean().optional(),
   seekingPlanManager:        z.boolean().optional(),
+  // Capacity
+  maxWeeklyHours:            z.number().int().min(0).max(168).optional(),
+  maxConcurrentJobs:         z.number().int().min(0).max(50).optional(),
+  currentCapacityStatus:     z.enum(["OPEN", "LIMITED", "FULL"]).optional(),
   // Compliance metadata
   ndisScreeningNumber:       z.string().max(80).optional(),
   ndisScreeningExpiry:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
@@ -120,6 +124,7 @@ const workerProfileBaseSchema = z.object({
   privacyPolicyAccepted:     z.boolean().optional(),
   ndisCodeAccepted:          z.boolean().optional(),
   declarationStatement:      z.boolean().optional(),
+  docsAcknowledged:          z.boolean().optional(),
 });
 
 export const workerProfileSchema = applyWorkerRefinements(workerProfileBaseSchema);

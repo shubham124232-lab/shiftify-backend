@@ -32,6 +32,6 @@ export const uploadDocumentSchema = z.object({
   referenceNumber: z.string().max(80).optional(),
   issueDate:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "issueDate must be YYYY-MM-DD").optional(),
   expiryDate:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expiryDate must be YYYY-MM-DD").optional(),
-});
+}).strict();
 
 export type UploadDocumentInput = z.infer<typeof uploadDocumentSchema>;

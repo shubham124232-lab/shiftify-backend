@@ -153,6 +153,13 @@ export async function getMessages(req: Request, res: Response): Promise<void> {
   success(res, { messages: msgs });
 }
 
+// GET /jobs/:id/invoice-recipients
+export async function getInvoiceRecipients(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const result = await svc.getInvoiceRecipients(req.params.id, req.user.id, role(req));
+  success(res, result);
+}
+
 // POST /jobs/:id/invoice
 export async function createInvoice(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();

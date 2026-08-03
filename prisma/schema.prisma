@@ -221,6 +221,7 @@ enum NotificationType {
   PM_CONNECTION_ACCEPTED
   GUEST_EXPIRY_REMINDER
   GUEST_EXPIRED
+  INCIDENT_REPORTED
 }
 
 enum SubscriptionStatus {
@@ -305,7 +306,9 @@ model User {
   reviewsReceived         Review[]          @relation("ReviewsReceived")
 
   messagesSent            JobMessage[]
+  incidentsReported       IncidentReport[]
   notifications           Notification[]
+  savedSearches           SavedSearch[]
   sessions                Session[]
 
   auditLogActions         AuditLog[]   @relation("AdminAction")
@@ -481,8 +484,16 @@ model WorkerProfile {
   languagesSpoken           Json?    // String[]
   bio                       String?
   preferences               String?
-  isAvailableNow            Boolean  @default(false)
-  seekingPlanManager        Boolean  @default(false)
+  isAvailableNow            Boolean   @default(false)
+  // Set whenever isAvailableNow flips to true; cleared when it flips to false.
+  // The 24h auto-clear cron uses this to know when the window expires.
+  availableNowSetAt         DateTime?
+  seekingPlanManager        Boolean   @default(false)
+
+  // Capacity — mirrors CoordinatorProfile/ProviderProfile's currentCapacityStatus pattern
+  maxWeeklyHours            Int?
+  maxConcurrentJobs         Int?
+  currentCapacityStatus     String?  // OPEN | LIMITED | FULL
 
   // Step 9 — Documents
   manualHandlingCompleted   Boolean  @default(false)
@@ -512,6 +523,22 @@ model WorkerProfile {
 
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
+}
+
+// A worker's standing "notify me when a job like this is posted" request —
+// checked against every job on publish (see publishJob in job.service.ts).
+model SavedSearch {
+  id         String   @id @default(uuid())
+  workerId   String
+  worker     User     @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  label      String?
+  filters    Json
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([workerId])
+  @@index([isActive])
 }
 
 model ProviderProfile {
@@ -721,7 +748,7 @@ model PlanManagerProfile {
   businessName                            String
   legalEntityName                         String?
   abn                                     String?
-  businessStructure                       String?   // SOLE_TRADER | PARTNERSHIP | COMPANY | TRUST
+  businessStructure                       String?   // SOLE_TRADER | PARTNERSHIP | COMPANY | TRUST | NOT_FOR_PROFIT
   businessAddress                         String?
   businessSuburb                          String?
   businessPostcode                        String?
@@ -1058,6 +1085,7 @@ model SupportRequest {
   invoices                 Invoice[]
   assignments              JobAssignment[]
   reviews                  Review[]
+  incidents                IncidentReport[]
 
   @@index([status])
   @@index([urgency])
@@ -1150,6 +1178,29 @@ model JobMessage {
   createdAt     DateTime       @default(now())
 
   @@index([jobId, createdAt])
+}
+
+// Minimal pilot safety gate — a flag button on the job thread that notifies
+// admins immediately. No workflow/status changes beyond OPEN/RESOLVED; admin
+// follow-up happens off-platform via the phone-number runbook for now.
+enum IncidentStatus {
+  OPEN
+  RESOLVED
+}
+
+model IncidentReport {
+  id             String         @id @default(uuid())
+  jobId          String
+  job            SupportRequest @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  reporterUserId String
+  reporter       User           @relation(fields: [reporterUserId], references: [id])
+  category       String
+  description    String?
+  status         IncidentStatus @default(OPEN)
+  createdAt      DateTime       @default(now())
+
+  @@index([jobId, createdAt])
+  @@index([status])
 }
 
 // ───────────────────────────────────────────────────────────────────────────

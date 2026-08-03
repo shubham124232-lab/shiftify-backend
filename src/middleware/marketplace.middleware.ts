@@ -44,19 +44,39 @@ function humanizeDocType(docType: string): string {
     .join(" ");
 }
 
+// Best-guess rule (CLARIFIED 2026-07-22 — pending final client confirmation):
+// an expired document no longer counts as "submitted" — the role re-gates
+// until a fresh copy is uploaded, same as never having submitted one at all.
+// Documents with no expiryDate (e.g. some ID types) never expire under this
+// rule. This only affects the SUBMISSION gate below — admin VERIFIED/REJECTED
+// status still has zero effect on marketplace access, per the locked policy.
 export async function missingRequiredDocs(userId: string, role: UserRole): Promise<string[]> {
   const required = REQUIRED_DOCS_BY_ROLE[role];
   if (!required || required.length === 0) return [];
 
-  const uploaded = await prisma.document.findMany({
+  const docs = await prisma.document.findMany({
     where:  { userId, docType: { in: required } },
-    select: { docType: true },
+    select: { docType: true, expiryDate: true },
   });
-  const uploadedTypes = new Set(uploaded.map((d) => d.docType));
+
+  const now = new Date();
+  const hasValid       = new Set<DocumentType>();
+  const hasExpiredOnly = new Set<DocumentType>();
+  for (const doc of docs) {
+    const expired = !!doc.expiryDate && doc.expiryDate < now;
+    if (expired) {
+      if (!hasValid.has(doc.docType)) hasExpiredOnly.add(doc.docType);
+    } else {
+      hasValid.add(doc.docType);
+      hasExpiredOnly.delete(doc.docType);
+    }
+  }
 
   return required
-    .filter((t) => !uploadedTypes.has(t))
-    .map((t) => `Upload your ${humanizeDocType(t)} (Documents page)`);
+    .filter((t) => !hasValid.has(t))
+    .map((t) => hasExpiredOnly.has(t)
+      ? `Renew your expired ${humanizeDocType(t)} (Documents page)`
+      : `Upload your ${humanizeDocType(t)} (Documents page)`);
 }
 
 export async function canAccessMarketplace(

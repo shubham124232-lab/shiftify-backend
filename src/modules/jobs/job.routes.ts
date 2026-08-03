@@ -4,6 +4,7 @@ import { requireAuth } from "../../middleware/auth.middleware";
 import * as ctrl from "./job.controller";
 import * as reviewCtrl from "./review.controller";
 import * as assignmentCtrl from "./job-assignment.controller";
+import * as incidentCtrl from "../incidents/incident.controller";
 
 const router = Router();
 
@@ -42,10 +43,14 @@ router.post  ("/:id/messages",                        asyncHandler(ctrl.sendMess
 router.get   ("/:id/messages",                        asyncHandler(ctrl.getMessages));
 
 // ── Invoices ───────────────────────────────────────────────────────────────
+router.get   ("/:id/invoice-recipients",              asyncHandler(ctrl.getInvoiceRecipients));
 router.post  ("/:id/invoice",                         asyncHandler(ctrl.createInvoice));
 
 // ── Reviews ────────────────────────────────────────────────────────────────
 router.post  ("/:id/reviews",                         asyncHandler(reviewCtrl.createReview));
 router.get   ("/:id/reviews",                         asyncHandler(reviewCtrl.listReviews));
+
+// ── Incidents (pilot safety gate) ───────────────────────────────────────────
+router.post  ("/:id/incidents",                       asyncHandler(incidentCtrl.createIncident));
 
 export default router;

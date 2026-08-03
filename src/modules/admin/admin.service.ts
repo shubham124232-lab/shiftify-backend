@@ -312,70 +312,6 @@ export async function verificationQueue(params: {
   return { users, total, page, limit };
 }
 
-// ─── PATCH /admin/users/:id/verify ───────────────────────────────────────────
-// approve → ACTIVE  |  reject → REJECTED (requires reason)
-
-export async function verifyUser(params: {
-  targetUserId: string;
-  adminUserId: string;
-  approved: boolean;
-  reason?: string;
-}) {
-  const { targetUserId, adminUserId, approved, reason } = params;
-
-  if (!approved && !reason?.trim()) {
-    throw new BadRequestError("reason is required when rejecting a user");
-  }
-
-  const target = await prisma.user.findUnique({
-    where: { id: targetUserId },
-    include: { roles: { select: { role: true } } },
-  });
-  if (!target) throw new NotFoundError("User not found");
-  if (target.status !== "PENDING") {
-    throw new BadRequestError(
-      `User is not PENDING (current status: ${target.status})`,
-    );
-  }
-
-  const newStatus: UserStatus = approved ? "ACTIVE" : "REJECTED";
-  const auditAction = approved ? "USER_APPROVED" : ("USER_REJECTED" as const);
-
-  const [updatedUser] = await Promise.all([
-    prisma.user.update({
-      where: { id: targetUserId },
-      data: {
-        status: newStatus,
-        rejectionReason: approved ? null : (reason ?? null),
-      },
-      include: { roles: { select: { role: true, isActiveDefault: true } } },
-    }),
-    writeAudit({
-      adminUserId,
-      action: auditAction,
-      targetUserId,
-      reason: reason ?? undefined,
-    }),
-  ]);
-
-  const notifTitle = approved
-    ? "Registration approved"
-    : "Registration rejected";
-  const notifBody = approved
-    ? "Your Shiftify account has been approved. You can now use the platform."
-    : `Your Shiftify registration was rejected.${reason ? ` Reason: ${reason}` : ""} Contact support for assistance.`;
-
-  const notifResult = await notify.sendPushNotification(
-    targetUserId,
-    notifTitle,
-    notifBody,
-    { action: auditAction, reason },
-    approved ? "REGISTRATION_APPROVED" : "REGISTRATION_REJECTED",
-  );
-
-  return { user: updatedUser, ...notifResult };
-}
-
 // ─── GET /admin/stats ────────────────────────────────────────────────────────
 
 export async function getPlatformStats() {
@@ -390,6 +326,10 @@ export async function getPlatformStats() {
     activeJobs,
     completedToday,
     totalJobs,
+    confirmedBookings,
+    openComplaints,
+    activeSubscriptions,
+    unreadAdminAlerts,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.userRoleAssignment.groupBy({ by: ["role"], _count: { role: true } }),
@@ -402,10 +342,28 @@ export async function getPlatformStats() {
       where: { status: "CONFIRMED", updatedAt: { gte: todayStart } },
     }),
     prisma.supportRequest.count(),
+    prisma.supportRequest.count({ where: { status: "CONFIRMED" } }),
+    (prisma as any).incidentReport.count({ where: { status: "OPEN" } }),
+    (prisma as any).userSubscription.findMany({
+      where:  { status: "ACTIVE" },
+      select: { plan: { select: { amountAud: true } } },
+    }),
+    prisma.notification.count({
+      where: { read: false, user: { roles: { some: { role: "ADMIN" } } } },
+    }),
   ]);
 
   const roleBreakdown = Object.fromEntries(
     usersByRole.map((r) => [r.role, r._count.role]),
+  );
+
+  // Current MRR proxy — sum of active subscriptions' plan price. Real payment
+  // failure tracking doesn't exist yet (Phase 1 mock payments never fail), so
+  // there's deliberately no "failed payments" figure here — a hardcoded one
+  // would be exactly the kind of dishonest stat this pass is meant to remove.
+  const monthlyRevenueAud = activeSubscriptions.reduce(
+    (sum: number, s: { plan: { amountAud: unknown } | null }) => sum + Number(s.plan?.amountAud ?? 0),
+    0,
   );
 
   return {
@@ -416,7 +374,32 @@ export async function getPlatformStats() {
     activeJobs,
     completedToday,
     totalJobs,
+    confirmedBookings,
+    openComplaints,
+    monthlyRevenueAud,
+    unreadAdminAlerts,
   };
+}
+
+// ─── GET /admin/flags ──────────────────────────────────────────────────────────
+// Real urgent-flags feed — open incident reports (the flag button built for
+// the pilot safety gate), most recent first.
+
+export async function listUrgentFlags(limit = 10) {
+  const flags = await (prisma as any).incidentReport.findMany({
+    where:   { status: "OPEN" },
+    orderBy: { createdAt: "desc" },
+    take:    limit,
+    select: {
+      id: true,
+      category: true,
+      description: true,
+      createdAt: true,
+      job:      { select: { id: true, title: true } },
+      reporter: { select: { id: true, name: true } },
+    },
+  });
+  return { flags };
 }
 
 // ─── GET /admin/audit-log ─────────────────────────────────────────────────────
@@ -533,6 +516,84 @@ export async function adminCancelJob(params: {
   ]);
 
   return { job: updatedJob };
+}
+
+// ─── GET /admin/listings ───────────────────────────────────────────────────────
+// Provider service/SIL-SDA listings had no admin moderation queue at all —
+// providers could post and nobody could review or pull a listing down.
+
+const LISTING_STATUSES = ["ACTIVE", "PAUSED", "FILLED", "CLOSED"] as const;
+type ListingStatus = (typeof LISTING_STATUSES)[number];
+
+export async function listAdminListings(params: {
+  status?: string;
+  listingCategory?: string;
+  page: number;
+  limit: number;
+}) {
+  const { page, limit } = params;
+  const skip = (page - 1) * limit;
+
+  const where: Record<string, unknown> = {};
+  if (params.status)          where.status = params.status;
+  if (params.listingCategory) where.listingCategory = params.listingCategory;
+
+  const [listings, total] = await Promise.all([
+    (prisma as any).providerListing.findMany({
+      where,
+      select: {
+        id: true,
+        title: true,
+        listingCategory: true,
+        status: true,
+        suburb: true,
+        state: true,
+        createdAt: true,
+        provider: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+    }),
+    (prisma as any).providerListing.count({ where }),
+  ]);
+
+  return { listings, total, page, limit };
+}
+
+// ─── PATCH /admin/listings/:id/status ──────────────────────────────────────────
+
+export async function updateListingStatus(params: {
+  listingId: string;
+  adminUserId: string;
+  status: string;
+  reason?: string;
+}) {
+  const { listingId, adminUserId, status, reason } = params;
+
+  if (!LISTING_STATUSES.includes(status as ListingStatus)) {
+    throw new BadRequestError(`status must be one of ${LISTING_STATUSES.join(", ")}`);
+  }
+
+  const listing = await (prisma as any).providerListing.findUnique({ where: { id: listingId } });
+  if (!listing) throw new NotFoundError("Listing not found");
+
+  const [updatedListing] = await Promise.all([
+    (prisma as any).providerListing.update({
+      where: { id: listingId },
+      data:  { status },
+    }),
+    writeAudit({
+      adminUserId,
+      action: "USER_EDITED", // closest available; no LISTING_STATUS_CHANGED action in enum yet
+      targetUserId: listing.providerUserId,
+      reason: reason
+        ? `Admin set listing ${listingId} to ${status}: ${reason}`
+        : `Admin set listing ${listingId} to ${status}`,
+    }),
+  ]);
+
+  return { listing: updatedListing };
 }
 
 // ─── GET /admin/documents/:id/view ────────────────────────────────────────────
