@@ -10,7 +10,7 @@ const managedAccountSchema = z.object({
     .regex(/^[a-zA-Z0-9._-]+$/, "Use letters, numbers, dot, dash, or underscore"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   name: z.string().min(1).max(120),
-});
+}).strict();
 
 // POST /linking/workers — Provider creates a MANAGED SUPPORT_WORKER as a DRAFT.
 // Profile, availability, service area and documents are filled in afterwards

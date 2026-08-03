@@ -8,7 +8,8 @@ import { browseWorkersFiltersSchema } from "../../validators/worker-browse.schem
 // GET /workers/available
 export async function browseAvailableWorkers(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
+  if (!req.activeRole) throw new UnauthorizedError("No active role");
   const filters = parse(browseWorkersFiltersSchema, req.query);
-  const { workers, total, page, limit } = await svc.browseAvailableWorkers(filters);
+  const { workers, total, page, limit } = await svc.browseAvailableWorkers(filters, req.user.id, req.activeRole);
   paginated(res, workers, total, page, limit);
 }

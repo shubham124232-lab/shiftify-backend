@@ -4,7 +4,7 @@ import { paginationSchema } from "./pagination.schema";
 
 // ─── Enums (mirror Prisma) ────────────────────────────────────────────────────
 
-const JobCategoryEnum = z.enum([
+export const JobCategoryEnum = z.enum([
   "PERSONAL_CARE","COMMUNITY_ACCESS","DOMESTIC_ASSISTANCE","TRANSPORT",
   "SOCIAL_RECREATIONAL","NURSING_COMPLEX_CARE","THERAPY_ASSISTANCE",
   "OVERNIGHT_SUPPORT","BEHAVIOUR_SUPPORT","HIGH_INTENSITY","SIL_SUPPORT",
@@ -12,16 +12,16 @@ const JobCategoryEnum = z.enum([
   "SHOPPING_ERRANDS","APPOINTMENT_SUPPORT","OTHER",
 ]);
 
-const ShiftTypeEnum = z.enum([
+export const ShiftTypeEnum = z.enum([
   "STANDARD","SHORT_VISIT","LONG_SHIFT","ACTIVE_OVERNIGHT","SLEEPOVER",
   "TWENTY_FOUR_HOUR","DROP_IN","APPOINTMENT","TRANSPORT_ONLY","SPLIT",
 ]);
 
-const FundingTypeEnum = z.enum([
+export const FundingTypeEnum = z.enum([
   "SELF_MANAGED","PLAN_MANAGED","NDIA_MANAGED","PRIVATE","MIXED","DISCUSS",
 ]);
 
-const UrgencyEnum = z.enum(["EMERGENCY","SAME_DAY","SCHEDULED","REPLACEMENT"]);
+export const UrgencyEnum = z.enum(["EMERGENCY","SAME_DAY","SCHEDULED","REPLACEMENT"]);
 
 // ─── Create / draft ───────────────────────────────────────────────────────────
 
@@ -106,13 +106,13 @@ export const createJobSchema = z.object({
     phone:  z.string().min(8).max(30).optional(),
     suburb: z.string().min(2).max(100).optional(),
   }).optional(),
-});
+}).strict();
 
 // ─── Publish a draft ─────────────────────────────────────────────────────────
 
 export const publishJobSchema = z.object({
   jobId: z.string().uuid(),
-});
+}).strict();
 
 // ─── Filters (load board) ─────────────────────────────────────────────────────
 
@@ -165,42 +165,42 @@ export const applyJobSchema = z.object({
 
   // Structured confirmations blob (suitability checkboxes, docs visibility, etc.)
   applicationData:    z.record(z.unknown()).optional(),
-});
+}).strict();
 
 // ─── Cancel ──────────────────────────────────────────────────────────────────
 
 export const cancelJobSchema = z.object({
   reason: z.string().max(500).optional(),
-});
+}).strict();
 
 // ─── Provider assigns a worker after being selected ──────────────────────────
 
 export const assignWorkerSchema = z.object({
   workerUserId: z.string().uuid(),
-});
+}).strict();
 
 // ─── Messaging ───────────────────────────────────────────────────────────────
 
 export const sendMessageSchema = z.object({
   body: z.string().min(1).max(5000),
-});
+}).strict();
 
 // ─── Multi-worker roster (additive to the single assignedWorkerUserId flow) ──
 
 export const createAssignmentSchema = z.object({
   workerUserId: z.string().uuid(),
-});
+}).strict();
 
 export const updateAssignmentStatusSchema = z.object({
   status: z.enum(["COMPLETED", "CANCELLED"]),
-});
+}).strict();
 
 // ─── Reviews ─────────────────────────────────────────────────────────────────
 
 export const createReviewSchema = z.object({
   rating:  z.number().int().min(1).max(5),
   comment: z.string().max(1000).optional(),
-});
+}).strict();
 
 // ─── Invoice ─────────────────────────────────────────────────────────────────
 
@@ -209,7 +209,7 @@ export const createInvoiceSchema = z.object({
   participantUserId: z.string().uuid(),
   hours:             z.number().positive().max(500).optional(),
   note:              z.string().max(1000).optional(),
-});
+}).strict();
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

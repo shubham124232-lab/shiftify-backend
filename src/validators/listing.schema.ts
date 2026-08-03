@@ -44,6 +44,7 @@ export const createListingSchema = z
     // Sent by the Web forms; accepted but not persisted.
     acknowledgement: z.boolean().optional(),
   })
+  .strict()
   .superRefine((val, ctx) => {
     if (val.listingCategory === "SERVICE") {
       if (!val.listingType) {
@@ -101,6 +102,6 @@ export const updateListingSchema = z.object({
   urgency: z
     .enum(["AVAILABLE_NOW", "AVAILABLE_SOON", "FUTURE", "EXPRESSION_OF_INTEREST"])
     .optional(),
-});
+}).strict();
 
 export type UpdateListingInput = z.infer<typeof updateListingSchema>;

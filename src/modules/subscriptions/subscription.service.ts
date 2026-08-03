@@ -197,3 +197,15 @@ export async function getActiveBasePlanKey(userId: string, role: UserRole): Prom
   });
   return sub?.plan?.key ?? null;
 }
+
+// ─── hasActiveAddOn ───────────────────────────────────────────────────────────
+// Checks for a specific active add-on plan (e.g. "COORDINATOR_GROWTH",
+// "WORKER_AVAILABLE_NOW") — unlike subscriptionGated, which only confirms the
+// user holds *any* active plan for the role.
+
+export async function hasActiveAddOn(userId: string, role: UserRole, planKey: string): Promise<boolean> {
+  const sub = await (prisma as any).userSubscription.findFirst({
+    where: { userId, status: "ACTIVE", plan: { role, isAddOn: true, key: planKey } },
+  });
+  return sub !== null;
+}

@@ -11,6 +11,7 @@ import { canAccessMarketplace, missingRequiredDocs } from "../../middleware/mark
 import { subscriptionGated, getActiveBasePlanKey } from "../subscriptions/subscription.service";
 import { FREE_TIER_LIMIT } from "../../config/constants";
 import { computeApplicationScore } from "./job-scoring";
+import { notifyMatchingSavedSearches } from "../saved-searches/saved-search.service";
 import type { UserRole, JobCategory, JobUrgency, JobStatus } from "@prisma/client";
 import { ShiftType, FundingType } from "@prisma/client";
 import type {
@@ -280,11 +281,18 @@ export async function publishJob(jobId: string, posterId: string) {
   requireJob(job, jobId);
   if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can publish this job");
   if (job!.status !== "DRAFT") throw new BadRequestError("Only a draft job can be published.");
-  return prisma.supportRequest.update({
+  const published = await prisma.supportRequest.update({
     where: { id: jobId },
     data:  { status: "OPEN" },
     select: JOB_WRITE_SELECT,
   });
+
+  // Best-effort — a notify bug should never block the publish itself.
+  notifyMatchingSavedSearches(job!).catch((err) =>
+    console.error("[saved-search] notify failed:", err),
+  );
+
+  return published;
 }
 
 // ─── List jobs (role-based, with spec filters) ────────────────────────────────
@@ -1044,7 +1052,52 @@ export async function getMessages(jobId: string, userId: string) {
   });
 }
 
-// ─── Invoice ────────────────────────────────────────────�
+// ─── Invoice ──────────────────────────────────────────────────────────────────
+
+// GET /jobs/:id/invoice-recipients — candidate plan managers for the invoice
+// picker: whichever are actually connected (ACCEPTED) to this job's
+// participant, so the sender picks from a real list instead of typing a raw
+// user ID. UX only — does not change what createInvoice accepts.
+export async function getInvoiceRecipients(jobId: string, senderId: string, activeRole: UserRole) {
+  const allowed: UserRole[] = ["COORDINATOR", "PROVIDER", "SUPPORT_WORKER"];
+  if (!allowed.includes(activeRole)) {
+    throw new ForbiddenError("Only coordinators, providers, and workers can create invoices");
+  }
+
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+
+  const app = await prisma.jobApplication.findFirst({
+    where: { jobId, applicantUserId: senderId, status: { in: ["SELECTED", "INTERESTED"] } },
+  });
+  const isCoordinator = job!.postedByUserId === senderId && activeRole === "COORDINATOR";
+  if (!app && !isCoordinator) throw new ForbiddenError("You are not involved in this job");
+
+  if (!job!.forParticipantUserId) return { participant: null, planManagers: [] };
+
+  const [participant, connections] = await Promise.all([
+    prisma.user.findUnique({ where: { id: job!.forParticipantUserId }, select: { id: true, name: true } }),
+    prisma.planManagerConnection.findMany({
+      where: { clientUserId: job!.forParticipantUserId, status: "ACCEPTED" },
+      include: {
+        planManager: {
+          select: { id: true, name: true, email: true, planManagerProfile: { select: { businessName: true } } },
+        },
+      },
+    }),
+  ]);
+
+  return {
+    participant,
+    planManagers: connections.map((c) => ({
+      id:           c.planManager.id,
+      name:         c.planManager.name,
+      email:        c.planManager.email,
+      businessName: c.planManager.planManagerProfile?.businessName ?? null,
+    })),
+  };
+}
+
 export async function createInvoice(
   jobId: string,
   senderId: string,

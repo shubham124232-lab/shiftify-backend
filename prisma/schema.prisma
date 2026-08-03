@@ -308,6 +308,7 @@ model User {
   messagesSent            JobMessage[]
   incidentsReported       IncidentReport[]
   notifications           Notification[]
+  savedSearches           SavedSearch[]
   sessions                Session[]
 
   auditLogActions         AuditLog[]   @relation("AdminAction")
@@ -489,6 +490,11 @@ model WorkerProfile {
   availableNowSetAt         DateTime?
   seekingPlanManager        Boolean   @default(false)
 
+  // Capacity — mirrors CoordinatorProfile/ProviderProfile's currentCapacityStatus pattern
+  maxWeeklyHours            Int?
+  maxConcurrentJobs         Int?
+  currentCapacityStatus     String?  // OPEN | LIMITED | FULL
+
   // Step 9 — Documents
   manualHandlingCompleted   Boolean  @default(false)
   firstAidCertType          String?  // HLTAID011 | HLTAID009 | OTHER
@@ -517,6 +523,22 @@ model WorkerProfile {
 
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
+}
+
+// A worker's standing "notify me when a job like this is posted" request —
+// checked against every job on publish (see publishJob in job.service.ts).
+model SavedSearch {
+  id         String   @id @default(uuid())
+  workerId   String
+  worker     User     @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  label      String?
+  filters    Json
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([workerId])
+  @@index([isActive])
 }
 
 model ProviderProfile {
@@ -726,7 +748,7 @@ model PlanManagerProfile {
   businessName                            String
   legalEntityName                         String?
   abn                                     String?
-  businessStructure                       String?   // SOLE_TRADER | PARTNERSHIP | COMPANY | TRUST
+  businessStructure                       String?   // SOLE_TRADER | PARTNERSHIP | COMPANY | TRUST | NOT_FOR_PROFIT
   businessAddress                         String?
   businessSuburb                          String?
   businessPostcode                        String?

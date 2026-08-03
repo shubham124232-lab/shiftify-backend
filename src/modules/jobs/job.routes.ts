@@ -43,6 +43,7 @@ router.post  ("/:id/messages",                        asyncHandler(ctrl.sendMess
 router.get   ("/:id/messages",                        asyncHandler(ctrl.getMessages));
 
 // ── Invoices ───────────────────────────────────────────────────────────────
+router.get   ("/:id/invoice-recipients",              asyncHandler(ctrl.getInvoiceRecipients));
 router.post  ("/:id/invoice",                         asyncHandler(ctrl.createInvoice));
 
 // ── Reviews ────────────────────────────────────────────────────────────────

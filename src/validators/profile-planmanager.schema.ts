@@ -10,7 +10,7 @@ const planManagerProfileBaseSchema = z.object({
   legalEntityName:                       z.string().max(120).optional(),
   abn:                                   z.string().max(20).optional(),
   acn:                                   z.string().max(20).optional(),
-  businessStructure:                     z.enum(["SOLE_TRADER", "PARTNERSHIP", "COMPANY", "TRUST"]).optional(),
+  businessStructure:                     z.enum(["SOLE_TRADER", "PARTNERSHIP", "COMPANY", "TRUST", "NOT_FOR_PROFIT"]).optional(),
   trustName:                             z.string().max(120).optional(),
   directorName:                          z.string().max(120).optional(),
   directorPosition:                      z.string().max(80).optional(),
@@ -119,9 +119,10 @@ const planManagerProfileBaseSchema = z.object({
   consentToVerification:                 z.boolean().optional(),
   consentToParticipantLinkingControls:   z.boolean().optional(),
   consentToInvoiceRoutingRules:          z.boolean().optional(),
+  docsAcknowledged:                      z.boolean().optional(),
 });
 
-export const planManagerProfileSchema = planManagerProfileBaseSchema.superRefine((data, ctx) => {
+export const planManagerProfileSchema = planManagerProfileBaseSchema.strict().superRefine((data, ctx) => {
   if (data.ndisRegistrationStatus === "REGISTERED") {
     if (!data.ndisProviderNumber) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ndisProviderNumber"], message: "NDIS provider number is required when registered" });
     if (!data.registrationExpiryDate) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["registrationExpiryDate"], message: "Registration expiry date is required when registered" });

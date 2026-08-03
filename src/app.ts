@@ -19,6 +19,7 @@ import uploadRoutes       from "./modules/upload/upload.routes";
 import listingRoutes      from "./modules/listings/listing.routes";
 import workerRoutes       from "./modules/workers/worker.routes";
 import coordinatorRoutes  from "./modules/coordinators/coordinator.routes";
+import savedSearchRoutes  from "./modules/saved-searches/saved-search.routes";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { requireAuth }    from "./middleware/auth.middleware";
 import { asyncHandler }   from "./utils/async-handler";
@@ -78,6 +79,7 @@ app.use("/upload",        uploadRoutes);
 app.use("/provider/listings", listingRoutes);
 app.use("/workers",       workerRoutes);
 app.use("/coordinators",  coordinatorRoutes);
+app.use("/saved-searches", savedSearchRoutes);
 
 // ── 404 ─────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

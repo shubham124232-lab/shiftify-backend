@@ -61,7 +61,7 @@ const coordinatorProfileBaseSchema = z.object({
   consentForVerification:            z.boolean().optional(),
 });
 
-export const coordinatorProfileSchema = coordinatorProfileBaseSchema.superRefine((data, ctx) => {
+export const coordinatorProfileSchema = coordinatorProfileBaseSchema.strict().superRefine((data, ctx) => {
   if (data.roleType === "AGENCY_EMPLOYED" && !data.organisationName) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["organisationName"], message: "Organisation name is required for agency-employed coordinators" });
   }

@@ -21,6 +21,6 @@ export const updateProfileSchema = z.object({
       notes:         z.string().max(255).nullable().optional(),
     })
     .optional(),
-});
+}).strict();
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

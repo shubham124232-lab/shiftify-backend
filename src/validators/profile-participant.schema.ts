@@ -47,7 +47,7 @@ const participantProfileBaseSchema = z.object({
   ndisCodeAccepted:             z.boolean().optional(),
 });
 
-export const participantProfileSchema = participantProfileBaseSchema.superRefine((data, ctx) => {
+export const participantProfileSchema = participantProfileBaseSchema.strict().superRefine((data, ctx) => {
   // Final-submission checks — only enforced once the applicant reaches the declaration step,
   // so in-progress step-by-step saves are never blocked.
   if (data.termsAccepted === true) {
