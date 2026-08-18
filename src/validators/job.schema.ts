@@ -21,7 +21,7 @@ export const FundingTypeEnum = z.enum([
   "SELF_MANAGED","PLAN_MANAGED","NDIA_MANAGED","PRIVATE","MIXED","DISCUSS",
 ]);
 
-export const UrgencyEnum = z.enum(["EMERGENCY","SAME_DAY","SCHEDULED","REPLACEMENT"]);
+export const UrgencyEnum = z.enum(["EMERGENCY","SAME_DAY","SCHEDULED","REPLACEMENT","RAPID","LAST_MINUTE"]);
 
 // ─── Create / draft ───────────────────────────────────────────────────────────
 
@@ -36,6 +36,14 @@ export const createJobSchema = z.object({
   durationType:           z.string().max(40).optional(),
   // SELF | NOMINEE | FAMILY | COORDINATOR | GUARDIAN
   participantPostedAs:    z.string().max(40).optional(),
+  // Task checkboxes selected from the master service catalogue (participant posting spec).
+  // Rapid/Urgent/Last-Minute send a flat string array (single category). Routine
+  // (O-03/O-04) allows more than one category, so it sends a richer object keyed
+  // by category — both shapes land in the same Json? column unchanged.
+  selectedTasks:          z.union([
+    z.array(z.string().max(120)).max(50),
+    z.record(z.unknown()),
+  ]).optional(),
 
   // ── Step 2: Schedule ────────────────────────────────────────────────────
   urgency:                UrgencyEnum.default("SCHEDULED"),
@@ -70,6 +78,10 @@ export const createJobSchema = z.object({
   totalBudget:            z.number().min(0).max(999999).optional(),
   // INCLUDED | ADDITIONAL | DISCUSS | NOT_REQUIRED
   travelReimbursement:    z.string().max(40).optional(),
+  planManagerName:        z.string().max(120).optional(),
+  // Last-Minute "how would you like updates" / Routine "how should professionals respond" (participant posting spec).
+  contactPreferences:     z.record(z.unknown()).optional(),
+  responsePreferences:    z.record(z.unknown()).optional(),
 
   // ── Step 7: Visibility & matching ────────────────────────────────────────
   // ALL | VERIFIED | PROVIDERS_ONLY | WORKERS_ONLY | INVITE_ONLY
@@ -90,6 +102,8 @@ export const createJobSchema = z.object({
   riskSafetyNotes:        z.string().max(2000).optional(),
   medicalNotes:           z.string().max(2000).optional(),
   behaviourNotes:         z.string().max(2000).optional(),
+  // Structured safety checklist selections (participant posting spec).
+  safetyFlags:            z.record(z.unknown()).optional(),
   // Per-job emergency contact override — falls back to the participant profile's
   // own emergency contact if left blank.
   emergencyContactName:         z.string().max(120).optional(),
