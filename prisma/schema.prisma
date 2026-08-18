@@ -114,11 +114,20 @@ enum JobCategory {
 // Revised: three tiers (was STANDARD/LAST_MINUTE/URGENT/EMERGENCY)
 // REPLACEMENT added separately — a named special post type (worker cancelled,
 // need a replacement urgently), distinct from a generic EMERGENCY post.
+// RAPID/LAST_MINUTE added for the participant posting-journeys spec (2026-08-12):
+// four participant-facing speed tiers (Rapid/Urgent/Last-Minute/Routine) map to
+// RAPID/SAME_DAY/LAST_MINUTE/SCHEDULED respectively. EMERGENCY is deliberately
+// NOT one of the four participant tiers — it keeps its existing broadcast/
+// promotion semantics (NotificationType.EMERGENCY_NEARBY, promotedFromCancellation)
+// reserved for genuine crisis escalation, not routine "need help soon" posts
+// (the app explicitly disclaims "Shiftify is not an emergency service").
 enum JobUrgency {
   EMERGENCY
   SAME_DAY
   SCHEDULED
   REPLACEMENT
+  RAPID
+  LAST_MINUTE
 }
 
 // Revised flow: OPEN accumulates expressions of interest; poster selects → ASSIGNED.
@@ -1006,11 +1015,18 @@ model SupportRequest {
   recurrencePattern        Json?
 
   workerPreferences        Json?
+  // Participant-selected task checkboxes from the master service catalogue
+  // (e.g. ["Showering/bathing","Dressing/grooming"]) — participant posting spec.
+  selectedTasks            Json?
 
   // ── Step 4: Participant support needs (safety-critical) ─────────────────────
   riskSafetyNotes      String?       @db.Text
   medicalNotes         String?       @db.Text
   behaviourNotes       String?       @db.Text
+  // Structured safety checklist (participant posting spec) — the free-text
+  // fields above still hold any elaboration; this holds which checklist
+  // items were ticked (e.g. { twoPersonSupport: true, manualTransfer: false }).
+  safetyFlags          Json?
 
   // Per-job emergency contact — overrides the participant profile's default
   // emergency contact for this specific booking (e.g. a different family member
@@ -1042,6 +1058,14 @@ model SupportRequest {
   budgetPerHour        Decimal?      @db.Decimal(8, 2)
   totalBudget          Decimal?      @db.Decimal(10, 2)
   travelReimbursement  String?       // INCLUDED | ADDITIONAL | DISCUSS | NOT_REQUIRED
+  // Optional Plan Manager name, asked at the funding step (participant posting spec).
+  planManagerName      String?
+  // Last-Minute/Routine "how would you like updates" + Routine "how should
+  // professionals respond" (participant posting spec) — e.g.
+  // { updateMethods: ["SMS","APP"], contactRepName, contactRepPhone } and
+  // { responseMethods: ["MESSAGE","SCREENING"], screeningQuestions: [...] }.
+  contactPreferences   Json?
+  responsePreferences  Json?
 
   // ── Step 7: Visibility ───────────────────────────────────────────────────────
   visibilityTarget     String?       // ALL | VERIFIED | PROVIDERS_ONLY | WORKERS_ONLY | INVITE_ONLY

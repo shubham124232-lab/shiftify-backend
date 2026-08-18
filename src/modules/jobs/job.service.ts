@@ -165,7 +165,7 @@ export async function createJob(
 
   let forParticipantUserId: string;
 
-  if (activeRole === "PARTICIPANT") {
+  if (activeRole === "PARTICIPANT" && !input.forParticipantUserId && !input.inlineParticipant) {
     forParticipantUserId = posterId;
   } else {
     if (input.forParticipantUserId) {
@@ -258,6 +258,10 @@ export async function createJob(
   input.workerPreferences
     ? (input.workerPreferences as Prisma.InputJsonValue)
     : undefined,
+      selectedTasks:
+  input.selectedTasks
+    ? (input.selectedTasks as Prisma.InputJsonValue)
+    : undefined,
       internalNote:         input.internalNote ?? null,
       caseReference:        input.caseReference ?? null,
       requestPurposeCategory: input.requestPurposeCategory ?? null,
@@ -265,9 +269,22 @@ export async function createJob(
       riskSafetyNotes:      input.riskSafetyNotes ?? null,
       medicalNotes:         input.medicalNotes ?? null,
       behaviourNotes:       input.behaviourNotes ?? null,
+      safetyFlags:
+  input.safetyFlags
+    ? (input.safetyFlags as Prisma.InputJsonValue)
+    : undefined,
       emergencyContactName:         input.emergencyContactName ?? null,
       emergencyContactPhone:        input.emergencyContactPhone ?? null,
       emergencyContactRelationship: input.emergencyContactRelationship ?? null,
+      planManagerName:      input.planManagerName ?? null,
+      contactPreferences:
+  input.contactPreferences
+    ? (input.contactPreferences as Prisma.InputJsonValue)
+    : undefined,
+      responsePreferences:
+  input.responsePreferences
+    ? (input.responsePreferences as Prisma.InputJsonValue)
+    : undefined,
       status,
     },
     select: JOB_WRITE_SELECT,
