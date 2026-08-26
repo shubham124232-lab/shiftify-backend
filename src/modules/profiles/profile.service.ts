@@ -213,15 +213,43 @@ export async function upsertCoordinatorProfile(userId: string, data: Coordinator
   const fields = datesToDates(raw as Record<string, unknown>, [
     "policeCheckExpiry", "wwccExpiry", "ndisScreeningExpiry",
     "professionalIndemnityExpiry", "publicLiabilityExpiry",
-  ]);
+  ]) as Record<string, unknown>;
 
   const existing = await prisma.coordinatorProfile.findUnique({ where: { userId } });
   const nextStep  = Math.max(existing?.profileStep ?? 0, incomingStep ?? 0);
+
+  // SC-A05 — a freshly-entered invite code (not already stored) is resolved against
+  // another coordinator's orgInviteCode; on a match, adopt their organisationName.
+  // No match is not an error — the raw code is still stored as entered, for audit.
+  const incomingCode = fields.joinedViaInviteCode as string | undefined;
+  if (incomingCode && incomingCode !== existing?.joinedViaInviteCode) {
+    const owner = await prisma.coordinatorProfile.findUnique({ where: { orgInviteCode: incomingCode } });
+    if (owner && owner.userId !== userId) {
+      fields.organisationName = owner.organisationName;
+    }
+  }
 
   return prisma.coordinatorProfile.upsert({
     where:  { userId },
     create: { userId, profileStep: nextStep, ...(fields as any) },
     update: { profileStep: nextStep, ...(fields as any) },
+  });
+}
+
+// POST /users/me/profile/coordinator/invite-code — generates (or returns the existing)
+// shareable org invitation code for this coordinator, per SC-A05.
+export async function generateOrgInviteCode(userId: string) {
+  const existing = await prisma.coordinatorProfile.findUnique({ where: { userId } });
+  if (!existing) throw new NotFoundError("Coordinator profile not found");
+  if (existing.orgInviteCode) return existing;
+
+  const code = Array.from({ length: 8 }, () =>
+    "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 33)],
+  ).join("");
+
+  return prisma.coordinatorProfile.update({
+    where: { userId },
+    data:  { orgInviteCode: code },
   });
 }
 

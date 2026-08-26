@@ -8,10 +8,11 @@ import {
 } from "../../lib/errors";
 import { notify } from "../../lib/notify";
 import { canAccessMarketplace, missingRequiredDocs } from "../../middleware/marketplace.middleware";
-import { subscriptionGated, getActiveBasePlanKey } from "../subscriptions/subscription.service";
+import { subscriptionGated, getActiveBasePlanKey, hasUnconsumedShiftPass, consumeShiftPass } from "../subscriptions/subscription.service";
 import { FREE_TIER_LIMIT } from "../../config/constants";
 import { computeApplicationScore } from "./job-scoring";
 import { notifyMatchingSavedSearches } from "../saved-searches/saved-search.service";
+import { assertCoordinatorPermission } from "../coordinator-connections/coordinator-connection.service";
 import type { UserRole, JobCategory, JobUrgency, JobStatus } from "@prisma/client";
 import { ShiftType, FundingType } from "@prisma/client";
 import type {
@@ -22,6 +23,7 @@ import type {
   AssignWorkerInput,
   SendMessageInput,
   CreateInvoiceInput,
+  CreateReplacementInput,
 } from "../../validators/job.schema";
 import { Prisma } from "@prisma/client";
 
@@ -62,6 +64,7 @@ const JOB_WRITE_SELECT = {
   forParticipantUserId:    true,
   selectedApplicantUserId: true,
   assignedWorkerUserId:    true,
+  workerConfirmedAt:       true,
   updatedAt:               true,
 } as const;
 
@@ -87,6 +90,7 @@ const JOB_SUMMARY_SELECT = {
   fundingType:         true,
   visibilityTarget:    true,
   hideParticipantName: true,
+  forParticipantUserId: true,
   createdAt:           true,
   status:              true,
 } as const;
@@ -96,15 +100,36 @@ const CONTACT_VISIBLE_STATUSES: JobStatus[] = ["ASSIGNED", "IN_PROGRESS", "COMPL
 function withContactDetails<T extends {
   status: JobStatus;
   assignedWorkerUserId: string | null;
+  selectedApplicantUserId: string | null;
+  workerConfirmedAt: Date | null;
   postedByUserId: string;
+  addressLine: string | null;
   forParticipant: { id: string; name: string; avatarUrl: string | null } | null;
 }>(job: T, userId: string, participantContact: { phone: string | null; email: string | null } | null) {
+  // The worker/provider "party" on a job is whichever of the two identity fields
+  // is set — assignedWorkerUserId only gets set when a Provider hands the job to
+  // one of their own team members; a directly-selected Support Worker only ever
+  // has selectedApplicantUserId. Checking just one of the two silently locked a
+  // directly-hired worker out of contact/address info forever.
+  const workerPartyId = job.assignedWorkerUserId ?? job.selectedApplicantUserId;
+
+  // Address/contact release requires BOTH: the job reached an active status AND
+  // the worker/provider explicitly accepted the assignment (mutual confirmation,
+  // SC-M05/M06/M07) — a one-sided "selected" state is never enough.
+  const mutuallyConfirmed =
+    CONTACT_VISIBLE_STATUSES.includes(job.status) && job.workerConfirmedAt !== null;
+
   const canSeeContact =
-    CONTACT_VISIBLE_STATUSES.includes(job.status) &&
-    (job.assignedWorkerUserId === userId || job.postedByUserId === userId);
+    job.postedByUserId === userId || (mutuallyConfirmed && workerPartyId === userId);
+
+  // The poster always sees the address they entered; a worker/provider only
+  // sees it once both sides have confirmed (suburb/state are shown separately
+  // and are never redacted).
+  const canSeeAddress = canSeeContact;
 
   return {
     ...job,
+    addressLine: canSeeAddress ? job.addressLine : null,
     forParticipant: job.forParticipant
       ? {
           ...job.forParticipant,
@@ -140,6 +165,10 @@ export async function createJob(
   }
 
   // Subscription gate (#51/#52) — coordinators need an active plan; participants are free.
+  // Pricing V2 §2/§6 — once a Coordinator's first 10 introductory chargeable
+  // actions (lifetime, no expiry) are used up, a free-tier plan needs either a
+  // paid subscription or an unconsumed Single Shift Pass to post again.
+  let shiftPassToConsume = false;
   if (activeRole === "COORDINATOR") {
     if (!(await subscriptionGated(posterId, activeRole))) {
       throw new ApiError(
@@ -150,15 +179,20 @@ export async function createJob(
     }
     const planKey = await getActiveBasePlanKey(posterId, activeRole);
     if (planKey?.endsWith("_FREE")) {
-      const openPosts = await prisma.supportRequest.count({
-        where: { postedByUserId: posterId, status: { in: ["DRAFT", "OPEN"] } },
+      const coordProfile = await prisma.coordinatorProfile.findUnique({
+        where: { userId: posterId },
+        select: { introductoryActionsUsed: true },
       });
-      if (openPosts >= FREE_TIER_LIMIT) {
-        throw new ApiError(
-          403,
-          "SUBSCRIPTION_LIMIT",
-          `Free plan limit reached (${FREE_TIER_LIMIT} open job posts). Upgrade your plan to post more.`,
-        );
+      const introUsed = coordProfile?.introductoryActionsUsed ?? 0;
+      if (introUsed >= 10) {
+        if (!(await hasUnconsumedShiftPass(posterId, activeRole))) {
+          throw new ApiError(
+            403,
+            "SUBSCRIPTION_LIMIT",
+            "You've used your 10 introductory job posts. Subscribe to a plan or purchase a Single Shift Pass to post more.",
+          );
+        }
+        shiftPassToConsume = true;
       }
     }
   }
@@ -178,7 +212,14 @@ export async function createJob(
         throw new BadRequestError("That user is not a participant");
       }
       if (participant.parentUserId !== posterId) {
-        throw new ForbiddenError("You can only post for a participant you manage");
+        // Not a MANAGED account under this coordinator — fall back to checking
+        // whether this is an INDEPENDENT participant who's connected and granted
+        // posting permission (CoordinatorParticipantConnection.canPostRequests).
+        if (activeRole === "COORDINATOR") {
+          await assertCoordinatorPermission(posterId, input.forParticipantUserId, "canPostRequests");
+        } else {
+          throw new ForbiddenError("You can only post for a participant you manage");
+        }
       }
       forParticipantUserId = input.forParticipantUserId;
 
@@ -209,7 +250,7 @@ export async function createJob(
 
   const status: JobStatus = input.asDraft ? "DRAFT" : "OPEN";
 
-  return prisma.supportRequest.create({
+  const created = await prisma.supportRequest.create({
     data: {
       postedByUserId:       posterId,
       forParticipantUserId,
@@ -289,6 +330,19 @@ export async function createJob(
     },
     select: JOB_WRITE_SELECT,
   });
+
+  if (activeRole === "COORDINATOR") {
+    if (shiftPassToConsume) {
+      await consumeShiftPass(posterId, activeRole, created.id);
+    } else {
+      await prisma.coordinatorProfile.updateMany({
+        where: { userId: posterId, introductoryActionsUsed: { lt: 10 } },
+        data:  { introductoryActionsUsed: { increment: 1 } },
+      });
+    }
+  }
+
+  return created;
 }
 
 // ─── Publish a draft ─────────────────────────────────────────────────────────
@@ -612,31 +666,7 @@ export async function cancelJob(
     ]);
 
     const promoted = await prisma.supportRequest.create({
-      data: {
-        postedByUserId:          job!.postedByUserId,
-        forParticipantUserId:    job!.forParticipantUserId,
-        title:                   `[EMERGENCY] ${job!.title}`,
-        description:             job!.description,
-        category:                job!.category,
-        subcategory:             job!.subcategory,
-        urgency:                 "EMERGENCY",
-        status:                  "OPEN",
-        suburb:                  job!.suburb,
-        state:                   job!.state,
-        postcode:                job!.postcode,
-        serviceDeliveryMode:     job!.serviceDeliveryMode,
-        scheduledStartAt:        job!.scheduledStartAt,
-        scheduledEndAt:          job!.scheduledEndAt,
-        totalHours:              job!.totalHours ?? undefined,
-        isRecurring:             false,
-        fundingType:             job!.fundingType ?? undefined,
-        budgetType:              job!.budgetType ?? undefined,
-        budgetPerHour:           job!.budgetPerHour ?? undefined,
-        totalBudget:             job!.totalBudget ?? undefined,
-        visibilityTarget:        job!.visibilityTarget ?? undefined,
-        workerPreferences:       job!.workerPreferences ?? undefined,
-        promotedFromCancellation: true,
-      },
+      data: cloneJobForReplacement(job!, { titlePrefix: "[EMERGENCY] ", urgency: "EMERGENCY", promotedFromCancellation: true }),
     });
 
     void notify.sendPushNotification(
@@ -668,6 +698,89 @@ export async function cancelJob(
   ]);
 
   return { cancelled: await prisma.supportRequest.findUnique({ where: { id: jobId } }), promoted: null };
+}
+
+// Shared clone shape — used by cancelJob's automatic emergency promotion above
+// and by createReplacementRequest's manual "Find Replacement" flow below, so
+// the two paths can't diverge on which fields carry over from the original job.
+function cloneJobForReplacement(
+  job: {
+    postedByUserId: string; forParticipantUserId: string; title: string; description: string;
+    category: JobCategory; subcategory: string | null; suburb: string; state: string; postcode: string | null;
+    serviceDeliveryMode: string | null; scheduledStartAt: Date; scheduledEndAt: Date; totalHours: unknown;
+    fundingType: FundingType | null; budgetType: string | null; budgetPerHour: unknown; totalBudget: unknown;
+    visibilityTarget: string | null; workerPreferences: unknown;
+  },
+  overrides: {
+    titlePrefix?: string; urgency: JobUrgency; promotedFromCancellation?: boolean;
+    scheduledStartAt?: Date; scheduledEndAt?: Date; totalHours?: number; status?: JobStatus;
+  },
+) {
+  return {
+    postedByUserId:           job.postedByUserId,
+    forParticipantUserId:     job.forParticipantUserId,
+    title:                    `${overrides.titlePrefix ?? ""}${job.title}`,
+    description:              job.description,
+    category:                 job.category,
+    subcategory:              job.subcategory,
+    urgency:                  overrides.urgency,
+    status:                   overrides.status ?? ("OPEN" as const),
+    suburb:                   job.suburb,
+    state:                    job.state,
+    postcode:                 job.postcode,
+    serviceDeliveryMode:      job.serviceDeliveryMode,
+    scheduledStartAt:         overrides.scheduledStartAt ?? job.scheduledStartAt,
+    scheduledEndAt:           overrides.scheduledEndAt ?? job.scheduledEndAt,
+    totalHours:               overrides.totalHours ?? (job.totalHours as number | undefined) ?? undefined,
+    isRecurring:              false,
+    fundingType:              job.fundingType ?? undefined,
+    budgetType:               job.budgetType ?? undefined,
+    budgetPerHour:            (job.budgetPerHour as number | undefined) ?? undefined,
+    totalBudget:              (job.totalBudget as number | undefined) ?? undefined,
+    visibilityTarget:         job.visibilityTarget ?? undefined,
+    workerPreferences:        job.workerPreferences ?? undefined,
+    promotedFromCancellation: overrides.promotedFromCancellation ?? false,
+  };
+}
+
+// ─── Manual replacement (outside the automatic 4-hour promotion window) ───────
+// SC-04-05 — poster of a cancelled job can manually create a replacement
+// request, reusing the original details or changing time/requirements/rate.
+
+export async function createReplacementRequest(
+  jobId: string,
+  userId: string,
+  activeRole: UserRole,
+  input: CreateReplacementInput,
+) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.postedByUserId !== userId) throw new ForbiddenError("Only the poster can create a replacement request");
+  if (job!.status !== "CANCELLED") throw new BadRequestError("Only a cancelled job can be replaced");
+
+  const data = cloneJobForReplacement(job!, {
+    urgency: input.urgency ?? job!.urgency,
+    scheduledStartAt: input.scheduledStartAt ? new Date(input.scheduledStartAt) : undefined,
+    scheduledEndAt: input.scheduledEndAt ? new Date(input.scheduledEndAt) : undefined,
+    totalHours: input.totalHours,
+  });
+  if (input.budgetPerHour !== undefined) data.budgetPerHour = input.budgetPerHour;
+
+  return prisma.supportRequest.create({ data });
+}
+
+// ─── Repeat previous request (participant portfolio "repeat" action) ──────────
+// Any past job the caller posted can be duplicated into a new DRAFT, ready for
+// them to review/adjust and publish — unlike createReplacementRequest above,
+// this isn't limited to cancelled jobs.
+
+export async function duplicateJob(jobId: string, userId: string) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.postedByUserId !== userId) throw new ForbiddenError("Only the original poster can repeat this request");
+
+  const data = cloneJobForReplacement(job!, { urgency: job!.urgency, status: "DRAFT" });
+  return prisma.supportRequest.create({ data });
 }
 
 // ─── Apply (structured proposal) ─────────────────────────────────────────────
@@ -955,6 +1068,44 @@ export async function assignWorker(
   return updated;
 }
 
+// ─── Confirm assignment (worker/provider accepts — SC-M05/M06/M07) ───────────
+//
+// Mutual confirmation, second half: the poster selecting a candidate
+// (selectApplicant) is only the poster's side. The worker/provider must
+// separately, explicitly accept before the job's exact address or the
+// participant's contact details are released to them — see withContactDetails.
+
+export async function confirmAssignment(jobId: string, userId: string) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  const workerPartyId = job!.assignedWorkerUserId ?? job!.selectedApplicantUserId;
+  if (workerPartyId !== userId) {
+    throw new ForbiddenError("Only the selected worker/provider can confirm this assignment");
+  }
+  if (job!.status !== "ASSIGNED") {
+    throw new BadRequestError("This job isn't awaiting confirmation.");
+  }
+  if (job!.workerConfirmedAt) {
+    throw new ConflictError("You've already confirmed this assignment.");
+  }
+
+  const updated = await prisma.supportRequest.update({
+    where: { id: jobId },
+    data:  { workerConfirmedAt: new Date() },
+    select: JOB_WRITE_SELECT,
+  });
+
+  void notify.sendPushNotification(
+    job!.postedByUserId,
+    "Support confirmed",
+    `Your selected worker/provider has confirmed "${job!.title}" — full details are now available.`,
+    { jobId },
+    "JOB_ASSIGNMENT_CONFIRMED",
+  );
+
+  return updated;
+}
+
 // ─── Start / Complete / Confirm ───────────────────────────────────────────────
 
 export async function startJob(jobId: string, userId: string) {
@@ -965,6 +1116,9 @@ export async function startJob(jobId: string, userId: string) {
   }
   if (job!.status !== "ASSIGNED") {
     throw new BadRequestError("This job can't be started yet — it needs to be assigned first.");
+  }
+  if (!job!.workerConfirmedAt) {
+    throw new BadRequestError("Confirm the assignment before starting this job.");
   }
   const updated = await prisma.supportRequest.update({
     where: { id: jobId },

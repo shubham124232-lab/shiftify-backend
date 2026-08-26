@@ -96,6 +96,13 @@ export async function upsertCoordinator(req: Request, res: Response): Promise<vo
   success(res, { profile, profileStep: profile?.profileStep ?? 0 });
 }
 
+// POST /users/me/profile/coordinator/invite-code
+export async function generateCoordinatorInviteCode(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const profile = await profileService.generateOrgInviteCode(req.user.id);
+  success(res, { profile });
+}
+
 // POST /users/me/profile/plan-manager
 export async function upsertPlanManager(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();

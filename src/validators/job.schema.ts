@@ -187,6 +187,16 @@ export const cancelJobSchema = z.object({
   reason: z.string().max(500).optional(),
 }).strict();
 
+// ─── Manual "Find Replacement" for a cancelled job (SC-04-05) ─────────────────
+
+export const createReplacementSchema = z.object({
+  urgency:          z.enum(["RAPID", "SAME_DAY", "LAST_MINUTE", "EMERGENCY", "SCHEDULED"]).optional(),
+  scheduledStartAt: z.string().datetime().optional(),
+  scheduledEndAt:   z.string().datetime().optional(),
+  totalHours:       z.number().positive().optional(),
+  budgetPerHour:    z.number().positive().optional(),
+}).strict();
+
 // ─── Provider assigns a worker after being selected ──────────────────────────
 
 export const assignWorkerSchema = z.object({
@@ -231,6 +241,7 @@ export type CreateJobInput      = z.infer<typeof createJobSchema>;
 export type JobFiltersInput     = z.infer<typeof jobFiltersSchema>;
 export type ApplyJobInput       = z.infer<typeof applyJobSchema>;
 export type CancelJobInput      = z.infer<typeof cancelJobSchema>;
+export type CreateReplacementInput = z.infer<typeof createReplacementSchema>;
 export type AssignWorkerInput   = z.infer<typeof assignWorkerSchema>;
 export type SendMessageInput    = z.infer<typeof sendMessageSchema>;
 export type CreateInvoiceInput  = z.infer<typeof createInvoiceSchema>;

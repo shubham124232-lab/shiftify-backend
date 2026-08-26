@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { createWorkerSchema, createParticipantSchema } from "../../validators/linking.schema";
+import { createWorkerSchema, createParticipantSchema, sendParticipantInvitationSchema } from "../../validators/linking.schema";
 import { workerProfileSchema } from "../../validators/profile-worker.schema";
 import { participantProfileSchema } from "../../validators/profile-participant.schema";
 import { uploadDocumentSchema } from "../../validators/document.schema";
@@ -140,8 +140,30 @@ export async function createParticipant(req: Request, res: Response): Promise<vo
     username: body.username,
     password: body.password,
     name: body.name,
+    preferredName: body.preferredName,
+    ageGroup: body.ageGroup,
+    suburb: body.suburb,
+    postcode: body.postcode,
+    contactEmail: body.contactEmail,
+    contactPhone: body.contactPhone,
+    participantType: body.participantType,
+    authorisingPersonName: body.authorisingPersonName,
+    authorisingPersonRelationship: body.authorisingPersonRelationship,
+    authorisingPersonNote: body.authorisingPersonNote,
   });
   success(res, { user: participant }, 201);
+}
+
+// POST /linking/participants/:id/invite — SC-N04 "Send invitation now."
+export async function sendParticipantInvitation(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const body = sendParticipantInvitationSchema.parse(req.body);
+  const result = await linkingService.sendParticipantInvitation({
+    parentUserId: req.user.id,
+    participantId: req.params.id,
+    method: body.method,
+  });
+  success(res, result);
 }
 
 // GET /linking/participants — Coordinator lists their managed participants.

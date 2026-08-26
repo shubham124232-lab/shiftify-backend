@@ -9,6 +9,7 @@ import {
   jobFiltersSchema,
   applyJobSchema,
   cancelJobSchema,
+  createReplacementSchema,
   assignWorkerSchema,
   sendMessageSchema,
   createInvoiceSchema,
@@ -59,6 +60,21 @@ export async function cancelJob(req: Request, res: Response): Promise<void> {
   success(res, { job });
 }
 
+// POST /jobs/:id/replacement — SC-04-05 manual "Find Replacement"
+export async function createReplacementRequest(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(createReplacementSchema, req.body);
+  const job  = await svc.createReplacementRequest(req.params.id, req.user.id, role(req), data);
+  success(res, { job }, 201);
+}
+
+// POST /jobs/:id/duplicate — participant portfolio "Repeat previous request"
+export async function duplicateJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const job = await svc.duplicateJob(req.params.id, req.user.id);
+  success(res, { job }, 201);
+}
+
 // PATCH /jobs/:id/publish
 export async function publishJob(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
@@ -71,6 +87,13 @@ export async function assignWorker(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const data = parse(assignWorkerSchema, req.body);
   const job  = await svc.assignWorker(req.params.id, req.user.id, data);
+  success(res, { job });
+}
+
+// PATCH /jobs/:id/confirm-assignment
+export async function confirmAssignment(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const job = await svc.confirmAssignment(req.params.id, req.user.id);
   success(res, { job });
 }
 

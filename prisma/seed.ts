@@ -51,14 +51,26 @@ async function main() {
   { key: "PROVIDER_GROWTH",      role: "PROVIDER"       as const, name: "Provider — Growth",        amountAud: 39.99, isAddOn: true,  features: ["Up to 40 active job listings", "Priority in search results", "Advanced analytics dashboard", "Priority support"] },
   { key: "PROVIDER_SPEED",       role: "PROVIDER"       as const, name: "Provider — Speed",         amountAud: 29.99, isAddOn: true,  features: ["Up to 10 active job listings", "Fast onboarding tools", "Standard support"] },
   { key: "PLAN_MANAGER_BASIC",   role: "PLAN_MANAGER"   as const, name: "Plan Manager — Basic",     amountAud: 19.99, isAddOn: false, features: ["Manage up to 50 participant plans", "Budget tracking & reporting", "Claim submission tools", "Priority support"] },
+  // Provider organisation tiers (Pricing V2 §4/§5) — Branch/Administrator/Team
+  // Member capacity, additive alongside the existing per-listing PROVIDER_BASIC/
+  // GROWTH/SPEED plans (which stay untouched — other code still keys off them).
+  { key: "PROVIDER_ORG_STARTER", role: "PROVIDER" as const, name: "Provider Organisation — Starter", amountAud: 99.99,  isAddOn: false, features: ["2 Administrators", "10 Team Members", "2 Branches"], maxAdministrators: 2,  maxTeamMembers: 10,  maxBranches: 2 },
+  { key: "PROVIDER_ORG_TEAM",    role: "PROVIDER" as const, name: "Provider Organisation — Team",    amountAud: 199.99, isAddOn: false, features: ["5 Administrators", "25 Team Members", "5 Branches"], maxAdministrators: 5,  maxTeamMembers: 25,  maxBranches: 5 },
+  { key: "PROVIDER_ORG_GROWTH",  role: "PROVIDER" as const, name: "Provider Organisation — Growth",  amountAud: 499.99, isAddOn: false, features: ["7 Administrators", "50 Team Members", "7 Branches"], maxAdministrators: 7,  maxTeamMembers: 50,  maxBranches: 7 },
+  { key: "PROVIDER_ORG_SCALE",   role: "PROVIDER" as const, name: "Provider Organisation — Scale",   amountAud: 799.99, isAddOn: false, features: ["10 Administrators", "100 Team Members", "10 Branches"], maxAdministrators: 10, maxTeamMembers: 100, maxBranches: 10 },
 ];
 
   const planRows: Record<string, { id: string }> = {};
   for (const plan of plans) {
+    const caps = {
+      maxAdministrators: (plan as any).maxAdministrators ?? null,
+      maxTeamMembers:    (plan as any).maxTeamMembers ?? null,
+      maxBranches:       (plan as any).maxBranches ?? null,
+    };
     const row = await (prisma as any).plan.upsert({
       where:  { key: plan.key },
-      update: { name: plan.name, amountAud: plan.amountAud, active: true, features: plan.features, isAddOn: plan.isAddOn },
-      create: { ...plan },
+      update: { name: plan.name, amountAud: plan.amountAud, active: true, features: plan.features, isAddOn: plan.isAddOn, ...caps },
+      create: { ...plan, ...caps },
     });
     planRows[plan.key] = row;
     console.log(`  ✓ plan: ${plan.key} (AUD ${plan.amountAud})`);

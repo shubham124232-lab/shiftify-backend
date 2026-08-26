@@ -15,7 +15,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // Neon: DATABASE_URL is the POOLED connection (used at runtime); DIRECT_URL is the
   // DIRECT (non-pooled) connection used by `prisma migrate`. For a local non-Neon
   // Postgres, set DIRECT_URL to the same value as DATABASE_URL.
@@ -45,11 +45,11 @@ enum AccountType {
 
 enum UserStatus {
   PENDING
-  ACTIVE      // live, operational — used for all approved/active states
-  APPROVED    // legacy value kept for Postgres enum compatibility; new code uses ACTIVE
+  ACTIVE // live, operational — used for all approved/active states
+  APPROVED // legacy value kept for Postgres enum compatibility; new code uses ACTIVE
   REJECTED
   SUSPENDED
-  DRAFT       // provider-managed worker mid-onboarding — not yet visible for job matching
+  DRAFT // provider-managed worker mid-onboarding — not yet visible for job matching
 }
 
 enum AdminTier {
@@ -172,7 +172,6 @@ enum FundingType {
   DISCUSS
 }
 
-
 enum WeekDay {
   MON
   TUE
@@ -233,6 +232,14 @@ enum NotificationType {
   INCIDENT_REPORTED
   DIRECT_CONNECT_REQUEST
   DIRECT_CONNECT_RESPONDED
+  JOB_ASSIGNMENT_CONFIRMED
+  COORDINATOR_CONNECTION_REQUEST
+  COORDINATOR_CONNECTION_ACCEPTED
+  COORDINATOR_CONNECTION_DECLINED
+  COORDINATOR_ENQUIRY_RECEIVED
+  COORDINATOR_ENQUIRY_RESPONDED
+  JOB_INVITE_RECEIVED
+  JOB_INVITE_ACCEPTED
 }
 
 enum SubscriptionStatus {
@@ -256,89 +263,107 @@ enum AuditAction {
 // ───────────────────────────────────────────────────────────────────────────
 
 model User {
-  id                      String       @id @default(uuid())
+  id String @id @default(uuid())
 
   // Identity — all nullable. SELF accounts use email/phone (and may set a username);
   // MANAGED accounts use username only. Unique where present (Postgres allows many NULLs).
-  email                   String?      @unique
-  phone                   String?      @unique   // single E.164 number per user
-  username                String?      @unique
-  passwordHash            String?
-  name                    String
+  email        String? @unique
+  phone        String? @unique // single E.164 number per user
+  username     String? @unique
+  passwordHash String?
+  name         String
 
-  accountType             AccountType  @default(SELF)
-  status                  UserStatus   @default(PENDING)
-  adminTier               AdminTier?
-  rejectionReason         String?
-  avatarUrl               String?
+  accountType     AccountType @default(SELF)
+  status          UserStatus  @default(PENDING)
+  adminTier       AdminTier?
+  rejectionReason String?
+  avatarUrl       String?
 
-  defaultSuburb           String?
-  defaultState            String?
-  defaultPostcode         String?
+  defaultSuburb   String?
+  defaultState    String?
+  defaultPostcode String?
 
   // MANAGED accounts (provider→worker, coordinator→participant) point at their creator.
-  parentUserId            String?
-  parent                  User?        @relation("ChildToParent", fields: [parentUserId], references: [id])
-  children                User[]       @relation("ChildToParent")
+  parentUserId String?
+  parent       User?   @relation("ChildToParent", fields: [parentUserId], references: [id])
+  children     User[]  @relation("ChildToParent")
 
   // Multi-role: a SELF account can hold many roles. The active role lives in the JWT,
   // not here — UserRoleAssignment is the source of truth for which roles a user holds.
-  roles                   UserRoleAssignment[]
+  roles UserRoleAssignment[]
 
-  emailVerified           Boolean      @default(false)
-  phoneVerified           Boolean      @default(false)
+  emailVerified Boolean @default(false)
+  phoneVerified Boolean @default(false)
 
   // Guest window for self-registered participants — now keyed off email verification (OTP),
   // not magic links.
-  guestUntil              DateTime?
-  lastGuestReminderAt     DateTime?
+  guestUntil          DateTime?
+  lastGuestReminderAt DateTime?
 
-  createdAt               DateTime     @default(now())
-  updatedAt               DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  addresses               Address[]
-  documents               Document[]   @relation("UserDocuments")
-  verificationCodes       VerificationCode[]
-  participantProfile      ParticipantProfile?
-  workerProfile           WorkerProfile?
-  providerProfile         ProviderProfile?
-  coordinatorProfile      CoordinatorProfile?
-  planManagerProfile      PlanManagerProfile?
+  addresses          Address[]
+  documents          Document[]          @relation("UserDocuments")
+  verificationCodes  VerificationCode[]
+  participantProfile ParticipantProfile?
+  workerProfile      WorkerProfile?
+  providerProfile    ProviderProfile?
+  coordinatorProfile CoordinatorProfile?
+  planManagerProfile PlanManagerProfile?
 
-  jobsPosted              SupportRequest[]  @relation("PostedBy")
-  jobsForMe               SupportRequest[]  @relation("ForParticipant")
-  jobsSelected            SupportRequest[]  @relation("SelectedApplicant")
-  jobsAssigned            SupportRequest[]  @relation("AssignedWorker")
-  jobsCancelled           SupportRequest[]  @relation("CancelledBy")
-  jobApplications         JobApplication[]
-  jobAssignments          JobAssignment[]   @relation("JobAssignmentWorker")
-  reviewsGiven            Review[]          @relation("ReviewsGiven")
-  reviewsReceived         Review[]          @relation("ReviewsReceived")
+  jobsPosted      SupportRequest[] @relation("PostedBy")
+  jobsForMe       SupportRequest[] @relation("ForParticipant")
+  jobsSelected    SupportRequest[] @relation("SelectedApplicant")
+  jobsAssigned    SupportRequest[] @relation("AssignedWorker")
+  jobsCancelled   SupportRequest[] @relation("CancelledBy")
+  jobApplications JobApplication[]
+  jobAssignments  JobAssignment[]  @relation("JobAssignmentWorker")
+  reviewsGiven    Review[]         @relation("ReviewsGiven")
+  reviewsReceived Review[]         @relation("ReviewsReceived")
 
-  messagesSent            JobMessage[]
-  incidentsReported       IncidentReport[]
-  notifications           Notification[]
-  savedSearches           SavedSearch[]
-  sessions                Session[]
+  messagesSent      JobMessage[]
+  incidentsReported IncidentReport[]
+  notifications     Notification[]
+  savedSearches     SavedSearch[]
+  sessions          Session[]
 
-  auditLogActions         AuditLog[]   @relation("AdminAction")
-  auditLogTargets         AuditLog[]   @relation("AuditTarget")
-  documentsVerifiedByMe   Document[]   @relation("DocVerifier")
+  auditLogActions       AuditLog[] @relation("AdminAction")
+  auditLogTargets       AuditLog[] @relation("AuditTarget")
+  documentsVerifiedByMe Document[] @relation("DocVerifier")
 
-  subscriptions           UserSubscription[]
+  subscriptions UserSubscription[]
 
-  invoicesSent            Invoice[]    @relation("InvoiceSender")
-  invoicesReceived        Invoice[]    @relation("InvoicePlanManager")
-  invoicesAsParticipant   Invoice[]    @relation("InvoiceParticipant")
+  invoicesSent          Invoice[] @relation("InvoiceSender")
+  invoicesReceived      Invoice[] @relation("InvoicePlanManager")
+  invoicesAsParticipant Invoice[] @relation("InvoiceParticipant")
 
-  pmConnectionsAsManager  PlanManagerConnection[] @relation("PmConnManager")
-  pmConnectionsAsClient   PlanManagerConnection[] @relation("PmConnClient")
+  pmConnectionsAsManager PlanManagerConnection[] @relation("PmConnManager")
+  pmConnectionsAsClient  PlanManagerConnection[] @relation("PmConnClient")
 
-  directConnectsSent      DirectConnectRequest[]  @relation("DirectConnectProvider")
-  directConnectsReceived  DirectConnectRequest[]  @relation("DirectConnectWorker")
+  coordinatorConnectionsAsCoordinator CoordinatorParticipantConnection[] @relation("CoordConnCoordinator")
+  coordinatorConnectionsAsParticipant CoordinatorParticipantConnection[] @relation("CoordConnParticipant")
 
-  providerListings        ProviderListing[]       @relation("ProviderListings")
+  directConnectsSent     DirectConnectRequest[] @relation("DirectConnectProvider")
+  directConnectsReceived DirectConnectRequest[] @relation("DirectConnectWorker")
+
+  providerListings ProviderListing[] @relation("ProviderListings")
+
+  savedProfessionals      SavedProfessional[] @relation("SavedProfessionalOwner")
+  savedByOthers           SavedProfessional[] @relation("SavedProfessionalTarget")
+  savedProfessionalsForMe SavedProfessional[] @relation("SavedProfessionalForParticipant")
+
+  jobInvitesSent     JobInvite[] @relation("JobInviteSender")
+  jobInvitesReceived JobInvite[] @relation("JobInviteRecipient")
+
+  shiftPassPurchases ShiftPassPurchase[]
+
+  providerBranches          ProviderBranch[]        @relation("ProviderBranches")
+  providerAdministratorOrgs ProviderAdministrator[] @relation("ProviderAdminOrg")
+  administratorRoles        ProviderAdministrator[] @relation("ProviderAdminPerson")
+  providerTeamMembers       ProviderTeamMember[]    @relation("ProviderTeamMembers")
+  claimedTeamMemberships    ProviderTeamMember[]    @relation("ProviderTeamMemberClaimedBy")
 
   @@index([status])
   @@index([accountType])
@@ -361,15 +386,29 @@ model UserRoleAssignment {
 }
 
 model ParticipantProfile {
-  id                            String   @id @default(uuid())
-  userId                        String   @unique
-  user                          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  profileStep                   Int      @default(0)
+  profileStep Int @default(0)
 
   // Step 1 — Personal Info
   preferredName                 String?
-  participantType               String?  // SELF | PARENT | GUARDIAN | CARER | NOMINEE
+  participantType               String? // PARTICIPANT | NOMINEE | GUARDIAN | AUTHORISED_REPRESENTATIVE | PARENT_FAMILY_REPRESENTATIVE | OTHER (widened from the original SELF/PARENT/GUARDIAN/CARER/NOMINEE set per SC-N02)
+  contactEmail                  String? // SC-N01 — optional, distinct from the user account's own email (this profile may be a MANAGED account with no login email)
+  contactPhone                  String?
+  // SC-N02 — who authorised the Coordinator/Provider to act, when participantType is not PARTICIPANT itself
+  authorisingPersonName         String?
+  authorisingPersonRelationship String?
+  authorisingPersonNote         String?
+  // Set when a Coordinator/Provider creates this profile on the participant's behalf —
+  // records that they declared their authority (participantType) to do so.
+  authorityConfirmedAt          DateTime?
+  authorityConfirmedByUserId    String?
+  // SC-N03's second, separate confirmation checkbox ("I understand the participant or
+  // authorised representative may be invited to review and manage access") — distinct
+  // from authorityConfirmedAt above, which covers the first checkbox only.
+  infoAccuracyConfirmedAt       DateTime?
   ageGroup                      String?
   gender                        String?
   suburb                        String?
@@ -378,517 +417,564 @@ model ParticipantProfile {
   fullAddress                   String?
 
   // Step 2 — NDIS Details
-  ndisNumber                    String?
-  fundingManagementType         String?  // SELF_MANAGED | PLAN_MANAGED | NDIA_MANAGED
-  supportCoordinationFunding    String?  // NONE | LEVEL_1 | LEVEL_2 | LEVEL_3
-  ndisStartDate                 DateTime?
-  ndisEndDate                   DateTime?
+  ndisNumber                 String?
+  fundingManagementType      String? // SELF_MANAGED | PLAN_MANAGED | NDIA_MANAGED
+  supportCoordinationFunding String? // NONE | LEVEL_1 | LEVEL_2 | LEVEL_3
+  ndisStartDate              DateTime?
+  ndisEndDate                DateTime?
 
   // Step 3 — Support Needs
-  primaryDisability             String?
-  primarySupportNeeds           Json?    // String[] — service categories required
-  preferredSupportType          String?  // ONE_TIME | ONGOING | BOTH
-  mobilitySupportNeeds          Json?
-  communicationNeeds            Json?
-  behaviourSensoryNotes         Json?
-  medicalConsiderations         Json?
-  riskSafetyNotes               String?
-  supportPreferences            Json?
-  personalCareSupportLevel      String?  // None | Basic assistance | Moderate assistance | Full assistance | High intensity support
+  primaryDisability        String?
+  primarySupportNeeds      Json? // String[] — service categories required
+  preferredSupportType     String? // ONE_TIME | ONGOING | BOTH
+  mobilitySupportNeeds     Json?
+  communicationNeeds       Json?
+  behaviourSensoryNotes    Json?
+  medicalConsiderations    Json?
+  riskSafetyNotes          String?
+  supportPreferences       Json?
+  personalCareSupportLevel String? // None | Basic assistance | Moderate assistance | Full assistance | High intensity support
 
   // Step 4 — Preferences & Availability
-  preferredWorkerGender         String?
-  languagePreference            Json?    // String[]
-  culturalPreference            Json?    // String[]
-  skillsRequired                Json?    // String[]
-  preferredDays                 Json?    // String[]
-  preferredTime                 Json?    // String[] — MORNING | AFTERNOON | EVENING | OVERNIGHT
+  preferredWorkerGender String?
+  languagePreference    Json? // String[]
+  culturalPreference    Json? // String[]
+  skillsRequired        Json? // String[]
+  preferredDays         Json? // String[]
+  preferredTime         Json? // String[] — MORNING | AFTERNOON | EVENING | OVERNIGHT
 
   // Step 5 — Emergency Contact
-  emergencyContactName          String?
-  emergencyContactPhone         String?
-  emergencyContactRelationship  String?
+  emergencyContactName         String?
+  emergencyContactPhone        String?
+  emergencyContactRelationship String?
 
   // PM linkage now lives in PlanManagerConnection. This flag drives discovery.
-  seekingPlanManager            Boolean  @default(false)
+  seekingPlanManager Boolean @default(false)
 
   // Step 6 — Declaration
-  termsAccepted                 Boolean  @default(false)
-  privacyPolicyAccepted         Boolean  @default(false)
-  ndisCodeAccepted              Boolean  @default(false)
+  termsAccepted         Boolean @default(false)
+  privacyPolicyAccepted Boolean @default(false)
+  ndisCodeAccepted      Boolean @default(false)
 
-  createdAt                     DateTime @default(now())
-  updatedAt                     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model WorkerProfile {
-  id                        String   @id @default(uuid())
-  userId                    String   @unique
-  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  profileStep               Int      @default(0)
+  profileStep Int @default(0)
 
   // Step 1 — Identity
-  dob                       DateTime?
-  gender                    String?
-  suburb                    String?
-  postcode                  String?
-  state                     String?
+  dob      DateTime?
+  gender   String?
+  suburb   String?
+  postcode String?
+  state    String?
 
   // Step 2 — Right to Work
-  rightToWork               String?
-  visaType                  String?
-  visaExpiry                DateTime?
+  rightToWork String?
+  visaType    String?
+  visaExpiry  DateTime?
 
   // Step 3 — Compliance Metadata
-  ndisScreeningNumber           String?
-  ndisScreeningExpiry           DateTime?
-  policeCheckIssueDate          DateTime?
-  policeCheckExpiry             DateTime?
-  wwccNumber                    String?
-  wwccExpiry                    DateTime?
-  firstAidExpiry                DateTime?
-  cprExpiry                     DateTime?
-  driversLicenceExpiry          DateTime?
-  infectionControlCompleted     Boolean  @default(false)
+  ndisScreeningNumber       String?
+  ndisScreeningExpiry       DateTime?
+  policeCheckIssueDate      DateTime?
+  policeCheckExpiry         DateTime?
+  wwccNumber                String?
+  wwccExpiry                DateTime?
+  firstAidExpiry            DateTime?
+  cprExpiry                 DateTime?
+  driversLicenceExpiry      DateTime?
+  infectionControlCompleted Boolean   @default(false)
 
   // Step 4 — Work Type & Insurance
-  workType                      String?
-  abn                           String?
-  gstRegistered                 Boolean  @default(false)
-  publicLiabilityInsurance      Boolean  @default(false)
-  publicLiabilityPolicyNumber   String?
-  publicLiabilityExpiry         DateTime?
-  personalAccidentInsurance      Boolean  @default(false)
-  personalAccidentPolicyNumber   String?
-  personalAccidentExpiry         DateTime?
-  driversLicenceType            String?  // C | R | HR | HC | MR
+  workType                     String?
+  abn                          String?
+  gstRegistered                Boolean   @default(false)
+  publicLiabilityInsurance     Boolean   @default(false)
+  publicLiabilityPolicyNumber  String?
+  publicLiabilityExpiry        DateTime?
+  personalAccidentInsurance    Boolean   @default(false)
+  personalAccidentPolicyNumber String?
+  personalAccidentExpiry       DateTime?
+  driversLicenceType           String? // C | R | HR | HC | MR
 
   // Step 5 — Services & Skills
-  servicesOffered           Json?
-  subServices               Json?
-  highIntensitySkills       Json?
-  experienceLevel           String?
-  disabilityExperience      Json?
+  servicesOffered      Json?
+  subServices          Json?
+  highIntensitySkills  Json?
+  experienceLevel      String?
+  disabilityExperience Json?
 
   // Step 6 — Availability
-  availabilityType          String?
-  emergencyAvailability     Boolean  @default(false)
-  minimumShiftHours         Float?
-  acceptsSleepoverShifts    Boolean  @default(false)
+  availabilityType             String?
+  emergencyAvailability        Boolean @default(false)
+  minimumShiftHours            Float?
+  acceptsSleepoverShifts       Boolean @default(false)
   acceptsActiveOvernightShifts Boolean @default(false)
-  isPubliclyListed          Boolean  @default(false)
-  listingHeadline           String?
+  isPubliclyListed             Boolean @default(false)
+  listingHeadline              String?
 
   // Step 7 — Service Areas & Travel
-  serviceAreas              Json?
-  travelRadiusKm            Int?
-  hasVehicle                Boolean  @default(false)
-  canTransportParticipants  Boolean  @default(false)
-  insuranceValid            Boolean  @default(false)
-  vehicleDetails            Json?    // { make, model, year, rego, colour }
+  serviceAreas             Json?
+  travelRadiusKm           Int?
+  hasVehicle               Boolean @default(false)
+  canTransportParticipants Boolean @default(false)
+  insuranceValid           Boolean @default(false)
+  vehicleDetails           Json? // { make, model, year, rego, colour }
 
   // Step 8 — Financials, Bio & Preferences
-  hourlyRate                Decimal? @db.Decimal(10, 2)
-  hourlyRateType            String?  // FIXED | NDIS_PRICE_GUIDE | NEGOTIABLE
-  weekendNightRates         Json?    // { weekendRate, nightRate, publicHolidayRate }
-  travelCharges             String?  // NONE | INCLUDED | CHARGED_SEPARATELY
-  preferredParticipantType  Json?    // String[]
-  genderPreference          String?
-  languagesSpoken           Json?    // String[]
-  bio                       String?
-  preferences               String?
-  isAvailableNow            Boolean   @default(false)
+  hourlyRate               Decimal?  @db.Decimal(10, 2)
+  hourlyRateType           String? // FIXED | NDIS_PRICE_GUIDE | NEGOTIABLE
+  weekendNightRates        Json? // { weekendRate, nightRate, publicHolidayRate }
+  travelCharges            String? // NONE | INCLUDED | CHARGED_SEPARATELY
+  preferredParticipantType Json? // String[]
+  genderPreference         String?
+  languagesSpoken          Json? // String[]
+  bio                      String?
+  preferences              String?
+  isAvailableNow           Boolean   @default(false)
   // Set whenever isAvailableNow flips to true; cleared when it flips to false.
   // The 24h auto-clear cron uses this to know when the window expires.
-  availableNowSetAt         DateTime?
-  seekingPlanManager        Boolean   @default(false)
+  availableNowSetAt        DateTime?
+  seekingPlanManager       Boolean   @default(false)
 
   // Capacity — mirrors CoordinatorProfile/ProviderProfile's currentCapacityStatus pattern
-  maxWeeklyHours            Int?
-  maxConcurrentJobs         Int?
-  currentCapacityStatus     String?  // OPEN | LIMITED | FULL
+  maxWeeklyHours        Int?
+  maxConcurrentJobs     Int?
+  currentCapacityStatus String? // OPEN | LIMITED | FULL
+
+  // Pricing V2 §2/§3.4 lifetime introductory-action counter — added now for schema
+  // parity with CoordinatorProfile/ProviderProfile; not yet enforced for this role
+  // (Batch 2 / Phase 10 wires it in).
+  introductoryActionsUsed Int @default(0)
 
   // Step 9 — Documents
-  manualHandlingCompleted   Boolean  @default(false)
-  firstAidCertType          String?  // HLTAID011 | HLTAID009 | OTHER
+  manualHandlingCompleted Boolean @default(false)
+  firstAidCertType        String? // HLTAID011 | HLTAID009 | OTHER
 
   // Step 10 — Compliance
-  termsAccepted             Boolean  @default(false)
-  ndisCodeAccepted          Boolean  @default(false)
-  privacyPolicyAccepted     Boolean  @default(false)
-  declarationStatement      Boolean  @default(false)
+  termsAccepted         Boolean @default(false)
+  ndisCodeAccepted      Boolean @default(false)
+  privacyPolicyAccepted Boolean @default(false)
+  declarationStatement  Boolean @default(false)
 
   // Stats
-  rating                    Float    @default(0)
-  totalReviews              Int      @default(0)
+  rating                 Float  @default(0)
+  totalReviews           Int    @default(0)
   // Reliability counters (#44/#65/#66) — incremented on confirm/cancel
-  totalCompleted            Int      @default(0)
-  totalCancelledByWorker    Int      @default(0)
-  totalCancelledByClient    Int      @default(0)
-  lat                       Float?
-  lng                       Float?
+  totalCompleted         Int    @default(0)
+  totalCancelledByWorker Int    @default(0)
+  totalCancelledByClient Int    @default(0)
+  lat                    Float?
+  lng                    Float?
 
   // Referee contacts — JSON array of { name, relationship, phone, email }
-  references                Json?
+  references Json?
 
-  availability              WorkerAvailability[]
-  unavailability            WorkerUnavailability[]
+  availability   WorkerAvailability[]
+  unavailability WorkerUnavailability[]
 
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // A worker's standing "notify me when a job like this is posted" request —
 // checked against every job on publish (see publishJob in job.service.ts).
 model SavedSearch {
-  id         String   @id @default(uuid())
-  workerId   String
-  worker     User     @relation(fields: [workerId], references: [id], onDelete: Cascade)
-  label      String?
-  filters    Json
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(uuid())
+  workerId  String
+  worker    User     @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  label     String?
+  filters   Json
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([workerId])
   @@index([isActive])
 }
 
-model ProviderProfile {
-  id                              String   @id @default(uuid())
-  userId                          String   @unique
-  user                            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+// Bookmarked worker/provider profiles (SC-SV01/02) — distinct from SavedSearch
+// (saved search *criteria*). ownerUserId is whoever bookmarked; professionalUserId
+// is the Worker or Provider profile they saved.
+model SavedProfessional {
+  id                   String   @id @default(uuid())
+  ownerUserId          String
+  owner                User     @relation("SavedProfessionalOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  professionalUserId   String
+  professional         User     @relation("SavedProfessionalTarget", fields: [professionalUserId], references: [id], onDelete: Cascade)
+  note                 String?
+  // SC-SV01 — stackable categories: GENERAL | PREFERRED_WORKER | PREFERRED_PROVIDER |
+  // BACKUP | RAPID_RESPONSE | PARTICIPANT_FAVOURITE | DO_NOT_INVITE. A professional can
+  // be saved into several lists at once (widened constraint below, per Shubham's
+  // explicit "stackable" call — deliberate exception to additive-only schema policy).
+  listType             String   @default("GENERAL")
+  // Set only for PARTICIPANT_FAVOURITE — which of the coordinator's participants this
+  // save belongs to.
+  forParticipantUserId String?
+  forParticipant       User?    @relation("SavedProfessionalForParticipant", fields: [forParticipantUserId], references: [id], onDelete: SetNull)
+  createdAt            DateTime @default(now())
 
-  profileStep                     Int      @default(0)
+  @@unique([ownerUserId, professionalUserId, listType, forParticipantUserId])
+  @@index([ownerUserId])
+}
+
+model ProviderProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  profileStep Int @default(0)
 
   // Step 2 — Business Identity
-  businessName                    String
-  abnConfirmed                    Boolean  @default(false)
-  legalEntityName                 String?
-  abn                             String?  @unique
-  businessStructure               String?
-  ndisRegistered                  Boolean  @default(false)
-  ndisProviderNumber              String?
-  gstRegistered                   Boolean  @default(false)
-  yearsInOperation                String?
+  businessName       String
+  abnConfirmed       Boolean @default(false)
+  legalEntityName    String?
+  abn                String? @unique
+  businessStructure  String?
+  ndisRegistered     Boolean @default(false)
+  ndisProviderNumber String?
+  gstRegistered      Boolean @default(false)
+  yearsInOperation   String?
 
   // Step 3 — Key Contacts
-  primaryContactName              String?
-  primaryContactRole              String?
-  primaryContactPhone             String?
-  primaryContactEmail             String?
-  secondaryContactName            String?
-  secondaryContactRole            String?
-  secondaryContactPhone           String?
-  secondaryContactEmail           String?
-  accountsContactName             String?
-  accountsContactEmail            String?
+  primaryContactName    String?
+  primaryContactRole    String?
+  primaryContactPhone   String?
+  primaryContactEmail   String?
+  secondaryContactName  String?
+  secondaryContactRole  String?
+  secondaryContactPhone String?
+  secondaryContactEmail String?
+  accountsContactName   String?
+  accountsContactEmail  String?
 
   // Step 4 — Compliance (policy metadata)
-  ndisAuditStatus                 String?  // VERIFIED | PENDING | EXPIRED
-  publicLiabilityPolicyNumber     String?
-  publicLiabilityCoverageAmount   String?
-  publicLiabilityExpiryDate       DateTime?
+  ndisAuditStatus                   String? // VERIFIED | PENDING | EXPIRED
+  publicLiabilityPolicyNumber       String?
+  publicLiabilityCoverageAmount     String?
+  publicLiabilityExpiryDate         DateTime?
   professionalIndemnityPolicyNumber String?
-  professionalIndemnityExpiryDate DateTime?
-  workersCompPolicyNumber         String?
-  workersCompExpiryDate           DateTime?
-  complianceDeclaration           Boolean  @default(false)
+  professionalIndemnityExpiryDate   DateTime?
+  workersCompPolicyNumber           String?
+  workersCompExpiryDate             DateTime?
+  complianceDeclaration             Boolean   @default(false)
 
   // Step 5 — Services (structured SIL/SDA)
-  coreServices                    Json?
-  offersSil                       Boolean  @default(false)
-  silType                         String?  // SHARED | INDIVIDUAL
-  silSupportLevel                 String?  // FULL_TIME | DROP_IN
-  silCurrentVacancies             Boolean?
-  silDetails                      Json?
-  offersSda                       Boolean  @default(false)
-  sdaDesignCategory               Json?    // String[]
-  sdaVacancyCount                 Int?
-  sdaLocations                    Json?    // String[]
-  sdaDetails                      Json?
+  coreServices        Json?
+  offersSil           Boolean  @default(false)
+  silType             String? // SHARED | INDIVIDUAL
+  silSupportLevel     String? // FULL_TIME | DROP_IN
+  silCurrentVacancies Boolean?
+  silDetails          Json?
+  offersSda           Boolean  @default(false)
+  sdaDesignCategory   Json? // String[]
+  sdaVacancyCount     Int?
+  sdaLocations        Json? // String[]
+  sdaDetails          Json?
 
   // Step 6 — Service Coverage
-  serviceAreas                    Json?
-  stateCoverage                   Json?    // String[] — simple states-covered list
-  serviceMode                     String?
-  multipleLocations               Json?    // branch address array
+  serviceAreas      Json?
+  stateCoverage     Json? // String[] — simple states-covered list
+  serviceMode       String?
+  multipleLocations Json? // branch address array
 
   // Step 7 — Workforce Capability
-  workforceSize                   String?
-  staffCapability                 Json?    // String[]
-  abilityToFillUrgentShifts       Boolean  @default(false)
-  workforceHiringType             String?  // INTERNAL | EXTERNAL | BOTH
+  workforceSize             String?
+  staffCapability           Json? // String[]
+  abilityToFillUrgentShifts Boolean @default(false)
+  workforceHiringType       String? // INTERNAL | EXTERNAL | BOTH
 
   // Step 8 — Capacity & Availability
-  currentCapacityStatus           String?  // OPEN | LIMITED | FULL
-  abilityToPostLiveAvailability   Boolean  @default(false)
+  currentCapacityStatus         String? // OPEN | LIMITED | FULL
+  abilityToPostLiveAvailability Boolean @default(false)
+
+  // Pricing V2 §2/§3.4 lifetime introductory-action counter — added now for schema
+  // parity with CoordinatorProfile/WorkerProfile; not yet enforced for this role
+  // (a future pass wires it into Provider's own posting gate).
+  introductoryActionsUsed Int @default(0)
 
   // Step 9 — Participant Handling
-  participantTypes                Json?
-  participantComplexityAccepted   Json?    // String[]
+  participantTypes              Json?
+  participantComplexityAccepted Json? // String[]
 
   // Step 10 — Pricing & Billing
-  pricingModel                    String?
-  billingMethod                   String?
-  travelCharges                   String?
-  cancellationPolicy              String?
+  pricingModel       String?
+  billingMethod      String?
+  travelCharges      String?
+  cancellationPolicy String?
 
   // Step 11 — Platform Features
-  canPostRequests                 Boolean  @default(false)
-  canViewWorkerMarketplace        Boolean  @default(false)
-  canPostWorkerRequirements       Boolean  @default(false)
-  canPostSilSdaVacancies          Boolean  @default(false)
+  canPostRequests           Boolean @default(false)
+  canViewWorkerMarketplace  Boolean @default(false)
+  canPostWorkerRequirements Boolean @default(false)
+  canPostSilSdaVacancies    Boolean @default(false)
 
   // Step 12 — Profile & Branding
-  businessDescription             String?
-  logoUrl                         String?
-  websiteUrl                      String?
-  socialLinks                     Json?    // { facebook, instagram, linkedin }
-  seekingPlanManager              Boolean  @default(false)
+  businessDescription String?
+  logoUrl             String?
+  websiteUrl          String?
+  socialLinks         Json? // { facebook, instagram, linkedin }
+  seekingPlanManager  Boolean @default(false)
 
   // Step 13 — Declarations
-  termsAccepted                   Boolean  @default(false)
-  ndisCodeAccepted                Boolean  @default(false)
-  privacyPolicyAccepted           Boolean  @default(false)
-  serviceAgreementAccepted        Boolean  @default(false)
-  platformRulesAccepted           Boolean  @default(false)
+  termsAccepted            Boolean @default(false)
+  ndisCodeAccepted         Boolean @default(false)
+  privacyPolicyAccepted    Boolean @default(false)
+  serviceAgreementAccepted Boolean @default(false)
+  platformRulesAccepted    Boolean @default(false)
 
   // Reliability counters (#44/#65/#66) — incremented on confirm/cancel
-  totalCompleted                  Int      @default(0)
-  totalCancelledByWorker          Int      @default(0)
-  totalCancelledByClient          Int      @default(0)
-  averageRating                   Float    @default(0)
-  totalRatings                    Int      @default(0)
+  totalCompleted         Int   @default(0)
+  totalCancelledByWorker Int   @default(0)
+  totalCancelledByClient Int   @default(0)
+  averageRating          Float @default(0)
+  totalRatings           Int   @default(0)
 
-  availability                    ProviderAvailability[]
+  availability ProviderAvailability[]
 
-  createdAt                       DateTime @default(now())
-  updatedAt                       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model CoordinatorProfile {
-  id                                   String   @id @default(uuid())
-  userId                               String   @unique
-  user                                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  profileStep                          Int      @default(0)
+  profileStep Int @default(0)
 
   // Step 2 — Professional Identity
-  roleType                             String?
-  organisationName                     String?
-  abn                                  String?
-  ndisRegistered                       Boolean  @default(false)
-  ndisProviderNumber                   String?
-  yearsExperience                      String?
+  roleType               String? // INDEPENDENT | SC_ORGANISATION | NDIS_PROVIDER | OTHER_ORGANISATION (widened from 2 to 4 options per SC-A05)
+  organisationName       String?
+  organisationRole       String? // SC-A05 — role within the organisation, shown when roleType is an org type
+  preferredContactMethod String? // SC-A08
+  abn                    String?
+  ndisRegistered         Boolean @default(false)
+  ndisProviderNumber     String?
+  yearsExperience        String?
+
+  // SC-A05 team invitation code — one coordinator generates a code to share, another
+  // enters it at signup to join the same organisationName.
+  orgInviteCode       String? @unique
+  joinedViaInviteCode String? // raw code as entered by a joining coordinator, kept for audit
+
+  // Pricing V2 §2/§3.4 — lifetime "10 introductory chargeable actions, once only, no
+  // expiry" counter. Deliberately separate from the shared FREE_TIER_LIMIT constant,
+  // which is a different (concurrently-open-posts) mechanic — see job.service.ts.
+  introductoryActionsUsed Int @default(0)
 
   // Step 3 — Qualification & Compliance metadata
-  qualifications                       Json?    // String[] — Cert III/IV/Diploma/Bachelor/Other
-  policeCheckExpiry                    DateTime?
-  wwccNumber                           String?
-  wwccExpiry                           DateTime?
-  ndisScreeningNumber                  String?
-  ndisScreeningExpiry                  DateTime?
-  professionalIndemnityProviderName    String?
-  professionalIndemnityPolicyNumber    String?
-  professionalIndemnityExpiry          DateTime?
-  publicLiabilityPolicyNumber          String?
-  publicLiabilityExpiry                DateTime?
+  qualifications                    Json? // String[] — Cert III/IV/Diploma/Bachelor/Other
+  policeCheckExpiry                 DateTime?
+  wwccNumber                        String?
+  wwccExpiry                        DateTime?
+  ndisScreeningNumber               String?
+  ndisScreeningExpiry               DateTime?
+  professionalIndemnityProviderName String?
+  professionalIndemnityPolicyNumber String?
+  professionalIndemnityExpiry       DateTime?
+  publicLiabilityPolicyNumber       String?
+  publicLiabilityExpiry             DateTime?
 
   // Step 4 — Service Capability
-  supportCoordinationLevel             Json?
-  participantComplexityExperience      Json?
-  servicesOfferedBeyondCoordination    Json?
+  supportCoordinationLevel          Json?
+  participantComplexityExperience   Json?
+  servicesOfferedBeyondCoordination Json?
 
   // Step 5 — Service Coverage
-  serviceAreas                         Json?
-  serviceRadius                        Int?
-  serviceMode                          String?
+  serviceAreas  Json?
+  serviceRadius Int?
+  serviceMode   String?
 
   // Step 6 — Availability & Capacity
-  currentCapacityStatus                String?
-  maxParticipantLoad                   Int?
-  availabilityType                     String?  // BUSINESS_HOURS | FLEXIBLE | EMERGENCY_AVAILABLE
+  currentCapacityStatus String?
+  maxParticipantLoad    Int?
+  availabilityType      String? // BUSINESS_HOURS | FLEXIBLE | EMERGENCY_AVAILABLE
 
   // Step 7 — Plan Management Handling
-  fundingTypeCompatibility             Json?
-  billingMethodPreference              String?
+  fundingTypeCompatibility Json?
+  billingMethodPreference  String?
 
   // Step 8 — Rates & Commercials
-  hourlyRate                           Decimal? @db.Decimal(10, 2)
-  travelCharges                        String?  // INCLUDED | CHARGED_SEPARATELY
+  hourlyRate    Decimal? @db.Decimal(10, 2)
+  travelCharges String? // INCLUDED | CHARGED_SEPARATELY
 
   // Step 9 — Profile & Trust Layer
-  bio                                  String?
-  profilePhoto                         String?
-  languages                            Json?
-  gender                               String?
-  seekingPlanManager                   Boolean  @default(false)
+  bio                String?
+  profilePhoto       String?
+  languages          Json?
+  gender             String?
+  seekingPlanManager Boolean @default(false)
 
   // Step 10 — Platform Rules & Compliance
-  termsAccepted                        Boolean  @default(false)
-  privacyPolicyAccepted                Boolean  @default(false)
-  ndisCodeAccepted                     Boolean  @default(false)
-  complianceDeclaration                Boolean  @default(false)
-  consentForVerification               Boolean  @default(false)
+  termsAccepted          Boolean @default(false)
+  privacyPolicyAccepted  Boolean @default(false)
+  ndisCodeAccepted       Boolean @default(false)
+  complianceDeclaration  Boolean @default(false)
+  consentForVerification Boolean @default(false)
 
   // Reliability counters (#44/#65/#66) — incremented on confirm/cancel
-  totalCompleted                       Int      @default(0)
-  totalCancelledByWorker               Int      @default(0)
-  totalCancelledByClient               Int      @default(0)
-  averageRating                        Float    @default(0)
-  totalRatings                         Int      @default(0)
+  totalCompleted         Int   @default(0)
+  totalCancelledByWorker Int   @default(0)
+  totalCancelledByClient Int   @default(0)
+  averageRating          Float @default(0)
+  totalRatings           Int   @default(0)
 
   // Public browse listing (mirrors WorkerProfile.isPubliclyListed)
-  isPubliclyListed                     Boolean  @default(false)
-  showRatePublicly                     Boolean  @default(true)
+  isPubliclyListed Boolean @default(false)
+  showRatePublicly Boolean @default(true)
 
-  createdAt                            DateTime @default(now())
-  updatedAt                            DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model PlanManagerProfile {
-  id                                      String    @id @default(uuid())
-  userId                                  String    @unique
-  user                                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  profileStep                             Int       @default(0)
+  profileStep Int @default(0)
 
   // Step 2 — Role Type
-  pmRoleType                              String?   // PLAN_MANAGER | PM_ORG_ADMIN | PM_STAFF_MEMBER
+  pmRoleType String? // PLAN_MANAGER | PM_ORG_ADMIN | PM_STAFF_MEMBER
 
   // Step 3 — Business Identity
-  businessName                            String
-  legalEntityName                         String?
-  abn                                     String?
-  businessStructure                       String?   // SOLE_TRADER | PARTNERSHIP | COMPANY | TRUST | NOT_FOR_PROFIT
-  businessAddress                         String?
-  businessSuburb                          String?
-  businessPostcode                        String?
-  businessState                           String?
-  businessPhone                           String?
-  businessEmail                           String?
-  websiteUrl                              String?
-  acn                                     String?
-  trustName                               String?
-  directorName                            String?
-  directorPosition                        String?
-  financeTeamEmail                        String?
-  accountsPayablePhone                    String?
-  yearsInOperation                        String?
+  businessName         String
+  legalEntityName      String?
+  abn                  String?
+  businessStructure    String? // SOLE_TRADER | PARTNERSHIP | COMPANY | TRUST | NOT_FOR_PROFIT
+  businessAddress      String?
+  businessSuburb       String?
+  businessPostcode     String?
+  businessState        String?
+  businessPhone        String?
+  businessEmail        String?
+  websiteUrl           String?
+  acn                  String?
+  trustName            String?
+  directorName         String?
+  directorPosition     String?
+  financeTeamEmail     String?
+  accountsPayablePhone String?
+  yearsInOperation     String?
 
   // Step 4 — NDIS Registration
-  ndisRegistrationStatus                  String?   // REGISTERED | IN_PROGRESS | NOT_REGISTERED
-  ndisRegistered                          Boolean   @default(false) // kept for backward compat
-  ndisProviderNumber                      String?
-  registrationExpiryDate                  DateTime?
-  approvedRegistrationGroups              Json?
+  ndisRegistrationStatus     String? // REGISTERED | IN_PROGRESS | NOT_REGISTERED
+  ndisRegistered             Boolean   @default(false) // kept for backward compat
+  ndisProviderNumber         String?
+  registrationExpiryDate     DateTime?
+  approvedRegistrationGroups Json?
 
   // Step 5 — Plan Management Capability
-  planTypesSupported                      Json?     // String[] — Plan-managed | Agency-managed | Self-managed
-  silSdaInvoicing                         Boolean   @default(false)
-  servicesProvided                        Json?     // String[]
-  plansRecurringInvoices                  Boolean   @default(false)
-  plansOnceOffInvoices                    Boolean   @default(false)
-  providesBudgetStatements                Boolean   @default(false)
-  statementContactName                    String?
-  statementContactEmail                   String?
+  planTypesSupported       Json? // String[] — Plan-managed | Agency-managed | Self-managed
+  silSdaInvoicing          Boolean @default(false)
+  servicesProvided         Json? // String[]
+  plansRecurringInvoices   Boolean @default(false)
+  plansOnceOffInvoices     Boolean @default(false)
+  providesBudgetStatements Boolean @default(false)
+  statementContactName     String?
+  statementContactEmail    String?
 
   // Step 6 — Participant / Funding Scope
-  participantTypesSupported               Json?     // String[]
-  participantComplexityExperience         Json?
+  participantTypesSupported       Json? // String[]
+  participantComplexityExperience Json?
 
   // Step 7 — Service Coverage
-  serviceCoverageType                     String?   // AUSTRALIA_WIDE | STATE_BASED | REGION_BASED
-  stateCoverage                           Json?     // String[]
-  postcodesServed                         Json?
-  timezone                                String?
-  operatingHours                          String?
-  phoneSupportHours                       String?
-  emailResponseSla                        String?
-  invoiceTurnaroundTime                   String?
+  serviceCoverageType   String? // AUSTRALIA_WIDE | STATE_BASED | REGION_BASED
+  stateCoverage         Json? // String[]
+  postcodesServed       Json?
+  timezone              String?
+  operatingHours        String?
+  phoneSupportHours     String?
+  emailResponseSla      String?
+  invoiceTurnaroundTime String?
 
   // Step 8 — Payment Operations
-  invoiceIntakeMethod                     Json?     // String[]
-  primaryInvoiceContactEmail              String?
-  accountsContactName                     String?
+  invoiceIntakeMethod                    Json? // String[]
+  primaryInvoiceContactEmail             String?
+  accountsContactName                    String?
   paymentEnquiryContactName              String?
-  paymentEnquiryContactEmail              String?
-  paymentEnquiryContactPhone              String?
-  invoiceReferenceFormat                  String?
-  remittanceAdvice                        String?   // email/portal for remittance
-  disputeHandlingContact                  String?
-  staffFinanceTeamEmail                   String?
-  acceptsRegisteredProvidersOnly          Boolean   @default(false)
-  acceptsUnregisteredProviders            Boolean   @default(false)
-  requiresServiceDatesOnInvoices          Boolean   @default(false)
-  requiresSupportCategoryCode             Boolean   @default(false)
-  requiresParticipantConsentConfirmation  Boolean   @default(false)
+  paymentEnquiryContactEmail             String?
+  paymentEnquiryContactPhone             String?
+  invoiceReferenceFormat                 String?
+  remittanceAdvice                       String? // email/portal for remittance
+  disputeHandlingContact                 String?
+  staffFinanceTeamEmail                  String?
+  acceptsRegisteredProvidersOnly         Boolean @default(false)
+  acceptsUnregisteredProviders           Boolean @default(false)
+  requiresServiceDatesOnInvoices         Boolean @default(false)
+  requiresSupportCategoryCode            Boolean @default(false)
+  requiresParticipantConsentConfirmation Boolean @default(false)
 
   // Step 9 — Compliance & Governance
-  recordKeepingDeclaration                Boolean   @default(false)
-  conflictOfInterestDeclaration           Boolean   @default(false)
-  noMisuseOfFundsDeclaration              Boolean   @default(false)
-  taxComplianceDeclaration                Boolean   @default(false)
-  informationAccurateDeclaration          Boolean   @default(false)
-  complaintsContactName                   String?
-  complaintsContactEmail                  String?
-  incidentEscalationContact               String?
-  privacyContact                          String?
-  recordsRetentionContact                 String?
+  recordKeepingDeclaration       Boolean @default(false)
+  conflictOfInterestDeclaration  Boolean @default(false)
+  noMisuseOfFundsDeclaration     Boolean @default(false)
+  taxComplianceDeclaration       Boolean @default(false)
+  informationAccurateDeclaration Boolean @default(false)
+  complaintsContactName          String?
+  complaintsContactEmail         String?
+  incidentEscalationContact      String?
+  privacyContact                 String?
+  recordsRetentionContact        String?
 
   // Step 10 — Staff / User Access Control
-  organisationUserModel                   String?   // SINGLE | SMALL_TEAM | LARGE_ORGANISATION
-  staffAdminName                          String?
-  staffAdminEmail                         String?
-  staffSeatsRequired                      Int?
-  staffRoles                              Json?     // String[] — e.g. Billing Officer, Account Manager, Compliance Officer
-  adminOnlyBillingMode                    Boolean   @default(false)
+  organisationUserModel String? // SINGLE | SMALL_TEAM | LARGE_ORGANISATION
+  staffAdminName        String?
+  staffAdminEmail       String?
+  staffSeatsRequired    Int?
+  staffRoles            Json? // String[] — e.g. Billing Officer, Account Manager, Compliance Officer
+  adminOnlyBillingMode  Boolean @default(false)
 
   // Step 11 — Participant Linking Setup
-  participantReferenceIdLabel             String?   // e.g. "Client ID", "Member Number" — how this org refers to participants internally
-  participantLinkingMethod                Json?     // String[]
-  linkApprovalRequired                    Boolean   @default(true)
-  requiresServiceAgreementBeforeInvoicing Boolean   @default(false)
+  participantReferenceIdLabel             String? // e.g. "Client ID", "Member Number" — how this org refers to participants internally
+  participantLinkingMethod                Json? // String[]
+  linkApprovalRequired                    Boolean @default(true)
+  requiresServiceAgreementBeforeInvoicing Boolean @default(false)
 
   // Step 12 — Provider Interaction Settings
-  invoiceAcceptanceRules                  Json?
-  acceptsRecurringClaims                  Boolean   @default(true)
-  acceptsOnceOffClaims                    Boolean   @default(true)
-  acceptsTransportClaims                  Boolean   @default(true)
-  acceptsAlliedHealthInvoices             Boolean   @default(true)
-  requiresDocsForHighValueInvoices        Boolean   @default(false)
-  allowsProviderPortalMessaging           Boolean   @default(false)
+  invoiceAcceptanceRules           Json?
+  acceptsRecurringClaims           Boolean @default(true)
+  acceptsOnceOffClaims             Boolean @default(true)
+  acceptsTransportClaims           Boolean @default(true)
+  acceptsAlliedHealthInvoices      Boolean @default(true)
+  requiresDocsForHighValueInvoices Boolean @default(false)
+  allowsProviderPortalMessaging    Boolean @default(false)
 
   // Step 14 — Communication Preferences (Step 13 = document uploads)
-  invoiceNotificationEmail                String?
-  complianceNoticesEmail                  String?
-  smsAlertsEnabled                        Boolean   @default(false)
-  escalationContactForFailedPayments      String?
+  invoiceNotificationEmail           String?
+  complianceNoticesEmail             String?
+  smsAlertsEnabled                   Boolean @default(false)
+  escalationContactForFailedPayments String?
 
   // Step 15 — Subscription / Commercial Setup
-  subscriptionPlan                        String?
-  billingContactName                      String?
-  billingContactEmail                     String?
-  billingAddress                          String?
-  gstRegistered                           Boolean?
+  subscriptionPlan    String?
+  billingContactName  String?
+  billingContactEmail String?
+  billingAddress      String?
+  gstRegistered       Boolean?
 
   // Directory visibility
-  acceptingClients                        Boolean   @default(true)
+  acceptingClients Boolean @default(true)
 
   // Step 16 — Terms, Privacy & Platform Rules
-  termsAccepted                           Boolean   @default(false)
-  ndisCodeAccepted                        Boolean   @default(false)
-  privacyPolicyAccepted                   Boolean   @default(false)
-  confirmAuthorityToRegister              Boolean   @default(false)
-  confirmDetailsAccurate                  Boolean   @default(false)
-  consentToVerification                   Boolean   @default(false)
-  consentToParticipantLinkingControls     Boolean   @default(false)
-  consentToInvoiceRoutingRules            Boolean   @default(false)
+  termsAccepted                       Boolean @default(false)
+  ndisCodeAccepted                    Boolean @default(false)
+  privacyPolicyAccepted               Boolean @default(false)
+  confirmAuthorityToRegister          Boolean @default(false)
+  confirmDetailsAccurate              Boolean @default(false)
+  consentToVerification               Boolean @default(false)
+  consentToParticipantLinkingControls Boolean @default(false)
+  consentToInvoiceRoutingRules        Boolean @default(false)
 
-  createdAt                               DateTime  @default(now())
-  updatedAt                               DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -897,21 +983,21 @@ model PlanManagerProfile {
 // ───────────────────────────────────────────────────────────────────────────
 
 model Address {
-  id              String        @id @default(uuid())
-  userId          String
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  isDefault       Boolean       @default(false)
-  label           String?       // "Home", "Work", etc.
-  unitApartment   String?
-  street          String?
-  suburb          String
-  state           String?
-  postcode        String?
-  lat             Float?
-  lng             Float?
-  notes           String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isDefault     Boolean  @default(false)
+  label         String? // "Home", "Work", etc.
+  unitApartment String?
+  street        String?
+  suburb        String
+  state         String?
+  postcode      String?
+  lat           Float?
+  lng           Float?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([userId])
   @@index([userId, isDefault])
@@ -926,8 +1012,8 @@ model WorkerAvailability {
   workerProfileId String
   workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
   dayOfWeek       WeekDay
-  startTime       String        // "09:00" 24h local
-  endTime         String        // "17:00"
+  startTime       String // "09:00" 24h local
+  endTime         String // "17:00"
   createdAt       DateTime      @default(now())
 
   @@index([workerProfileId, dayOfWeek])
@@ -937,7 +1023,7 @@ model WorkerUnavailability {
   id              String        @id @default(uuid())
   workerProfileId String
   workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
-  date            DateTime      // a specific blocked date
+  date            DateTime // a specific blocked date
   reason          String?
   createdAt       DateTime      @default(now())
 
@@ -950,8 +1036,8 @@ model ProviderAvailability {
   providerProfileId String
   providerProfile   ProviderProfile @relation(fields: [providerProfileId], references: [id], onDelete: Cascade)
   dayOfWeek         WeekDay
-  startTime         String          // "09:00" 24h local
-  endTime           String          // "17:00"
+  startTime         String // "09:00" 24h local
+  endTime           String // "17:00"
   createdAt         DateTime        @default(now())
 
   @@index([providerProfileId, dayOfWeek])
@@ -962,25 +1048,25 @@ model ProviderAvailability {
 // ───────────────────────────────────────────────────────────────────────────
 
 model Document {
-  id                 String          @id @default(uuid())
-  userId             String
-  user               User            @relation("UserDocuments", fields: [userId], references: [id], onDelete: Cascade)
-  docType            DocumentType
-  filePath           String
-  publicUrl          String?
-  fileName           String
-  mimeType           String
-  sizeBytes          Int
-  referenceNumber    String?
-  issueDate          DateTime?
-  expiryDate         DateTime?
-  status             DocumentStatus  @default(UPLOADED)
-  rejectionReason    String?
-  verifiedByAdminId  String?
-  verifiedByAdmin    User?           @relation("DocVerifier", fields: [verifiedByAdminId], references: [id])
-  verifiedAt         DateTime?
-  uploadedAt         DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  id                String         @id @default(uuid())
+  userId            String
+  user              User           @relation("UserDocuments", fields: [userId], references: [id], onDelete: Cascade)
+  docType           DocumentType
+  filePath          String
+  publicUrl         String?
+  fileName          String
+  mimeType          String
+  sizeBytes         Int
+  referenceNumber   String?
+  issueDate         DateTime?
+  expiryDate        DateTime?
+  status            DocumentStatus @default(UPLOADED)
+  rejectionReason   String?
+  verifiedByAdminId String?
+  verifiedByAdmin   User?          @relation("DocVerifier", fields: [verifiedByAdminId], references: [id])
+  verifiedAt        DateTime?
+  uploadedAt        DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -992,46 +1078,46 @@ model Document {
 // ───────────────────────────────────────────────────────────────────────────
 
 model SupportRequest {
-  id                       String       @id @default(uuid())
+  id String @id @default(uuid())
 
-  postedByUserId           String
-  postedBy                 User         @relation("PostedBy", fields: [postedByUserId], references: [id])
+  postedByUserId String
+  postedBy       User   @relation("PostedBy", fields: [postedByUserId], references: [id])
 
-  forParticipantUserId     String
-  forParticipant           User         @relation("ForParticipant", fields: [forParticipantUserId], references: [id])
+  forParticipantUserId String
+  forParticipant       User   @relation("ForParticipant", fields: [forParticipantUserId], references: [id])
 
-  title                    String
-  description              String
-  category                 JobCategory
-  subcategory              String?
-  urgency                  JobUrgency   @default(SCHEDULED)
-  status                   JobStatus    @default(DRAFT)
+  title       String
+  description String
+  category    JobCategory
+  subcategory String?
+  urgency     JobUrgency  @default(SCHEDULED)
+  status      JobStatus   @default(DRAFT)
 
   // Job location (the place the work happens) — distinct from any user's home address.
-  suburb                   String
-  state                    String
-  postcode                 String?
-  serviceDeliveryMode      String?
+  suburb              String
+  state               String
+  postcode            String?
+  serviceDeliveryMode String?
 
-  scheduledStartAt         DateTime
-  scheduledEndAt           DateTime
-  totalHours               Decimal?     @db.Decimal(6, 2)
-  isRecurring              Boolean      @default(false)
-  recurrencePattern        Json?
+  scheduledStartAt  DateTime
+  scheduledEndAt    DateTime
+  totalHours        Decimal? @db.Decimal(6, 2)
+  isRecurring       Boolean  @default(false)
+  recurrencePattern Json?
 
-  workerPreferences        Json?
+  workerPreferences Json?
   // Participant-selected task checkboxes from the master service catalogue
   // (e.g. ["Showering/bathing","Dressing/grooming"]) — participant posting spec.
-  selectedTasks            Json?
+  selectedTasks     Json?
 
   // ── Step 4: Participant support needs (safety-critical) ─────────────────────
-  riskSafetyNotes      String?       @db.Text
-  medicalNotes         String?       @db.Text
-  behaviourNotes       String?       @db.Text
+  riskSafetyNotes String? @db.Text
+  medicalNotes    String? @db.Text
+  behaviourNotes  String? @db.Text
   // Structured safety checklist (participant posting spec) — the free-text
   // fields above still hold any elaboration; this holds which checklist
   // items were ticked (e.g. { twoPersonSupport: true, manualTransfer: false }).
-  safetyFlags          Json?
+  safetyFlags     Json?
 
   // Per-job emergency contact — overrides the participant profile's default
   // emergency contact for this specific booking (e.g. a different family member
@@ -1041,80 +1127,85 @@ model SupportRequest {
   emergencyContactRelationship String?
 
   // ── Step 1: Service details ──────────────────────────────────────────────────
-  supportGoal          String?       // e.g. DAILY_LIVING, INDEPENDENCE, SOCIAL_PARTICIPATION
-  durationType         String?       // ONE_TIME | TEMPORARY | RECURRING | ONGOING | TRIAL | EMERGENCY
-  participantPostedAs  String?       // SELF | NOMINEE | FAMILY | COORDINATOR | GUARDIAN
+  supportGoal         String? // e.g. DAILY_LIVING, INDEPENDENCE, SOCIAL_PARTICIPATION
+  durationType        String? // ONE_TIME | TEMPORARY | RECURRING | ONGOING | TRIAL | EMERGENCY
+  participantPostedAs String? // SELF | NOMINEE | FAMILY | COORDINATOR | GUARDIAN
 
   // ── Step 2: Schedule ─────────────────────────────────────────────────────────
-  shiftType            ShiftType?
-  timeFlexibility      String?       // EXACT | FLEXIBLE_SLIGHT | FLEXIBLE_MORNING | FLEXIBLE_AFTERNOON | FLEXIBLE_EVENING | FLEXIBLE_ANYTIME | DISCUSS
+  shiftType             ShiftType?
+  timeFlexibility       String? // EXACT | FLEXIBLE_SLIGHT | FLEXIBLE_MORNING | FLEXIBLE_AFTERNOON | FLEXIBLE_EVENING | FLEXIBLE_ANYTIME | DISCUSS
   applicationDeadlineAt DateTime?
 
   // ── Step 3: Location (extended) ───────────────────────────────────────────────
-  addressLine          String?       // unit/street (full address, shown only after booking)
-  locationNotes        String?       // access notes: stairs, parking, pets, etc.
-  lat                  Decimal?      @db.Decimal(9, 6)
-  lng                  Decimal?      @db.Decimal(9, 6)
-  travelRequired       String?       // NONE | LOCAL | MULTI_STOP | PARTICIPANT_TRANSPORT | LONG_DISTANCE
+  addressLine    String? // unit/street (full address, shown only after booking)
+  locationNotes  String? // access notes: stairs, parking, pets, etc.
+  lat            Decimal? @db.Decimal(9, 6)
+  lng            Decimal? @db.Decimal(9, 6)
+  travelRequired String? // NONE | LOCAL | MULTI_STOP | PARTICIPANT_TRANSPORT | LONG_DISTANCE
 
   // ── Step 6: Budget / Funding ──────────────────────────────────────────────────
-  fundingType          FundingType?
-  budgetType           String?       // FIXED_HOURLY | FIXED_TOTAL | OPEN | NDIS | DISCUSS
-  budgetPerHour        Decimal?      @db.Decimal(8, 2)
-  totalBudget          Decimal?      @db.Decimal(10, 2)
-  travelReimbursement  String?       // INCLUDED | ADDITIONAL | DISCUSS | NOT_REQUIRED
+  fundingType         FundingType?
+  budgetType          String? // FIXED_HOURLY | FIXED_TOTAL | OPEN | NDIS | DISCUSS
+  budgetPerHour       Decimal?     @db.Decimal(8, 2)
+  totalBudget         Decimal?     @db.Decimal(10, 2)
+  travelReimbursement String? // INCLUDED | ADDITIONAL | DISCUSS | NOT_REQUIRED
   // Optional Plan Manager name, asked at the funding step (participant posting spec).
-  planManagerName      String?
+  planManagerName     String?
   // Last-Minute/Routine "how would you like updates" + Routine "how should
   // professionals respond" (participant posting spec) — e.g.
   // { updateMethods: ["SMS","APP"], contactRepName, contactRepPhone } and
   // { responseMethods: ["MESSAGE","SCREENING"], screeningQuestions: [...] }.
-  contactPreferences   Json?
-  responsePreferences  Json?
+  contactPreferences  Json?
+  responsePreferences Json?
 
   // ── Step 7: Visibility ───────────────────────────────────────────────────────
-  visibilityTarget     String?       // ALL | VERIFIED | PROVIDERS_ONLY | WORKERS_ONLY | INVITE_ONLY
-  maxApplicants        Int?
-  hideParticipantName  Boolean       @default(false)
-  allowQuotes          Boolean       @default(false)
-  allowDirectMessages  Boolean       @default(true)
+  visibilityTarget    String? // ALL | VERIFIED | PROVIDERS_ONLY | WORKERS_ONLY | INVITE_ONLY
+  maxApplicants       Int?
+  hideParticipantName Boolean @default(false)
+  allowQuotes         Boolean @default(false)
+  allowDirectMessages Boolean @default(true)
 
   // ── Coordinator / Plan Manager extras ────────────────────────────────────────
-  internalNote         String?       // private — never shown publicly
-  caseReference        String?       // coordinator case ref
-  requestPurposeCategory String?     // NEW_SUPPORT | REPLACEMENT | URGENT_INTERIM | HOSPITAL_DISCHARGE | etc.
+  internalNote           String? // private — never shown publicly
+  caseReference          String? // coordinator case ref
+  requestPurposeCategory String? // NEW_SUPPORT | REPLACEMENT | URGENT_INTERIM | HOSPITAL_DISCHARGE | etc.
 
   // The candidate (worker OR provider) the poster selected from the top-5.
-  selectedApplicantUserId  String?
-  selectedApplicant        User?        @relation("SelectedApplicant", fields: [selectedApplicantUserId], references: [id])
+  selectedApplicantUserId String?
+  selectedApplicant       User?   @relation("SelectedApplicant", fields: [selectedApplicantUserId], references: [id])
   // For provider-selected jobs: the actual worker the provider assigns afterwards.
-  assignedWorkerUserId     String?
-  assignedWorker           User?        @relation("AssignedWorker", fields: [assignedWorkerUserId], references: [id])
+  assignedWorkerUserId    String?
+  assignedWorker          User?   @relation("AssignedWorker", fields: [assignedWorkerUserId], references: [id])
 
-  selectedAt               DateTime?
-  startedAt                DateTime?
-  completedAt              DateTime?
-  confirmedAt              DateTime?
-  cancelledAt              DateTime?
-  cancelledByUserId        String?
-  cancelledBy              User?        @relation("CancelledBy", fields: [cancelledByUserId], references: [id])
-  cancelledByRole          UserRole?    // #65 — role that initiated the cancellation
-  cancelReason             String?
+  selectedAt        DateTime?
+  // Set once the selected/assigned worker or provider explicitly accepts the
+  // assignment (mutual confirmation) — only then is the exact address released.
+  workerConfirmedAt DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  confirmedAt       DateTime?
+  cancelledAt       DateTime?
+  cancelledByUserId String?
+  cancelledBy       User?     @relation("CancelledBy", fields: [cancelledByUserId], references: [id])
+  cancelledByRole   UserRole? // #65 — role that initiated the cancellation
+  cancelReason      String?
 
   // True when this job was reopened+escalated to EMERGENCY by a near-start cancellation.
-  promotedFromCancellation Boolean      @default(false)
+  promotedFromCancellation Boolean @default(false)
   // Set to true once the 15-min pre-start notification has been sent to the assigned worker.
-  assignedWorkerNotified   Boolean      @default(false)
+  assignedWorkerNotified   Boolean @default(false)
 
-  createdAt                DateTime     @default(now())
-  updatedAt                DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  applications             JobApplication[]
-  messages                 JobMessage[]
-  invoices                 Invoice[]
-  assignments              JobAssignment[]
-  reviews                  Review[]
-  incidents                IncidentReport[]
+  applications          JobApplication[]
+  messages              JobMessage[]
+  invoices              Invoice[]
+  assignments           JobAssignment[]
+  reviews               Review[]
+  incidents             IncidentReport[]
+  jobInvites            JobInvite[]
+  shiftPassConsumptions ShiftPassPurchase[]
 
   @@index([status])
   @@index([urgency])
@@ -1178,19 +1269,18 @@ model JobApplication {
   applicant       User              @relation(fields: [applicantUserId], references: [id])
   // Worker (solo) or Provider (business). Stored for convenience in ranking.
   applicantRole   UserRole
-  score           Float             @default(0)  // multi-factor ranking score
+  score           Float             @default(0) // multi-factor ranking score
   status          ApplicationStatus @default(INTERESTED)
   note            String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
-
   // ── Structured application proposal ──────────────────────────────────────────
-  availabilityType     String?   // YES_EXACT | YES_ADJUSTED | PARTIAL | DISCUSS | UNAVAILABLE
-  rateResponse         String?   // ACCEPT | OFFER_OWN | QUOTE_AFTER | DISCUSS
-  proposedRate         Decimal?  @db.Decimal(8, 2)
-  introduction         String?   // longer proposal text (separate from note)
-  applicationData      Json?     // suitability confirmations, doc visibility, etc.
+  availabilityType String? // YES_EXACT | YES_ADJUSTED | PARTIAL | DISCUSS | UNAVAILABLE
+  rateResponse     String? // ACCEPT | OFFER_OWN | QUOTE_AFTER | DISCUSS
+  proposedRate     Decimal? @db.Decimal(8, 2)
+  introduction     String? // longer proposal text (separate from note)
+  applicationData  Json? // suitability confirmations, doc visibility, etc.
 
   @@unique([jobId, applicantUserId])
   @@index([jobId, status])
@@ -1198,13 +1288,13 @@ model JobApplication {
 }
 
 model JobMessage {
-  id            String         @id @default(uuid())
-  jobId         String
-  job           SupportRequest @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  senderUserId  String
-  sender        User           @relation(fields: [senderUserId], references: [id])
-  body          String
-  createdAt     DateTime       @default(now())
+  id           String         @id @default(uuid())
+  jobId        String
+  job          SupportRequest @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  senderUserId String
+  sender       User           @relation(fields: [senderUserId], references: [id])
+  body         String
+  createdAt    DateTime       @default(now())
 
   @@index([jobId, createdAt])
 }
@@ -1238,23 +1328,23 @@ model IncidentReport {
 // ───────────────────────────────────────────────────────────────────────────
 
 model Invoice {
-  id                 String   @id @default(uuid())
-  jobId              String
-  job                SupportRequest @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  id    String         @id @default(uuid())
+  jobId String
+  job   SupportRequest @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
-  senderUserId       String   // who triggered the send (coordinator / provider / solo actor)
-  sender             User     @relation("InvoiceSender", fields: [senderUserId], references: [id])
+  senderUserId String // who triggered the send (coordinator / provider / solo actor)
+  sender       User   @relation("InvoiceSender", fields: [senderUserId], references: [id])
 
-  planManagerUserId  String   // recipient PM
-  planManager        User     @relation("InvoicePlanManager", fields: [planManagerUserId], references: [id])
+  planManagerUserId String // recipient PM
+  planManager       User   @relation("InvoicePlanManager", fields: [planManagerUserId], references: [id])
 
-  participantUserId  String   // the participant the work was for
-  participant        User     @relation("InvoiceParticipant", fields: [participantUserId], references: [id])
+  participantUserId String // the participant the work was for
+  participant       User   @relation("InvoiceParticipant", fields: [participantUserId], references: [id])
 
-  hours              Decimal? @db.Decimal(6, 2)
-  note               String?
-  sentAt             DateTime @default(now())
-  createdAt          DateTime @default(now())
+  hours     Decimal? @db.Decimal(6, 2)
+  note      String?
+  sentAt    DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([planManagerUserId, sentAt])
   @@index([senderUserId])
@@ -1266,19 +1356,67 @@ model Invoice {
 // ───────────────────────────────────────────────────────────────────────────
 
 model PlanManagerConnection {
-  id                 String             @id @default(uuid())
-  planManagerUserId  String
-  planManager        User               @relation("PmConnManager", fields: [planManagerUserId], references: [id], onDelete: Cascade)
-  clientUserId       String             // participant / worker / provider
-  client             User               @relation("PmConnClient", fields: [clientUserId], references: [id], onDelete: Cascade)
-  status             PmConnectionStatus @default(PENDING)
-  initiatedBy        PmInitiator
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  id                String             @id @default(uuid())
+  planManagerUserId String
+  planManager       User               @relation("PmConnManager", fields: [planManagerUserId], references: [id], onDelete: Cascade)
+  clientUserId      String // participant / worker / provider
+  client            User               @relation("PmConnClient", fields: [clientUserId], references: [id], onDelete: Cascade)
+  status            PmConnectionStatus @default(PENDING)
+  initiatedBy       PmInitiator
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@unique([planManagerUserId, clientUserId])
   @@index([planManagerUserId, status])
   @@index([clientUserId, status])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Coordinator ↔ existing Participant connection (mutual accept, either side
+// initiates — a participant "enquiry" sent to a coordinator's public profile
+// IS a connection request row here, so the coordinator's inbox is just this
+// table filtered to PENDING). Distinct from linking.service's createParticipant,
+// which creates a brand-new MANAGED participant account the coordinator owns
+// outright — this model is for connecting to an INDEPENDENT participant who
+// must consent.
+// ───────────────────────────────────────────────────────────────────────────
+
+enum CoordinatorConnectionStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum CoordinatorInitiator {
+  COORDINATOR
+  PARTICIPANT
+}
+
+model CoordinatorParticipantConnection {
+  id                String                      @id @default(uuid())
+  coordinatorUserId String
+  coordinator       User                        @relation("CoordConnCoordinator", fields: [coordinatorUserId], references: [id], onDelete: Cascade)
+  participantUserId String
+  participant       User                        @relation("CoordConnParticipant", fields: [participantUserId], references: [id], onDelete: Cascade)
+  status            CoordinatorConnectionStatus @default(PENDING)
+  initiatedBy       CoordinatorInitiator
+  message           String? // optional note sent with the request
+
+  // Granular permissions the participant grants once accepted (SC-C01-C05).
+  // All default true on accept; the participant can revoke individually afterwards.
+  canViewInfo           Boolean @default(true)
+  canPostRequests       Boolean @default(true)
+  canShortlist          Boolean @default(true)
+  canMessage            Boolean @default(true)
+  canConfirmBookings    Boolean @default(true)
+  canManageReplacements Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([coordinatorUserId, participantUserId])
+  @@index([coordinatorUserId, status])
+  @@index([participantUserId, status])
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1294,20 +1432,59 @@ enum DirectConnectStatus {
 }
 
 model DirectConnectRequest {
-  id                 String              @id @default(uuid())
-  providerUserId     String
-  provider           User                @relation("DirectConnectProvider", fields: [providerUserId], references: [id], onDelete: Cascade)
-  workerUserId       String
-  worker             User                @relation("DirectConnectWorker", fields: [workerUserId], references: [id], onDelete: Cascade)
-  status             DirectConnectStatus @default(PENDING)
-  message            String?
-  amountAud          Decimal             @default(9.99) @db.Decimal(10, 2)
-  mockReceiptRef     String?             // set only when status becomes ACCEPTED
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  id             String              @id @default(uuid())
+  providerUserId String
+  provider       User                @relation("DirectConnectProvider", fields: [providerUserId], references: [id], onDelete: Cascade)
+  workerUserId   String
+  worker         User                @relation("DirectConnectWorker", fields: [workerUserId], references: [id], onDelete: Cascade)
+  status         DirectConnectStatus @default(PENDING)
+  message        String?
+  amountAud      Decimal             @default(9.99) @db.Decimal(10, 2)
+  mockReceiptRef String? // set only when status becomes ACCEPTED
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([providerUserId, status])
   @@index([workerUserId, status])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// JobInvite — poster invites one specific worker/provider to one specific job
+// (SC-F01-06). Free when a Coordinator sends it. When a Provider sends it, this
+// is also the Pricing Spec V2 §9 "Direct Connect" product — $9.99, charged only
+// if the invited worker accepts (amountAud/mockReceiptRef mirror
+// DirectConnectRequest's proven pattern above). Deliberately NOT built as an
+// extension of DirectConnectRequest: that model is a free, no-shift "recruit to
+// my roster" request, a different product that happens to share a name in the
+// docs — see the reconciliation note in the delivery plan.
+// ───────────────────────────────────────────────────────────────────────────
+
+enum JobInviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+}
+
+model JobInvite {
+  id              String          @id @default(uuid())
+  jobId           String
+  job             SupportRequest  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  invitedByUserId String
+  invitedBy       User            @relation("JobInviteSender", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+  invitedUserId   String
+  invitedUser     User            @relation("JobInviteRecipient", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  status          JobInviteStatus @default(PENDING)
+  message         String?
+  // null = free Coordinator invite (SC-F01-06); 9.99 = paid Provider Direct Connect (§9)
+  amountAud       Decimal?        @db.Decimal(10, 2)
+  mockReceiptRef  String? // set only when amountAud is non-null and status becomes ACCEPTED
+  createdAt       DateTime        @default(now())
+  respondedAt     DateTime?
+
+  @@unique([jobId, invitedUserId])
+  @@index([jobId, status])
+  @@index([invitedUserId, status])
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1315,15 +1492,15 @@ model DirectConnectRequest {
 // ───────────────────────────────────────────────────────────────────────────
 
 model Notification {
-  id         String           @id @default(uuid())
-  userId     String
-  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type       NotificationType
-  title      String
-  body       String?
-  data       Json?
-  read       Boolean          @default(false)
-  createdAt  DateTime         @default(now())
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String?
+  data      Json?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
 
   @@index([userId, read])
   @@index([userId, createdAt])
@@ -1334,16 +1511,16 @@ model Notification {
 // ───────────────────────────────────────────────────────────────────────────
 
 model AuditLog {
-  id               String       @id @default(uuid())
+  id               String      @id @default(uuid())
   adminUserId      String
-  admin            User         @relation("AdminAction", fields: [adminUserId], references: [id])
+  admin            User        @relation("AdminAction", fields: [adminUserId], references: [id])
   action           AuditAction
   targetUserId     String?
-  targetUser       User?        @relation("AuditTarget", fields: [targetUserId], references: [id])
+  targetUser       User?       @relation("AuditTarget", fields: [targetUserId], references: [id])
   targetDocumentId String?
   reason           String?
   metadata         Json?
-  createdAt        DateTime     @default(now())
+  createdAt        DateTime    @default(now())
 
   @@index([adminUserId, createdAt])
   @@index([targetUserId])
@@ -1354,47 +1531,86 @@ model AuditLog {
 // ───────────────────────────────────────────────────────────────────────────
 
 model Plan {
-  id              String   @id @default(uuid())
+  id            String   @id @default(uuid())
   // Machine key, e.g. WORKER_BASIC, PROVIDER_PRO
-  key             String   @unique
+  key           String   @unique
   // The role this plan applies to
-  role            UserRole
-  name            String
-  amountAud       Decimal  @db.Decimal(10, 2)
+  role          UserRole
+  name          String
+  amountAud     Decimal  @db.Decimal(10, 2)
   // Stripe price ID — null until Phase 2 swap-in
-  stripePriceId   String?
-  active          Boolean  @default(true)
+  stripePriceId String?
+  active        Boolean  @default(true)
   // Feature bullet points shown on the plan card (pricing_plans.md)
-  features        String[] @default([])
+  features      String[] @default([])
   // Add-ons (e.g. COORDINATOR_GROWTH) stack alongside a base plan rather than
   // replacing it — a user can hold one base plan + multiple active add-ons.
-  isAddOn         Boolean  @default(false)
-  createdAt       DateTime @default(now())
+  isAddOn       Boolean  @default(false)
+  createdAt     DateTime @default(now())
 
-  subscriptions   UserSubscription[]
+  // Provider organisation capacity caps (Pricing V2 §5) — null on every non-Provider
+  // plan and on Provider add-ons; `features` above is a display bullet list, not
+  // suited to numeric limits, so these are separate typed fields.
+  maxAdministrators Int?
+  maxTeamMembers    Int?
+  maxBranches       Int?
+
+  subscriptions UserSubscription[]
 
   @@index([role, active])
 }
 
 model UserSubscription {
-  id                     String             @id @default(uuid())
-  userId                 String
-  user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  planId                 String
-  plan                   Plan               @relation(fields: [planId], references: [id])
-  status                 SubscriptionStatus @default(ACTIVE)
+  id                   String             @id @default(uuid())
+  userId               String
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId               String
+  plan                 Plan               @relation(fields: [planId], references: [id])
+  status               SubscriptionStatus @default(ACTIVE)
   // Stripe subscription ID — null until Phase 2 swap-in
-  stripeSubscriptionId   String?
+  stripeSubscriptionId String?
   // Fake payment reference (Phase 1 mock)
-  mockReceiptRef         String?
-  activatedAt            DateTime           @default(now())
-  expiresAt              DateTime?
-  cancelledAt            DateTime?
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
+  mockReceiptRef       String?
+  activatedAt          DateTime           @default(now())
+  expiresAt            DateTime?
+  cancelledAt          DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   @@index([userId, status])
   @@index([planId])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// ShiftPassPurchase — Pricing V2 §6 "Pay-As-You-Go": a flat, role-priced,
+// one-time credit for exactly one more chargeable action after a role's 10
+// introductory actions are used up (SW $9.99, SC/Provider $19.99). No add-on
+// bundle — the SC journey doc's SC-S06 "optional Featured Listing/Priority
+// Broadcast/Emergency Match Boost" wording is superseded by the pricing doc,
+// which has no such columns in its Pay-As-You-Go table. Role-agnostic so the
+// same purchase/consume function works for all three roles; only Coordinator's
+// createJob gate consumes one in this batch (see job.service.ts).
+// ───────────────────────────────────────────────────────────────────────────
+
+enum ShiftPassStatus {
+  ACTIVE
+  CONSUMED
+}
+
+model ShiftPassPurchase {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role            UserRole
+  status          ShiftPassStatus @default(ACTIVE)
+  priceAud        Decimal         @db.Decimal(10, 2) // set at purchase from the role-priced table
+  purchasedAt     DateTime        @default(now())
+  consumedAt      DateTime?
+  consumedByJobId String?
+  consumedByJob   SupportRequest? @relation(fields: [consumedByJobId], references: [id], onDelete: SetNull)
+  mockReceiptRef  String?
+
+  @@index([userId, status])
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1402,20 +1618,20 @@ model UserSubscription {
 // ───────────────────────────────────────────────────────────────────────────
 
 model Session {
-  id               String   @id @default(uuid())
-  userId           String
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  refreshTokenHash String   @unique
+  id                            String    @id @default(uuid())
+  userId                        String
+  user                          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash              String    @unique
   // The immediately-prior refresh token hash, kept valid for a short grace
   // window after rotation so that two near-simultaneous refresh requests
   // (e.g. rapid full-page navigations) don't log the user out.
   previousRefreshTokenHash      String?   @unique
   previousRefreshTokenExpiresAt DateTime?
-  expiresAt        DateTime
-  activeRole       UserRole?
-  userAgent        String?
-  ip                 String?
-  createdAt        DateTime @default(now())
+  expiresAt                     DateTime
+  activeRole                    UserRole?
+  userAgent                     String?
+  ip                            String?
+  createdAt                     DateTime  @default(now())
 
   @@index([userId])
   @@index([expiresAt])
@@ -1449,38 +1665,110 @@ model VerificationCode {
 // ───────────────────────────────────────────────────────────────────────────
 
 model ProviderListing {
-  id               String   @id @default(uuid())
-  providerUserId   String
-  provider         User     @relation("ProviderListings", fields: [providerUserId], references: [id], onDelete: Cascade)
+  id             String @id @default(uuid())
+  providerUserId String
+  provider       User   @relation("ProviderListings", fields: [providerUserId], references: [id], onDelete: Cascade)
 
-  listingCategory  String   // SERVICE | HOUSING
-  status           String   @default("ACTIVE") // ACTIVE | PAUSED | FILLED | CLOSED
+  listingCategory String // SERVICE | HOUSING
+  status          String @default("ACTIVE") // ACTIVE | PAUSED | FILLED | CLOSED
 
-  title            String
-  description      String
-  suburb           String
-  state            String?
-  postcode         String?
+  title       String
+  description String
+  suburb      String
+  state       String?
+  postcode    String?
 
   // SERVICE listings (post-service form)
-  listingType      String?  // IMMEDIATE_INTAKE | RECURRING_CAPACITY | ONE_TIME_SLOT | SHORT_TERM | URGENT_FILL | WAITLIST_OPENING | ONGOING_REFERRALS
-  serviceCategory  String?
-  serviceMode      String?  // IN_PERSON | REMOTE | BOTH
-  fundingTypes     Json?    // String[]
+  listingType     String? // IMMEDIATE_INTAKE | RECURRING_CAPACITY | ONE_TIME_SLOT | SHORT_TERM | URGENT_FILL | WAITLIST_OPENING | ONGOING_REFERRALS
+  serviceCategory String?
+  serviceMode     String? // IN_PERSON | REMOTE | BOTH
+  fundingTypes    Json? // String[]
 
   // HOUSING vacancies (sil-vacancy form)
-  vacancyCategory  String?  // SIL | SDA | SIL_SDA | RESPITE | MEDIUM_TERM | SHORT_TERM | OTHER
-  propertyType     String?
-  vacancyCount     Int?
-  supportModel     String?
-  suitableFor      Json?    // String[]
-  fundingRoutes    Json?    // String[]
-  urgency          String?  // AVAILABLE_NOW | AVAILABLE_SOON | FUTURE | EXPRESSION_OF_INTEREST
+  vacancyCategory String? // SIL | SDA | SIL_SDA | RESPITE | MEDIUM_TERM | SHORT_TERM | OTHER
+  propertyType    String?
+  vacancyCount    Int?
+  supportModel    String?
+  suitableFor     Json? // String[]
+  fundingRoutes   Json? // String[]
+  urgency         String? // AVAILABLE_NOW | AVAILABLE_SOON | FUTURE | EXPRESSION_OF_INTEREST
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([providerUserId, status])
   @@index([listingCategory, status])
   @@index([suburb])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Provider organisation model — Pricing V2 §4/§4.4/§5. Hierarchy: Provider
+// Organisation -> Branch Workspace -> Administrators + internal Team Members.
+// Genuinely new: ProviderProfile.multipleLocations was only a free-text Json
+// array with no structure, and no Administrator/Team-Member concept existed
+// anywhere before this. Capacity per tier is enforced Provider-wide via
+// Plan.maxAdministrators/maxTeamMembers/maxBranches, not per-Branch (§5.3).
+// ───────────────────────────────────────────────────────────────────────────
+
+model ProviderBranch {
+  id             String   @id @default(uuid())
+  providerUserId String
+  provider       User     @relation("ProviderBranches", fields: [providerUserId], references: [id], onDelete: Cascade)
+  name           String
+  createdAt      DateTime @default(now())
+
+  administrators ProviderAdministrator[]
+  teamMembers    ProviderTeamMember[]
+
+  @@index([providerUserId])
+}
+
+// One Administrator = one named Provider user with an individual login who may
+// manage one, several, or all of the org's Branches (§4.2) — counts once
+// Provider-wide toward Plan.maxAdministrators regardless of how many Branches
+// they're assigned to (enforced by uniqueness on [providerUserId, userId], not
+// on a per-Branch join row).
+model ProviderAdministrator {
+  id             String           @id @default(uuid())
+  providerUserId String
+  provider       User             @relation("ProviderAdminOrg", fields: [providerUserId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User             @relation("ProviderAdminPerson", fields: [userId], references: [id], onDelete: Cascade)
+  branches       ProviderBranch[]
+  createdAt      DateTime         @default(now())
+
+  @@unique([providerUserId, userId])
+  @@index([providerUserId])
+}
+
+// A Provider-internal worker with passwordless, mobile-verified access (§4.4) —
+// distinct from an independent Support Worker's own User account. One worker
+// attached to several Branches still counts once toward Plan.maxTeamMembers
+// (uniqueness on [providerUserId, mobile], not on a per-Branch join row).
+model ProviderTeamMember {
+  id                        String         @id @default(uuid())
+  providerUserId            String
+  provider                  User           @relation("ProviderTeamMembers", fields: [providerUserId], references: [id], onDelete: Cascade)
+  branchId                  String
+  branch                    ProviderBranch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name                      String
+  mobile                    String
+  skills                    String[]       @default([])
+  inviteStatus              String         @default("PENDING") // PENDING | VERIFIED
+  mobileVerifiedAt          DateTime?
+  // Mobile-verification code state (§4.4) — hashed like VerificationCode, but
+  // kept on this row directly since ProviderTeamMember has no User/userId of
+  // its own to hang a VerificationCode row off.
+  verificationCodeHash      String?
+  verificationCodeExpiresAt DateTime?
+  // Set only if this person later signs up for their own independent Support
+  // Worker account — records the fact only, per §4.4 item 25 ("personal
+  // marketplace activity remains separate"); does not merge any data.
+  claimedByUserId           String?
+  claimedByUser             User?          @relation("ProviderTeamMemberClaimedBy", fields: [claimedByUserId], references: [id], onDelete: SetNull)
+  createdAt                 DateTime       @default(now())
+
+  @@unique([providerUserId, mobile])
+  @@index([providerUserId])
+  @@index([branchId])
 }

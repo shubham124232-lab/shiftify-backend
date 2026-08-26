@@ -21,6 +21,10 @@ import listingRoutes      from "./modules/listings/listing.routes";
 import workerRoutes       from "./modules/workers/worker.routes";
 import coordinatorRoutes  from "./modules/coordinators/coordinator.routes";
 import savedSearchRoutes  from "./modules/saved-searches/saved-search.routes";
+import coordinatorConnectionRoutes from "./modules/coordinator-connections/coordinator-connection.routes";
+import savedProfessionalRoutes     from "./modules/saved-professionals/saved-professional.routes";
+import jobInviteRoutes             from "./modules/job-invites/job-invite.routes";
+import providerOrgRoutes            from "./modules/provider-org/provider-org.routes";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { requireAuth }    from "./middleware/auth.middleware";
 import { asyncHandler }   from "./utils/async-handler";
@@ -82,6 +86,10 @@ app.use("/provider/listings", listingRoutes);
 app.use("/workers",       workerRoutes);
 app.use("/coordinators",  coordinatorRoutes);
 app.use("/saved-searches", savedSearchRoutes);
+app.use("/coordinator-connections", coordinatorConnectionRoutes);
+app.use("/saved-professionals",     savedProfessionalRoutes);
+app.use("/job-invites",             jobInviteRoutes);
+app.use("/provider-org",            providerOrgRoutes);
 
 // ── 404 ─────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

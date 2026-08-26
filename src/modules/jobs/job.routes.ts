@@ -17,10 +17,13 @@ router.get   ("/",                                    asyncHandler(ctrl.listJobs
 router.get   ("/my",                                  asyncHandler(ctrl.listMyJobs));
 router.get   ("/:id",                                 asyncHandler(ctrl.getJob));
 router.patch ("/:id/cancel",                          asyncHandler(ctrl.cancelJob));
+router.post  ("/:id/replacement",                     asyncHandler(ctrl.createReplacementRequest));
+router.post  ("/:id/duplicate",                       asyncHandler(ctrl.duplicateJob));
 router.patch ("/:id/publish",                         asyncHandler(ctrl.publishJob));
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 router.patch ("/:id/assign-worker",                   asyncHandler(ctrl.assignWorker));
+router.patch ("/:id/confirm-assignment",              asyncHandler(ctrl.confirmAssignment));
 router.patch ("/:id/start",                           asyncHandler(ctrl.startJob));
 router.patch ("/:id/complete",                        asyncHandler(ctrl.completeJob));
 router.patch ("/:id/confirm",                         asyncHandler(ctrl.confirmJob));
