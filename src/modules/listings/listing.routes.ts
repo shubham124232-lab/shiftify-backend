@@ -10,5 +10,9 @@ const router = Router();
 router.post("/", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.createListing));
 router.get("/",  requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.listMyListings));
 router.patch("/:id", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.updateListing));
+router.post("/:id/featured", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.purchaseFeaturedListing));
+
+router.post("/platinum-tile", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.purchasePlatinumTile));
+router.get ("/platinum-tile", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.listPlatinumTileCampaigns));
 
 export default router;

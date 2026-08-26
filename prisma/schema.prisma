@@ -365,6 +365,9 @@ model User {
   providerTeamMembers       ProviderTeamMember[]    @relation("ProviderTeamMembers")
   claimedTeamMemberships    ProviderTeamMember[]    @relation("ProviderTeamMemberClaimedBy")
 
+  featuredShiftPurchases FeaturedShiftPurchase[]
+  platinumTileCampaigns  PlatinumTileCampaign[]
+
   @@index([status])
   @@index([accountType])
   @@index([parentUserId])
@@ -1198,14 +1201,19 @@ model SupportRequest {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  applications          JobApplication[]
-  messages              JobMessage[]
-  invoices              Invoice[]
-  assignments           JobAssignment[]
-  reviews               Review[]
-  incidents             IncidentReport[]
-  jobInvites            JobInvite[]
-  shiftPassConsumptions ShiftPassPurchase[]
+  // Pricing V2 §8 Featured Shift — paid pin/label, never changes genuine urgency
+  // ordering. Featured while featuredUntil is set and in the future.
+  featuredUntil DateTime?
+
+  applications           JobApplication[]
+  messages               JobMessage[]
+  invoices               Invoice[]
+  assignments            JobAssignment[]
+  reviews                Review[]
+  incidents              IncidentReport[]
+  jobInvites             JobInvite[]
+  shiftPassConsumptions  ShiftPassPurchase[]
+  featuredShiftPurchases FeaturedShiftPurchase[]
 
   @@index([status])
   @@index([urgency])
@@ -1696,6 +1704,16 @@ model ProviderListing {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Pricing V2 §7.2/§7.3 — paid 30-day Standard/Featured SIL/SDA promotion.
+  // Featured listings queue first-purchased-first-displayed; queue position is
+  // recomputed whenever a Featured listing expires or is withdrawn. featuredSince
+  // records purchase order (not display order) so that renumbering after an
+  // earlier Featured listing drops out preserves the original queue sequence.
+  isFeatured            Boolean   @default(false)
+  featuredSince         DateTime?
+  featuredExpiresAt     DateTime?
+  featuredQueuePosition Int?
+
   @@index([providerUserId, status])
   @@index([listingCategory, status])
   @@index([suburb])
@@ -1771,4 +1789,48 @@ model ProviderTeamMember {
   @@unique([providerUserId, mobile])
   @@index([providerUserId])
   @@index([branchId])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Pricing V2 §8 — Featured Shift: a paid pin/label on one job post, tier-priced
+// and tier-duration-capped. Never changes genuine urgency ordering — a paid
+// Routine post must not outrank a free Rapid post.
+// ───────────────────────────────────────────────────────────────────────────
+
+model FeaturedShiftPurchase {
+  id                String         @id @default(uuid())
+  jobId             String
+  job               SupportRequest @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  purchasedByUserId String
+  purchasedBy       User           @relation(fields: [purchasedByUserId], references: [id])
+  tier              JobUrgency
+  priceAud          Decimal        @db.Decimal(6, 2)
+  expiresAt         DateTime
+  mockReceiptRef    String?
+  purchasedAt       DateTime       @default(now())
+
+  @@index([jobId])
+  @@index([purchasedByUserId])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Pricing V2 §7 — Platinum Tile Sponsorship: a Provider-level (not per-listing)
+// homepage/search placement campaign, priced by coverage area and duration.
+// ───────────────────────────────────────────────────────────────────────────
+
+model PlatinumTileCampaign {
+  id             String   @id @default(uuid())
+  providerUserId String
+  provider       User     @relation(fields: [providerUserId], references: [id], onDelete: Cascade)
+  coverage       String // METRO | STATE | NATIONAL
+  centreSuburb   String? // required for METRO's 30km-radius rule
+  durationMonths Int // 1 | 3 | 6 | 12
+  priceAud       Decimal  @db.Decimal(7, 2)
+  startsAt       DateTime
+  endsAt         DateTime
+  mockReceiptRef String?
+  createdAt      DateTime @default(now())
+
+  @@index([providerUserId])
+  @@index([coverage])
 }

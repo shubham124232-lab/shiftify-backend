@@ -140,6 +140,13 @@ export async function selectApplicant(req: Request, res: Response): Promise<void
   success(res, { job });
 }
 
+// POST /jobs/:id/featured-shift
+export async function purchaseFeaturedShift(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const purchase = await svc.purchaseFeaturedShift(req.params.id, req.user.id);
+  success(res, { purchase });
+}
+
 // PATCH /jobs/:id/applications/:appId/shortlist
 export async function shortlistApplicant(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();

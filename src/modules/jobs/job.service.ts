@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { prisma } from "../../lib/prisma";
 import {
   ApiError,
@@ -9,7 +10,6 @@ import {
 import { notify } from "../../lib/notify";
 import { canAccessMarketplace, missingRequiredDocs } from "../../middleware/marketplace.middleware";
 import { subscriptionGated, getActiveBasePlanKey, hasUnconsumedShiftPass, consumeShiftPass } from "../subscriptions/subscription.service";
-import { FREE_TIER_LIMIT } from "../../config/constants";
 import { computeApplicationScore } from "./job-scoring";
 import { notifyMatchingSavedSearches } from "../saved-searches/saved-search.service";
 import { assertCoordinatorPermission } from "../coordinator-connections/coordinator-connection.service";
@@ -93,6 +93,7 @@ const JOB_SUMMARY_SELECT = {
   forParticipantUserId: true,
   createdAt:           true,
   status:              true,
+  featuredUntil:       true,
 } as const;
 
 const CONTACT_VISIBLE_STATUSES: JobStatus[] = ["ASSIGNED", "IN_PROGRESS", "COMPLETED", "CONFIRMED"];
@@ -467,11 +468,13 @@ export async function listJobs(
   }
 
   // ── Sort ─────────────────────────────────────────────────────────────────
+  // Featured Shift (Pricing V2 §8) only pins within its own urgency tier — a
+  // paid promotion must never outrank a genuinely more urgent, unpaid post.
   const orderBy: Record<string, string>[] =
-    sortBy === "newest"    ? [{ createdAt: "desc" }]
+    sortBy === "newest"    ? [{ featuredUntil: "desc" }, { createdAt: "desc" }]
     : sortBy === "startDate" ? [{ scheduledStartAt: "asc" }]
-    : sortBy === "bestMatch" ? [{ urgency: "asc" }, { scheduledStartAt: "asc" }]
-    : /* urgency (default) */ [{ urgency: "asc" }, { scheduledStartAt: "asc" }];
+    : sortBy === "bestMatch" ? [{ urgency: "asc" }, { featuredUntil: "desc" }, { scheduledStartAt: "asc" }]
+    : /* urgency (default) */ [{ urgency: "asc" }, { featuredUntil: "desc" }, { scheduledStartAt: "asc" }];
 
   const [rawJobs, total] = await Promise.all([
     prisma.supportRequest.findMany({
@@ -810,17 +813,30 @@ export async function applyToJob(
       "An active subscription is required to apply for jobs. Choose a plan on the Subscription page to continue.",
     );
   }
+
+  // SW journey doc §19 / Pricing V2 §2 — Support Worker Connect is framed as free
+  // and unlimited, with no visible pending-application counter. Pricing V2's
+  // commercial numbers are authoritative over the journey doc's wording (locked
+  // decision, pricing-spec-v2-source-of-truth): 10 lifetime introductory Connect
+  // actions, then a Shiftify Basic subscription or a $9.99 Single Shift Pass —
+  // same mechanism as the Coordinator gate above, not a "pending applications" cap.
+  let shiftPassToConsume = false;
   const applicantPlanKey = await getActiveBasePlanKey(applicantId, activeRole);
-  if (applicantPlanKey?.endsWith("_FREE")) {
-    const pendingApps = await prisma.jobApplication.count({
-      where: { applicantUserId: applicantId, status: "INTERESTED" },
+  if (activeRole === "SUPPORT_WORKER" && applicantPlanKey?.endsWith("_FREE")) {
+    const wp = await prisma.workerProfile.findUnique({
+      where: { userId: applicantId },
+      select: { introductoryActionsUsed: true },
     });
-    if (pendingApps >= FREE_TIER_LIMIT) {
-      throw new ApiError(
-        403,
-        "SUBSCRIPTION_LIMIT",
-        `Free plan limit reached (${FREE_TIER_LIMIT} pending applications). Upgrade your plan to apply for more jobs.`,
-      );
+    const introUsed = wp?.introductoryActionsUsed ?? 0;
+    if (introUsed >= 10) {
+      if (!(await hasUnconsumedShiftPass(applicantId, activeRole))) {
+        throw new ApiError(
+          403,
+          "SUBSCRIPTION_LIMIT",
+          "You've used your 10 introductory Connects. Subscribe to a plan or purchase a Single Shift Pass to Connect to more shifts.",
+        );
+      }
+      shiftPassToConsume = true;
     }
   }
 
@@ -883,6 +899,8 @@ export async function applyToJob(
     score,
   };
 
+  const isNewConnect = !existing || existing.status === "WITHDRAWN";
+
   const app = existing
     ? await prisma.jobApplication.update({
         where: { id: existing.id },
@@ -896,6 +914,17 @@ export async function applyToJob(
           ...applicationPayload,
         },
       });
+
+  if (isNewConnect && activeRole === "SUPPORT_WORKER") {
+    if (shiftPassToConsume) {
+      await consumeShiftPass(applicantId, activeRole, jobId);
+    } else {
+      await prisma.workerProfile.updateMany({
+        where: { userId: applicantId, introductoryActionsUsed: { lt: 10 } },
+        data:  { introductoryActionsUsed: { increment: 1 } },
+      });
+    }
+  }
 
   void notify.sendPushNotification(
     job!.postedByUserId,
@@ -960,6 +989,9 @@ export async function selectApplicant(jobId: string, appId: string, posterId: st
         status:                  "ASSIGNED",
         selectedApplicantUserId: app.applicantUserId,
         selectedAt:              new Date(),
+        // Featured Shift (Pricing V2 §8) pins until its tier duration OR job
+        // fill, whichever is first — clear it now that the job is filled.
+        featuredUntil:           null,
       },
     }),
   ]);
@@ -973,6 +1005,44 @@ export async function selectApplicant(jobId: string, appId: string, posterId: st
   );
 
   return prisma.supportRequest.findUnique({ where: { id: jobId }, select: JOB_WRITE_SELECT });
+}
+
+// ─── Featured Shift (Pricing V2 §8) ────────────────────────────────────────────
+// Paid pin/label on one open job post, priced and duration-capped by the job's
+// own urgency tier. RAPID/SAME_DAY/LAST_MINUTE/SCHEDULED map to the pricing
+// doc's Rapid/Urgent/Last-Minute/Routine tiers (see jobs/my/page.tsx's own
+// urgency-label mapping) — EMERGENCY/REPLACEMENT aren't sold as Featured Shift.
+
+const FEATURED_SHIFT_CONFIG: Partial<Record<JobUrgency, { priceAud: number; durationMs: number }>> = {
+  RAPID:       { priceAud: 19.99, durationMs: 60 * 60 * 1000 },
+  SAME_DAY:    { priceAud: 14.99, durationMs: 24 * 60 * 60 * 1000 },
+  LAST_MINUTE: { priceAud: 9.99,  durationMs: 48 * 60 * 60 * 1000 },
+  SCHEDULED:   { priceAud: 21.99, durationMs: 7 * 24 * 60 * 60 * 1000 },
+};
+
+export async function purchaseFeaturedShift(jobId: string, purchasedByUserId: string) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.postedByUserId !== purchasedByUserId) throw new ForbiddenError("Only the poster can feature this request");
+  if (job!.status !== "OPEN") throw new BadRequestError("Only an open request can be featured");
+
+  const config = FEATURED_SHIFT_CONFIG[job!.urgency];
+  if (!config) throw new BadRequestError(`Featured Shift is not available for ${job!.urgency} requests`);
+
+  const expiresAt = new Date(Date.now() + config.durationMs);
+  const mockReceiptRef = `DEV-${randomUUID().toUpperCase()}`;
+
+  const [purchase] = await prisma.$transaction([
+    prisma.featuredShiftPurchase.create({
+      data: {
+        jobId, purchasedByUserId, tier: job!.urgency,
+        priceAud: config.priceAud, expiresAt, mockReceiptRef,
+      },
+    }),
+    prisma.supportRequest.update({ where: { id: jobId }, data: { featuredUntil: expiresAt } }),
+  ]);
+
+  return purchase;
 }
 
 // ─── Shortlist applicant ──────────────────────────────────────────────────────

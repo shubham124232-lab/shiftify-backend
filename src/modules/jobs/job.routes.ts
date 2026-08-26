@@ -37,6 +37,7 @@ router.patch ("/:id/assignments/:assignmentId/status", asyncHandler(assignmentCt
 router.post  ("/:id/apply",                           asyncHandler(ctrl.applyToJob));
 router.get   ("/:id/applications",                    asyncHandler(ctrl.listApplications));
 router.patch ("/:id/applications/:appId/select",      asyncHandler(ctrl.selectApplicant));
+router.post  ("/:id/featured-shift",                  asyncHandler(ctrl.purchaseFeaturedShift));
 router.patch ("/:id/applications/:appId/shortlist",   asyncHandler(ctrl.shortlistApplicant));
 router.patch ("/:id/applications/:appId/decline",     asyncHandler(ctrl.declineApplicant));
 router.patch ("/:id/applications/:appId/withdraw",    asyncHandler(ctrl.withdrawApplication));
