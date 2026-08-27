@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import {
   NotFoundError,
@@ -11,6 +12,9 @@ import type {
   CreateCoordinatorConnectionInput,
   RespondCoordinatorConnectionInput,
   UpdateCoordinatorConnectionPermissionsInput,
+  RespondPostingApprovalInput,
+  RequestPermissionsInput,
+  RespondPermissionRequestInput,
 } from "../../validators/coordinator-connection.schema";
 
 const INCLUDE = {
@@ -107,6 +111,36 @@ export async function listConnections(userId: string, activeRole: UserRole) {
   });
 }
 
+// ─── SC-C04 — sender manages a still-PENDING request they sent ────────────────
+
+export async function resendConnection(connectionId: string, userId: string) {
+  const conn = await prisma.coordinatorParticipantConnection.findUnique({
+    where: { id: connectionId },
+    include: INCLUDE,
+  });
+  if (!conn) throw new NotFoundError("Connection request not found");
+  const senderId = conn.initiatedBy === "COORDINATOR" ? conn.coordinatorUserId : conn.participantUserId;
+  if (senderId !== userId) throw new ForbiddenError("You didn't send this request");
+  if (conn.status !== "PENDING") throw new BadRequestError("This request isn't pending anymore");
+
+  notifyNewRequest(conn, conn.initiatedBy);
+  return conn;
+}
+
+export async function cancelConnection(connectionId: string, userId: string) {
+  const conn = await prisma.coordinatorParticipantConnection.findUnique({ where: { id: connectionId } });
+  if (!conn) throw new NotFoundError("Connection request not found");
+  const senderId = conn.initiatedBy === "COORDINATOR" ? conn.coordinatorUserId : conn.participantUserId;
+  if (senderId !== userId) throw new ForbiddenError("You didn't send this request");
+  if (conn.status !== "PENDING") throw new BadRequestError("This request isn't pending anymore");
+
+  return prisma.coordinatorParticipantConnection.update({
+    where: { id: connectionId },
+    data:  { status: "CANCELLED" },
+    include: INCLUDE,
+  });
+}
+
 // ─── Recipient accepts or declines ─────────────────────────────────────────────
 
 export async function respondToConnection(
@@ -170,6 +204,149 @@ export async function updatePermissions(
 // behalf, etc.) to confirm a coordinator still has an accepted, permitted link
 // to a given INDEPENDENT (non-MANAGED) participant. Managed participants
 // (created via linking.service) are governed by parentUserId instead, not this.
+
+// ─── SC-P01 — coordinator asks the participant to approve this specific ───────
+// posting instead of self-certifying. Does not touch canPostRequests.
+
+export async function requestPostingApproval(coordinatorUserId: string, participantUserId: string) {
+  const conn = await prisma.coordinatorParticipantConnection.findUnique({
+    where: { coordinatorUserId_participantUserId: { coordinatorUserId, participantUserId } },
+    include: INCLUDE,
+  });
+  if (!conn || conn.status !== "ACCEPTED") {
+    throw new ForbiddenError("You're not connected to this participant");
+  }
+
+  const updated = await prisma.coordinatorParticipantConnection.update({
+    where: { id: conn.id },
+    data: {
+      postingApprovalStatus:      "PENDING",
+      postingApprovalRequestedAt: new Date(),
+      postingApprovalRespondedAt: null,
+    },
+    include: INCLUDE,
+  });
+
+  void notify.sendPushNotification(
+    participantUserId,
+    "Approval needed",
+    `${updated.coordinator.name} wants to post a support request on your behalf and is asking for your approval.`,
+    { connectionId: updated.id },
+    "COORDINATOR_POSTING_APPROVAL_REQUEST",
+  );
+
+  return updated;
+}
+
+export async function respondToPostingApproval(
+  connectionId: string,
+  participantUserId: string,
+  input: RespondPostingApprovalInput,
+) {
+  const conn = await prisma.coordinatorParticipantConnection.findUnique({ where: { id: connectionId } });
+  if (!conn) throw new NotFoundError("Connection not found");
+  if (conn.participantUserId !== participantUserId) {
+    throw new ForbiddenError("Only the participant can respond to this approval request");
+  }
+  if (conn.postingApprovalStatus !== "PENDING") {
+    throw new BadRequestError("There's no pending approval request on this connection");
+  }
+
+  const updated = await prisma.coordinatorParticipantConnection.update({
+    where: { id: connectionId },
+    data: {
+      postingApprovalStatus:      input.action === "APPROVE" ? "APPROVED" : "DECLINED",
+      postingApprovalRespondedAt: new Date(),
+    },
+    include: INCLUDE,
+  });
+
+  void notify.sendPushNotification(
+    conn.coordinatorUserId,
+    "Approval update",
+    input.action === "APPROVE"
+      ? `${updated.participant.name} approved your request to post on their behalf.`
+      : `${updated.participant.name} declined your request to post on their behalf.`,
+    { connectionId: updated.id },
+    "COORDINATOR_POSTING_APPROVAL_RESPONDED",
+  );
+
+  return updated;
+}
+
+// ─── SC-PT04 — coordinator requests permissions they don't already have ───────
+
+export async function requestPermissions(
+  coordinatorUserId: string,
+  input: RequestPermissionsInput,
+) {
+  const conn = await prisma.coordinatorParticipantConnection.findUnique({
+    where: { coordinatorUserId_participantUserId: { coordinatorUserId, participantUserId: input.participantUserId } },
+    include: INCLUDE,
+  });
+  if (!conn || conn.status !== "ACCEPTED") {
+    throw new ForbiddenError("You're not connected to this participant");
+  }
+
+  const updated = await prisma.coordinatorParticipantConnection.update({
+    where: { id: conn.id },
+    data: {
+      permissionRequestPending: true,
+      requestedPermissions:     input.requested,
+      permissionRequestedAt:    new Date(),
+    },
+    include: INCLUDE,
+  });
+
+  void notify.sendPushNotification(
+    input.participantUserId,
+    "Permission request",
+    `${updated.coordinator.name} is requesting additional access to manage your support requests.`,
+    { connectionId: updated.id },
+    "COORDINATOR_POSTING_APPROVAL_REQUEST",
+  );
+
+  return updated;
+}
+
+export async function respondToPermissionRequest(
+  connectionId: string,
+  participantUserId: string,
+  input: RespondPermissionRequestInput,
+) {
+  const conn = await prisma.coordinatorParticipantConnection.findUnique({ where: { id: connectionId } });
+  if (!conn) throw new NotFoundError("Connection not found");
+  if (conn.participantUserId !== participantUserId) {
+    throw new ForbiddenError("Only the participant can respond to this request");
+  }
+  if (!conn.permissionRequestPending) {
+    throw new BadRequestError("There's no pending permission request on this connection");
+  }
+
+  const grant = input.action === "APPROVE" ? (conn.requestedPermissions as Record<string, boolean> | null ?? {}) : {};
+
+  const updated = await prisma.coordinatorParticipantConnection.update({
+    where: { id: connectionId },
+    data: {
+      ...grant,
+      permissionRequestPending: false,
+      requestedPermissions:     Prisma.JsonNull,
+    },
+    include: INCLUDE,
+  });
+
+  void notify.sendPushNotification(
+    conn.coordinatorUserId,
+    "Permission request update",
+    input.action === "APPROVE"
+      ? `${updated.participant.name} approved your permission request.`
+      : `${updated.participant.name} declined your permission request.`,
+    { connectionId: updated.id },
+    "COORDINATOR_POSTING_APPROVAL_RESPONDED",
+  );
+
+  return updated;
+}
 
 export async function assertCoordinatorPermission(
   coordinatorUserId: string,
