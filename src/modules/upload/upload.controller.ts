@@ -11,10 +11,15 @@ import type { DocumentType, UserRole } from "@prisma/client";
 const AVATAR_CONTENT_TYPES = ["image/jpeg", "image/png", "image/heic", "image/webp"] as const;
 const AVATAR_LABELS = AVATAR_CONTENT_TYPES.map((t) => t.split("/")[1].toUpperCase()).join(", ");
 
+// Incident evidence (photos/documents attached to a "Report a concern" filing) —
+// generic presign, no Document row is created (unlike compliance docs).
+const INCIDENT_EVIDENCE_CONTENT_TYPES = ["image/jpeg", "image/png", "image/heic", "image/webp", "application/pdf"] as const;
+const INCIDENT_EVIDENCE_LABELS = INCIDENT_EVIDENCE_CONTENT_TYPES.map((t) => t.split("/")[1].toUpperCase()).join(", ");
+
 const presignQuerySchema = z.object({
   fileName:    z.string().min(1).max(255),
   contentType: z.string().min(1).max(120),
-  category:    z.enum(["compliance", "avatars"]).default("compliance"),
+  category:    z.enum(["compliance", "avatars", "incident-evidence"]).default("compliance"),
 });
 
 // Document date fields arrive as plain <input type="date"> values (YYYY-MM-DD),
@@ -50,6 +55,12 @@ export async function presign(req: Request, res: Response): Promise<void> {
   if (category === "avatars" && !(AVATAR_CONTENT_TYPES as readonly string[]).includes(contentType)) {
     throw new BadRequestError(
       "Avatar must be a " + AVATAR_LABELS + " image.",
+    );
+  }
+
+  if (category === "incident-evidence" && !(INCIDENT_EVIDENCE_CONTENT_TYPES as readonly string[]).includes(contentType)) {
+    throw new BadRequestError(
+      "Evidence must be a " + INCIDENT_EVIDENCE_LABELS + " file.",
     );
   }
 

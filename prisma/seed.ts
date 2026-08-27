@@ -45,6 +45,8 @@ async function main() {
   { key: "WORKER_AVAILABLE_NOW", role: "SUPPORT_WORKER" as const, name: "Worker — Available Now",   amountAud: 24.99, isAddOn: true,  features: ["\"Available Now\" badge on profile", "Boosted visibility in urgent searches"] },
   { key: "COORDINATOR_FREE",     role: "COORDINATOR"    as const, name: "Coordinator — Free",       amountAud: 0,     isAddOn: false, features: ["Basic profile listing", "Standard support"] },
   { key: "COORDINATOR_BASIC",    role: "COORDINATOR"    as const, name: "Coordinator — Basic",      amountAud: 49.99, isAddOn: false, features: ["Priority profile placement", "Priority support"] },
+  // SC journey S03 — annual billing option for the same Basic tier, ~35% off the $49.99/mo x 12 rate.
+  { key: "COORDINATOR_BASIC_ANNUAL", role: "COORDINATOR" as const, name: "Coordinator — Basic (Annual)", amountAud: 389.92, isAddOn: false, features: ["Priority profile placement", "Priority support", "Billed annually — save vs. monthly"] },
   { key: "COORDINATOR_GROWTH",   role: "COORDINATOR"    as const, name: "Coordinator — Growth",     amountAud: 29.99, isAddOn: true,  features: ["Advanced analytics dashboard", "Lead generation tools"] },
   { key: "COORDINATOR_SPEED",    role: "COORDINATOR"    as const, name: "Coordinator — Speed",      amountAud: 19.99, isAddOn: true,  features: ["Faster client matching", "Priority placement boost"] },
   { key: "PROVIDER_BASIC",       role: "PROVIDER"       as const, name: "Provider — Basic",         amountAud: 99.99, isAddOn: false, features: ["Up to 20 active job listings", "Verified badge on profile", "Basic analytics dashboard", "Standard support"] },

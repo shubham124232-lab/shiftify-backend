@@ -36,9 +36,16 @@ async function expireGuestWindows(): Promise<void> {
 async function clearExpiredAvailableNow(): Promise<void> {
   try {
     const cutoff = new Date(Date.now() - 24 * HOUR_MS);
+    const now    = new Date();
     const result = await prisma.workerProfile.updateMany({
-      where: { isAvailableNow: true, availableNowSetAt: { lte: cutoff } },
-      data:  { isAvailableNow: false, availableNowSetAt: null },
+      where: {
+        isAvailableNow: true,
+        OR: [
+          { availableNowUntil: { lte: now } },
+          { availableNowUntil: null, availableNowSetAt: { lte: cutoff } },
+        ],
+      },
+      data: { isAvailableNow: false, availableNowSetAt: null, availableNowUntil: null },
     });
     if (result.count > 0) {
       console.log(`[cron] Cleared "Available Now" for ${result.count} worker(s)`);

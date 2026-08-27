@@ -65,6 +65,7 @@ export const APPLICATION_STATUSES = [
   "SELECTED",
   "DECLINED",
   "WITHDRAWN",
+  "REQUEST_FILLED",
 ] as const;
 
 // File upload allowlist
