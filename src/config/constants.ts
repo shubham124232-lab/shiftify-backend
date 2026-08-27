@@ -65,6 +65,7 @@ export const APPLICATION_STATUSES = [
   "SELECTED",
   "DECLINED",
   "WITHDRAWN",
+  "REQUEST_FILLED",
 ] as const;
 
 // File upload allowlist
@@ -82,7 +83,3 @@ export const GUEST_REMINDER_DAYS = [8, 13, 14] as const; // days since signup
 
 // Reminder for the dashboard banner — show countdown from day 0
 export const GUEST_TOTAL_DAYS = GUEST_WINDOW_DAYS;
-
-// Free-tier cap: users on a *_FREE plan may hold at most this many
-// pending applications (workers/providers) or open job posts (coordinators).
-export const FREE_TIER_LIMIT = 5;

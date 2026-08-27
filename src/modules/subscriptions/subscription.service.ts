@@ -209,3 +209,75 @@ export async function hasActiveAddOn(userId: string, role: UserRole, planKey: st
   });
   return sub !== null;
 }
+
+// ─── Single Shift Pass (Pricing V2 §6) ─────────────────────────────────────────
+// A flat one-time credit — "one new Participant support request or agreed
+// chargeable action" — for a role that's used up its 10 free introductory
+// actions and doesn't want to subscribe. Role-priced, no add-on bundle.
+
+const SHIFT_PASS_PRICE_AUD: Partial<Record<UserRole, number>> = {
+  SUPPORT_WORKER: 9.99,
+  COORDINATOR:    19.99,
+  PROVIDER:       19.99,
+};
+
+export async function purchaseShiftPass(userId: string, role: UserRole) {
+  const priceAud = SHIFT_PASS_PRICE_AUD[role];
+  if (priceAud === undefined) {
+    throw new BadRequestError(`Single Shift Pass is not available for role ${role}`);
+  }
+  const mockReceiptRef = `DEV-${randomUUID().toUpperCase()}`;
+  return prisma.shiftPassPurchase.create({
+    data: { userId, role, priceAud, status: "ACTIVE", mockReceiptRef },
+  });
+}
+
+// Finds and consumes one unconsumed Shift Pass for this user+role, tying it to
+// the job it unlocked. Returns the consumed row, or null if none available.
+export async function consumeShiftPass(userId: string, role: UserRole, jobId: string) {
+  const pass = await prisma.shiftPassPurchase.findFirst({
+    where: { userId, role, status: "ACTIVE" },
+    orderBy: { purchasedAt: "asc" },
+  });
+  if (!pass) return null;
+  return prisma.shiftPassPurchase.update({
+    where: { id: pass.id },
+    data:  { status: "CONSUMED", consumedAt: new Date(), consumedByJobId: jobId },
+  });
+}
+
+export async function hasUnconsumedShiftPass(userId: string, role: UserRole): Promise<boolean> {
+  const pass = await prisma.shiftPassPurchase.findFirst({ where: { userId, role, status: "ACTIVE" } });
+  return pass !== null;
+}
+
+// ─── Provider organisation capacity (Pricing V2 §4/§5) ─────────────────────────
+// Caps live on the Provider's active org-tier Plan (maxAdministrators/
+// maxTeamMembers/maxBranches). A Provider with no active org-tier plan has no
+// caps to check against, so capacity actions require one.
+
+export interface ProviderOrgCaps {
+  maxAdministrators: number | null;
+  maxTeamMembers: number | null;
+  maxBranches: number | null;
+  planKey: string;
+}
+
+export async function getActiveProviderOrgCaps(providerUserId: string): Promise<ProviderOrgCaps | null> {
+  const sub = await (prisma as any).userSubscription.findFirst({
+    where: {
+      userId: providerUserId,
+      status: "ACTIVE",
+      plan: { role: "PROVIDER", isAddOn: false, maxBranches: { not: null } },
+    },
+    include: { plan: { select: { key: true, maxAdministrators: true, maxTeamMembers: true, maxBranches: true } } },
+    orderBy: { activatedAt: "desc" },
+  });
+  if (!sub) return null;
+  return {
+    maxAdministrators: sub.plan.maxAdministrators,
+    maxTeamMembers: sub.plan.maxTeamMembers,
+    maxBranches: sub.plan.maxBranches,
+    planKey: sub.plan.key,
+  };
+}

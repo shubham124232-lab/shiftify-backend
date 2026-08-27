@@ -1,0 +1,15 @@
+-- AlterTable
+ALTER TABLE "WorkerProfile" ADD COLUMN     "ageGroupsSupported" JSONB,
+ADD COLUMN     "approachTags" JSONB,
+ADD COLUMN     "childRestraintAvailable" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "communicationSupportSkills" JSONB,
+ADD COLUMN     "detailedRates" JSONB,
+ADD COLUMN     "documentsVisibleToParticipants" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "experienceYearsBucket" TEXT,
+ADD COLUMN     "interests" JSONB,
+ADD COLUMN     "introSummary" TEXT,
+ADD COLUMN     "meetAndGreetPreference" TEXT,
+ADD COLUMN     "settingsExperience" JSONB,
+ADD COLUMN     "supportBoundaries" JSONB,
+ADD COLUMN     "travelMode" TEXT,
+ADD COLUMN     "wheelchairAccessibleVehicle" BOOLEAN NOT NULL DEFAULT false;

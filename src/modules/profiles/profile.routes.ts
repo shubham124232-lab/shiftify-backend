@@ -27,6 +27,9 @@ router.post("/provider",     requireAuth, blockManagedSelfService, requireRole("
 router.post("/coordinator",  requireAuth, blockManagedSelfService, requireRole("COORDINATOR"),    asyncHandler(ctrl.upsertCoordinator));
 router.post("/plan-manager", requireAuth, blockManagedSelfService, requireRole("PLAN_MANAGER"),   asyncHandler(ctrl.upsertPlanManager));
 
+// POST /users/me/profile/coordinator/invite-code — SC-A05 generate a shareable org code
+router.post("/coordinator/invite-code", requireAuth, blockManagedSelfService, requireRole("COORDINATOR"), asyncHandler(ctrl.generateCoordinatorInviteCode));
+
 // PATCH /users/me/profile/<role> — same upsert semantics, for wizard step-by-step saves
 router.patch("/participant",  requireAuth, blockManagedSelfService, requireRole("PARTICIPANT"),    asyncHandler(ctrl.upsertParticipant));
 router.patch("/worker",       requireAuth, blockManagedSelfService, requireRole("SUPPORT_WORKER"), asyncHandler(ctrl.upsertWorker));

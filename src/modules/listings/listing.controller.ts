@@ -40,3 +40,25 @@ export async function updateListing(req: Request, res: Response) {
   const listing = await svc.updateListing(req.user.id, req.params.id, parsed.data);
   return success(res, { listing });
 }
+
+export async function purchaseFeaturedListing(req: Request, res: Response) {
+  if (!req.user) throw new UnauthorizedError();
+  const result = await svc.purchaseFeaturedListing(req.user.id, req.params.id);
+  return success(res, result, 201);
+}
+
+export async function purchasePlatinumTile(req: Request, res: Response) {
+  if (!req.user) throw new UnauthorizedError();
+  const { coverage, durationMonths, centreSuburb } = req.body ?? {};
+  if (typeof coverage !== "string" || typeof durationMonths !== "number") {
+    throw new ValidationError("coverage and durationMonths are required", {});
+  }
+  const campaign = await svc.purchasePlatinumTileCampaign(req.user.id, coverage, durationMonths, centreSuburb);
+  return success(res, { campaign }, 201);
+}
+
+export async function listPlatinumTileCampaigns(req: Request, res: Response) {
+  if (!req.user) throw new UnauthorizedError();
+  const campaigns = await svc.listPlatinumTileCampaigns(req.user.id);
+  return success(res, { campaigns });
+}

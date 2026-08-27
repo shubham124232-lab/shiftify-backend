@@ -3,11 +3,18 @@ import { asyncHandler } from "../../utils/async-handler";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { uploadMiddleware } from "../../middleware/upload.middleware";
 import * as ctrl from "./user.controller";
+import * as blockCtrl from "./block.controller";
 
 const router = Router();
 
 router.get("/me",   requireAuth, asyncHandler(ctrl.getMe));
 router.patch("/me", requireAuth, asyncHandler(ctrl.patchMe));
+
+// SW doc Window 44 — block or limit contact. Registered before /:id so
+// "blocks" is never swallowed as a managed-child id.
+router.post  ("/blocks",                requireAuth, asyncHandler(blockCtrl.blockUser));
+router.get   ("/blocks",                requireAuth, asyncHandler(blockCtrl.listBlocks));
+router.delete("/blocks/:blockedUserId", requireAuth, asyncHandler(blockCtrl.unblockUser));
 
 // Parent fetches full profile of a managed child
 router.get("/:id",                requireAuth, asyncHandler(ctrl.getChild));

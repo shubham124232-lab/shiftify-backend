@@ -359,7 +359,7 @@ export function generateGetPresignedUrl(opts: {
 export function buildFileKey(opts: {
   originalName: string;
   userId: string;
-  category: "compliance" | "avatars";
+  category: "compliance" | "avatars" | "incident-evidence";
 }): string {
   const safeExt = path.extname(opts.originalName).toLowerCase().replace(/[^a-z0-9.]/g, "");
   const rand    = crypto.randomBytes(12).toString("hex");

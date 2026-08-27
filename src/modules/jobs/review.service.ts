@@ -1,6 +1,6 @@
 import { prisma } from "../../lib/prisma";
 import { NotFoundError, ForbiddenError, BadRequestError, ConflictError } from "../../lib/errors";
-import type { CreateReviewInput } from "../../validators/job.schema";
+import type { CreateReviewInput, RespondToReviewInput, ReportReviewInput } from "../../validators/job.schema";
 
 // A job's two review-eligible parties: the poster (client/coordinator/plan manager)
 // and whichever worker actually did the work (direct-assign or provider-selected).
@@ -54,6 +54,10 @@ export async function createReview(jobId: string, raterUserId: string, input: Cr
       revieweeUserId,
       rating:  input.rating,
       comment: input.comment ?? null,
+      reliabilityRating:   input.reliabilityRating   ?? null,
+      communicationRating: input.communicationRating ?? null,
+      qualityRating:       input.qualityRating        ?? null,
+      privateConcern:      input.privateConcern       ?? null,
     },
   });
 
@@ -61,8 +65,36 @@ export async function createReview(jobId: string, raterUserId: string, input: Cr
   return review;
 }
 
-export async function listReviews(jobId: string) {
-  return prisma.review.findMany({
+// Window 45 "Respond or report where allowed" — only the reviewee this review
+// is about can respond publicly or report it.
+
+export async function respondToReview(reviewId: string, userId: string, input: RespondToReviewInput) {
+  const review = await prisma.review.findUnique({ where: { id: reviewId } });
+  if (!review) throw new NotFoundError("Review not found");
+  if (review.revieweeUserId !== userId) throw new ForbiddenError("Only the reviewee can respond to this review");
+  if (review.revieweeResponse) throw new ConflictError("You've already responded to this review");
+
+  return prisma.review.update({
+    where: { id: reviewId },
+    data:  { revieweeResponse: input.response, revieweeResponseAt: new Date() },
+  });
+}
+
+export async function reportReview(reviewId: string, userId: string, input: ReportReviewInput) {
+  const review = await prisma.review.findUnique({ where: { id: reviewId } });
+  if (!review) throw new NotFoundError("Review not found");
+  if (review.revieweeUserId !== userId) throw new ForbiddenError("Only the reviewee can report this review");
+
+  return prisma.review.update({
+    where: { id: reviewId },
+    data:  { reportedByReviewee: true, reportReason: input.reason },
+  });
+}
+
+// privateConcern (Window 45's "report a concern" separation) is only ever
+// shown back to the rater who wrote it — never to the reviewee it's about.
+export async function listReviews(jobId: string, viewerUserId: string) {
+  const reviews = await prisma.review.findMany({
     where:   { requestId: jobId },
     orderBy: { createdAt: "desc" },
     include: {
@@ -70,4 +102,8 @@ export async function listReviews(jobId: string) {
       reviewee: { select: { id: true, name: true, avatarUrl: true } },
     },
   });
+  return reviews.map(r => ({
+    ...r,
+    privateConcern: r.raterUserId === viewerUserId ? r.privateConcern : null,
+  }));
 }

@@ -9,8 +9,11 @@ const optDate = z.preprocess(
 const coordinatorProfileBaseSchema = z.object({
   profileStep:                       z.number().int().min(0).max(20).optional(),
   // Step 1 -- Professional Identity
-  roleType:                          z.enum(["INDEPENDENT", "AGENCY_EMPLOYED"]).optional(),
+  roleType:                          z.enum(["INDEPENDENT", "SC_ORGANISATION", "NDIS_PROVIDER", "OTHER_ORGANISATION"]).optional(),
   organisationName:                  z.string().max(120).optional(),
+  organisationRole:                  z.string().max(80).optional(),
+  preferredContactMethod:            z.enum(["EMAIL", "PHONE", "SMS", "PLATFORM_MESSAGE"]).optional(),
+  joinedViaInviteCode:               z.string().max(20).optional(),
   abn:                               z.string().max(20).optional(),
   ndisRegistered:                    z.boolean().optional(),
   ndisProviderNumber:                z.string().max(40).optional(),
@@ -62,8 +65,8 @@ const coordinatorProfileBaseSchema = z.object({
 });
 
 export const coordinatorProfileSchema = coordinatorProfileBaseSchema.strict().superRefine((data, ctx) => {
-  if (data.roleType === "AGENCY_EMPLOYED" && !data.organisationName) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["organisationName"], message: "Organisation name is required for agency-employed coordinators" });
+  if (data.roleType && data.roleType !== "INDEPENDENT" && !data.organisationName) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["organisationName"], message: "Organisation name is required" });
   }
   if (data.ndisRegistered && !data.ndisProviderNumber) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ndisProviderNumber"], message: "NDIS provider number is required for NDIS-registered coordinators" });

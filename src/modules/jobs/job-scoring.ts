@@ -6,7 +6,7 @@ import type { UserRole } from "@prisma/client";
 // `orderBy: { score: "desc" }`). Weights sum to 100.
 const WEIGHTS = { rating: 35, reliability: 30, experience: 15, priceFit: 20 } as const;
 
-const EXPERIENCE_LEVEL_RANK: Record<string, number> = {
+export const EXPERIENCE_LEVEL_RANK: Record<string, number> = {
   BEGINNER:     0,
   INTERMEDIATE: 1,
   EXPERIENCED:  2,

@@ -130,6 +130,7 @@ export async function upsertWorkerProfile(userId: string, data: WorkerProfileInp
     "dob", "visaExpiry", "publicLiabilityExpiry", "personalAccidentExpiry",
     "ndisScreeningExpiry", "policeCheckIssueDate", "policeCheckExpiry",
     "wwccExpiry", "firstAidExpiry", "cprExpiry", "driversLicenceExpiry",
+    "availableNowUntil",
   ]);
 
   const existing  = await prisma.workerProfile.findUnique({ where: { userId } });
@@ -145,6 +146,11 @@ export async function upsertWorkerProfile(userId: string, data: WorkerProfileInp
       );
     }
     (profileData as Record<string, unknown>).availableNowSetAt = profileData.isAvailableNow ? new Date() : null;
+    // Window 22 — "Available until" is a user-chosen expiry; turning the toggle
+    // off always clears it so a stale time can't leak into the next activation.
+    if (!profileData.isAvailableNow) {
+      (profileData as Record<string, unknown>).availableNowUntil = null;
+    }
   }
 
   const profile = await prisma.workerProfile.upsert({
@@ -213,15 +219,43 @@ export async function upsertCoordinatorProfile(userId: string, data: Coordinator
   const fields = datesToDates(raw as Record<string, unknown>, [
     "policeCheckExpiry", "wwccExpiry", "ndisScreeningExpiry",
     "professionalIndemnityExpiry", "publicLiabilityExpiry",
-  ]);
+  ]) as Record<string, unknown>;
 
   const existing = await prisma.coordinatorProfile.findUnique({ where: { userId } });
   const nextStep  = Math.max(existing?.profileStep ?? 0, incomingStep ?? 0);
+
+  // SC-A05 — a freshly-entered invite code (not already stored) is resolved against
+  // another coordinator's orgInviteCode; on a match, adopt their organisationName.
+  // No match is not an error — the raw code is still stored as entered, for audit.
+  const incomingCode = fields.joinedViaInviteCode as string | undefined;
+  if (incomingCode && incomingCode !== existing?.joinedViaInviteCode) {
+    const owner = await prisma.coordinatorProfile.findUnique({ where: { orgInviteCode: incomingCode } });
+    if (owner && owner.userId !== userId) {
+      fields.organisationName = owner.organisationName;
+    }
+  }
 
   return prisma.coordinatorProfile.upsert({
     where:  { userId },
     create: { userId, profileStep: nextStep, ...(fields as any) },
     update: { profileStep: nextStep, ...(fields as any) },
+  });
+}
+
+// POST /users/me/profile/coordinator/invite-code — generates (or returns the existing)
+// shareable org invitation code for this coordinator, per SC-A05.
+export async function generateOrgInviteCode(userId: string) {
+  const existing = await prisma.coordinatorProfile.findUnique({ where: { userId } });
+  if (!existing) throw new NotFoundError("Coordinator profile not found");
+  if (existing.orgInviteCode) return existing;
+
+  const code = Array.from({ length: 8 }, () =>
+    "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 33)],
+  ).join("");
+
+  return prisma.coordinatorProfile.update({
+    where: { userId },
+    data:  { orgInviteCode: code },
   });
 }
 

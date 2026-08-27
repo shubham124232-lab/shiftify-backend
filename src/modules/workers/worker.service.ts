@@ -32,7 +32,12 @@ export async function browseAvailableWorkers(
   const { suburb, state, page, limit } = filters;
   const skip = (page - 1) * limit;
 
-  const where: Record<string, unknown> = { isPubliclyListed: true };
+  const where: Record<string, unknown> = {
+    isPubliclyListed: true,
+    // SW doc Window 44 — a worker who hid their profile from this viewer is
+    // excluded from their browse results entirely, not just contact-blocked.
+    user: { blocksMade: { none: { blockedUserId: userId, hideProfile: true } } },
+  };
   if (suburb) where.suburb = { contains: suburb, mode: "insensitive" };
   if (state)  where.state  = { contains: state,  mode: "insensitive" };
 
@@ -63,16 +68,32 @@ export async function browseAvailableWorkers(
         isAvailableNow: true,
         totalCompleted: true,
         totalCancelledByWorker: true,
+        nameDisplayMode: true,
+        rateDisplayMode: true,
         user: { select: { id: true, name: true, avatarUrl: true } },
       },
     }),
     prisma.workerProfile.count({ where }),
   ]);
 
-  const withCancellationRate = workers.map((w) => ({
+  // SW doc §2-3 Window 14 — this listing is a pre-Connect discovery surface
+  // (no interaction with the browsing user exists yet for any worker here), so
+  // it's exactly where the worker's own display-mode preferences apply.
+  const masked = workers.map(({ nameDisplayMode, rateDisplayMode, hourlyRate, user, ...w }) => ({
     ...w,
+    hourlyRate: rateDisplayMode === "PUBLIC" || rateDisplayMode == null ? hourlyRate : null,
+    user: {
+      ...user,
+      name: nameDisplayMode === "FIRST_NAME_INITIAL" ? toFirstNameInitial(user.name) : user.name,
+    },
     cancellationRate: cancellationRate(w.totalCompleted, w.totalCancelledByWorker),
   }));
 
-  return { workers: withCancellationRate, total, page, limit };
+  return { workers: masked, total, page, limit };
+}
+
+function toFirstNameInitial(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length < 2) return fullName;
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
 }

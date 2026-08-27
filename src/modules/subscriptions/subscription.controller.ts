@@ -35,3 +35,12 @@ export async function getMyActiveSubscriptions(req: Request, res: Response): Pro
   const subscriptions = await svc.getMyActiveSubscriptions(req.user.id);
   success(res, { subscriptions });
 }
+
+// POST /subscriptions/shift-pass — Pricing V2 §6 Single Shift Pass purchase
+export async function purchaseShiftPass(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const role = req.activeRole;
+  if (!role) throw new UnauthorizedError("No active role");
+  const pass = await svc.purchaseShiftPass(req.user.id, role as UserRole);
+  success(res, { pass }, 201);
+}

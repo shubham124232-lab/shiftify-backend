@@ -278,6 +278,7 @@ const sections: Record<string, () => Promise<void>> = {
     for (const [name, method, path, tok, want] of [
       ["shortlist", "PATCH", `/jobs/${jid}/applications/${appId}/shortlist`, p.token, 200],
       ["select → ASSIGNED", "PATCH", `/jobs/${jid}/applications/${appId}/select`, p.token, 200],
+      ["confirm assignment", "PATCH", `/jobs/${jid}/confirm-assignment`, w.token, 200],
       ["start", "PATCH", `/jobs/${jid}/start`, w.token, 200],
       ["complete", "PATCH", `/jobs/${jid}/complete`, w.token, 200],
       ["confirm", "PATCH", `/jobs/${jid}/confirm`, p.token, 200],
@@ -316,6 +317,7 @@ const sections: Record<string, () => Promise<void>> = {
     r = await req("GET", `/jobs/${cjid}`, undefined, p0.token);
     const capp = ((data(r).job ?? data(r)).applications ?? [])[0]?.id;
     await req("PATCH", `/jobs/${cjid}/applications/${capp}/select`, {}, p0.token);
+    await req("PATCH", `/jobs/${cjid}/confirm-assignment`, {}, w.token);
     await req("PATCH", `/jobs/${cjid}/start`, {}, w.token);
     await req("PATCH", `/jobs/${cjid}/complete`, {}, w.token);
     await req("PATCH", `/jobs/${cjid}/confirm`, {}, p0.token);

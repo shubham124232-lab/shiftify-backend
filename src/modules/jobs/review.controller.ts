@@ -3,7 +3,7 @@ import { UnauthorizedError } from "../../lib/errors";
 import { success } from "../../utils/response";
 import { parse } from "../../utils/validate";
 import * as svc from "./review.service";
-import { createReviewSchema } from "../../validators/job.schema";
+import { createReviewSchema, respondToReviewSchema, reportReviewSchema } from "../../validators/job.schema";
 
 // POST /jobs/:id/reviews
 export async function createReview(req: Request, res: Response): Promise<void> {
@@ -16,6 +16,22 @@ export async function createReview(req: Request, res: Response): Promise<void> {
 // GET /jobs/:id/reviews
 export async function listReviews(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
-  const reviews = await svc.listReviews(req.params.id);
+  const reviews = await svc.listReviews(req.params.id, req.user.id);
   success(res, { reviews });
+}
+
+// PATCH /reviews/:reviewId/respond
+export async function respondToReview(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(respondToReviewSchema, req.body);
+  const review = await svc.respondToReview(req.params.reviewId, req.user.id, data);
+  success(res, { review });
+}
+
+// POST /reviews/:reviewId/report
+export async function reportReview(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(reportReviewSchema, req.body);
+  const review = await svc.reportReview(req.params.reviewId, req.user.id, data);
+  success(res, { review });
 }

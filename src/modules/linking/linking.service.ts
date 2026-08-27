@@ -8,10 +8,11 @@
 
 import { prisma } from "../../lib/prisma";
 import { hashPassword } from "../../lib/hash";
-import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../lib/errors";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError, BadRequestError } from "../../lib/errors";
 import * as profileService from "../profiles/profile.service";
 import * as documentService from "../documents/document.service";
 import { REQUIRED_DOCS_BY_ROLE } from "../../middleware/marketplace.middleware";
+import { notify } from "../../lib/notify";
 import type { WorkerProfileInput } from "../../validators/profile-worker.schema";
 import type { ParticipantProfileInput } from "../../validators/profile-participant.schema";
 import type { UploadDocumentInput } from "../../validators/document.schema";
@@ -172,13 +173,79 @@ export async function activateWorker(input: {
 }
 
 // POST /linking/participants — Coordinator creates a MANAGED PARTICIPANT.
+// Records the coordinator's declared authority (SC-N01-N04) on the new
+// participant's profile at creation time.
 export async function createParticipant(input: {
   parentUserId: string;
   username: string;
   password: string;
   name: string;
+  preferredName: string;
+  ageGroup: string;
+  suburb: string;
+  postcode: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  participantType: string;
+  authorisingPersonName?: string;
+  authorisingPersonRelationship?: string;
+  authorisingPersonNote?: string;
 }): Promise<ManagedAccountResult> {
-  return createManagedAccount({ ...input, role: "PARTICIPANT" });
+  const result = await createManagedAccount({
+    parentUserId: input.parentUserId,
+    username: input.username,
+    password: input.password,
+    name: input.name,
+    role: "PARTICIPANT",
+  });
+  await prisma.participantProfile.create({
+    data: {
+      userId: result.id,
+      preferredName: input.preferredName,
+      ageGroup: input.ageGroup,
+      suburb: input.suburb,
+      postcode: input.postcode,
+      contactEmail: input.contactEmail,
+      contactPhone: input.contactPhone,
+      participantType: input.participantType,
+      authorisingPersonName: input.authorisingPersonName,
+      authorisingPersonRelationship: input.authorisingPersonRelationship,
+      authorisingPersonNote: input.authorisingPersonNote,
+      authorityConfirmedAt: new Date(),
+      authorityConfirmedByUserId: input.parentUserId,
+      infoAccuracyConfirmedAt: new Date(),
+    },
+  });
+  return result;
+}
+
+// POST /linking/participants/:id/invite — SC-N04 "Send invitation now."
+// MANAGED accounts have no email/phone of their own (username+password only),
+// so this sends to the ParticipantProfile's optional contactEmail/contactPhone
+// (SC-N01) — a login shortcut with the username the coordinator set, not a
+// token-based claim link (magic-link auth was retired platform-wide).
+export async function sendParticipantInvitation(input: {
+  parentUserId: string;
+  participantId: string;
+  method: "EMAIL" | "SMS";
+}): Promise<{ sentTo: string }> {
+  await assertManagedChild(input.parentUserId, input.participantId, "PARTICIPANT");
+  const [user, profile] = await Promise.all([
+    prisma.user.findUnique({ where: { id: input.participantId } }),
+    prisma.participantProfile.findUnique({ where: { userId: input.participantId } }),
+  ]);
+  if (!user) throw new NotFoundError("Managed account not found");
+
+  const body = `You've been added to Shiftify. Log in with username "${user.username}" and the password you were given.`;
+
+  if (input.method === "EMAIL") {
+    if (!profile?.contactEmail) throw new BadRequestError("No contact email is on file for this participant.");
+    await notify.sendEmail(profile.contactEmail, "You've been added to Shiftify", body);
+    return { sentTo: profile.contactEmail };
+  }
+  if (!profile?.contactPhone) throw new BadRequestError("No contact phone is on file for this participant.");
+  await notify.sendSms(profile.contactPhone, body);
+  return { sentTo: profile.contactPhone };
 }
 
 // GET /linking/workers — list MANAGED SUPPORT_WORKERs created by this Provider.

@@ -79,7 +79,7 @@ async function workerDashboard(userId: string) {
       where: { OR: workerFilter, status: { in: ["ASSIGNED", "IN_PROGRESS"] }, scheduledStartAt: { gte: now } },
     }),
     prisma.jobApplication.count({
-      where: { applicantUserId: userId, NOT: { status: { in: ["WITHDRAWN", "DECLINED"] } } },
+      where: { applicantUserId: userId, NOT: { status: { in: ["WITHDRAWN", "DECLINED", "REQUEST_FILLED"] } } },
     }),
     prisma.supportRequest.count({ where: { OR: workerFilter, status: { in: ["CONFIRMED", "COMPLETED"] } } }),
   ]);

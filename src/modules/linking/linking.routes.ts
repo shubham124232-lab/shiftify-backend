@@ -89,6 +89,13 @@ router.get(
   asyncHandler(ctrl.getParticipantProfile),
 );
 
+router.post(
+  "/participants/:id/invite",
+  requireAuth,
+  requireRole("COORDINATOR"),
+  asyncHandler(ctrl.sendParticipantInvitation),
+);
+
 // ── Unlink (parent detaches managed sub-account; admin can also call) ────
 // Provider unlinks worker — requireRole("PROVIDER") enforces active role;
 // admin bypass is handled inside the service via callerIsAdmin flag.
