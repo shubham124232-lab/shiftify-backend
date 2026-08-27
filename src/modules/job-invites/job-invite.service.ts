@@ -25,8 +25,10 @@ export async function createInvite(
   activeRole: UserRole,
   input: CreateJobInviteInput,
 ) {
-  if (!["COORDINATOR", "PROVIDER"].includes(activeRole)) {
-    throw new ForbiddenError("Only coordinators and providers can invite someone to a job");
+  // SW doc Window 19 — participants can send direct invitations too, not just
+  // Coordinators/Providers; a participant's invite is free, same as a Coordinator's.
+  if (!["PARTICIPANT", "COORDINATOR", "PROVIDER"].includes(activeRole)) {
+    throw new ForbiddenError("Only participants, coordinators and providers can invite someone to a job");
   }
 
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
