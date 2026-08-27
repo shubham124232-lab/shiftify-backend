@@ -7,6 +7,28 @@
 import { prisma } from "./prisma";
 import type { NotificationType } from "@prisma/client";
 
+// SW doc Window 46 — coarse category each NotificationType rolls up into, for
+// the user's opt-in preference checkboxes. Safety-critical types bypass
+// preferences entirely (see FORCE_SEND below) rather than being categorized.
+type PreferenceCategory = "jobUpdates" | "messages" | "connectionsAndInvites" | "marketingTips";
+
+const FORCE_SEND: ReadonlySet<NotificationType> = new Set<NotificationType>([
+  "EMERGENCY_NEARBY", "INCIDENT_REPORTED",
+]);
+
+const CATEGORY_BY_TYPE: Partial<Record<NotificationType, PreferenceCategory>> = {
+  NEW_JOB_NEARBY: "jobUpdates", JOB_APPLICATION_RECEIVED: "jobUpdates", JOB_SHORTLISTED: "jobUpdates",
+  JOB_SELECTED: "jobUpdates", JOB_ASSIGNED: "jobUpdates", JOB_PRESTART_REMINDER: "jobUpdates",
+  JOB_STARTED: "jobUpdates", JOB_COMPLETED: "jobUpdates", JOB_CONFIRMED: "jobUpdates",
+  JOB_CANCELLED: "jobUpdates", JOB_PROMOTED_EMERGENCY: "jobUpdates", JOB_ASSIGNMENT_CONFIRMED: "jobUpdates",
+  JOB_RUNNING_LATE: "jobUpdates", INVOICE_RECEIVED: "jobUpdates",
+  NEW_MESSAGE: "messages", DIRECT_INQUIRY_RECEIVED: "messages",
+  PM_CONNECTION_REQUEST: "connectionsAndInvites", PM_CONNECTION_ACCEPTED: "connectionsAndInvites",
+  DIRECT_CONNECT_REQUEST: "connectionsAndInvites", DIRECT_CONNECT_RESPONDED: "connectionsAndInvites",
+  COORDINATOR_CONNECTION_REQUEST: "connectionsAndInvites", COORDINATOR_CONNECTION_ACCEPTED: "connectionsAndInvites",
+  COORDINATOR_CONNECTION_DECLINED: "connectionsAndInvites", COORDINATOR_ENQUIRY_RECEIVED: "connectionsAndInvites",
+};
+
 const isDev = process.env.NODE_ENV !== "production";
 // Staging without a real provider: RETURN_DEV_OTP=true keeps the dev inbox
 // capturing mock sends in production so OTP flows remain testable.
@@ -93,6 +115,16 @@ async function sendPushNotification(
   data?: object,
   type: NotificationType = "REGISTRATION_APPROVED",
 ): Promise<{ _dev_notification?: DevNotification }> {
+  if (!FORCE_SEND.has(type)) {
+    const pref = await prisma.notificationPreference.findUnique({ where: { userId } });
+    if (pref) {
+      const category = CATEGORY_BY_TYPE[type];
+      if (!pref.pushEnabled || (category && !pref[category])) {
+        return {};
+      }
+    }
+  }
+
   await prisma.notification.create({
     data: { userId, type, title, body, data: data ?? undefined },
   });
