@@ -28,6 +28,20 @@ const weekendNightRatesSchema = z.object({
   publicHolidayRate: z.number().min(0).max(9999).optional(),
 });
 
+const detailedRatesSchema = z.object({
+  weekdayRate:   z.number().min(0).max(9999).optional(),
+  eveningRate:   z.number().min(0).max(9999).optional(),
+  saturdayRate:  z.number().min(0).max(9999).optional(),
+  sundayRate:    z.number().min(0).max(9999).optional(),
+  sleepoverRate: z.number().min(0).max(9999).optional(),
+});
+
+const supportBoundariesSchema = z.object({
+  environmentExclusions: z.array(z.string()).optional(),
+  taskExclusions:        z.array(z.string()).optional(),
+  notes:                 z.string().max(1000).optional(),
+});
+
 function applyWorkerRefinements<Shape extends z.ZodRawShape>(schema: z.ZodObject<Shape>) {
   return schema.strict().superRefine((data, ctx) => {
     if (data.workType === "CONTRACTOR" && !data.abn) {
@@ -69,6 +83,17 @@ const workerProfileBaseSchema = z.object({
   highIntensitySkills:       z.array(z.string()).optional(),
   experienceLevel:           z.enum(["BEGINNER", "INTERMEDIATE", "EXPERIENCED", "EXPERT"]).optional(),
   disabilityExperience:      z.array(z.string()).optional(),
+  // Window 6 — photo and introduction
+  introSummary:              z.string().max(500).optional(),
+  experienceYearsBucket:     z.enum(["0-1", "1-3", "3-5", "5-10", "10+"]).optional(),
+  approachTags:              z.array(z.string()).optional(),
+  interests:                 z.array(z.string()).optional(),
+  // Window 13 — boundaries and environment exclusions
+  supportBoundaries:         supportBoundariesSchema.optional(),
+  // Window 8 — participant-group experience
+  ageGroupsSupported:         z.array(z.string()).optional(),
+  settingsExperience:         z.array(z.string()).optional(),
+  communicationSupportSkills: z.array(z.string()).optional(),
   // Availability
   availabilityType:          z.enum(["CASUAL", "PART_TIME", "FULL_TIME", "ON_DEMAND"]).optional(),
   emergencyAvailability:     z.boolean().optional(),
@@ -76,7 +101,11 @@ const workerProfileBaseSchema = z.object({
   acceptsActiveOvernightShifts: z.boolean().optional(),
   isPubliclyListed:          z.boolean().optional(),
   listingHeadline:           z.string().max(140).optional(),
+  nameDisplayMode:           z.enum(["FULL_NAME", "FIRST_NAME_INITIAL"]).optional(),
+  rateDisplayMode:           z.enum(["PUBLIC", "AFTER_CONNECT", "HIDDEN"]).optional(),
+  contactPreference:         z.enum(["ALLOW_MESSAGES", "INVITATIONS_ONLY"]).optional(),
   canTransportParticipants:  z.boolean().optional(),
+  documentsVisibleToParticipants: z.boolean().optional(),
   // Location
   serviceAreas:              z.array(z.string()).optional(),
   lat:                       z.number().min(-90).max(90).optional(),
@@ -85,10 +114,15 @@ const workerProfileBaseSchema = z.object({
   hasVehicle:                z.boolean().optional(),
   vehicleDetails:            vehicleDetailsSchema.optional(),
   insuranceValid:            z.boolean().optional(),
+  travelMode:                z.enum(["OWN_VEHICLE", "PUBLIC_TRANSPORT", "WALKING", "NONE"]).optional(),
+  childRestraintAvailable:      z.boolean().optional(),
+  wheelchairAccessibleVehicle:  z.boolean().optional(),
   // Financials
   hourlyRate:                z.number().min(0).max(9999).optional(),
   hourlyRateType:            z.enum(["FIXED", "NDIS_PRICE_GUIDE", "NEGOTIABLE"]).optional(),
   weekendNightRates:         weekendNightRatesSchema.optional(),
+  detailedRates:             detailedRatesSchema.optional(),
+  meetAndGreetPreference:    z.enum(["REQUIRED", "OPTIONAL", "NOT_NEEDED"]).optional(),
   travelCharges:             z.enum(["NONE", "INCLUDED", "CHARGED_SEPARATELY"]).optional(),
   // Preferences
   preferredParticipantType:  z.array(z.string()).optional(),
@@ -97,6 +131,7 @@ const workerProfileBaseSchema = z.object({
   bio:                       z.string().max(2000).optional(),
   preferences:               z.string().max(1000).optional(),
   isAvailableNow:            z.boolean().optional(),
+  availableNowUntil:         z.string().datetime().optional().nullable(),
   seekingPlanManager:        z.boolean().optional(),
   // Capacity
   maxWeeklyHours:            z.number().int().min(0).max(168).optional(),

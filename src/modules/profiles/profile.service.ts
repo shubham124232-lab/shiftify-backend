@@ -130,6 +130,7 @@ export async function upsertWorkerProfile(userId: string, data: WorkerProfileInp
     "dob", "visaExpiry", "publicLiabilityExpiry", "personalAccidentExpiry",
     "ndisScreeningExpiry", "policeCheckIssueDate", "policeCheckExpiry",
     "wwccExpiry", "firstAidExpiry", "cprExpiry", "driversLicenceExpiry",
+    "availableNowUntil",
   ]);
 
   const existing  = await prisma.workerProfile.findUnique({ where: { userId } });
@@ -145,6 +146,11 @@ export async function upsertWorkerProfile(userId: string, data: WorkerProfileInp
       );
     }
     (profileData as Record<string, unknown>).availableNowSetAt = profileData.isAvailableNow ? new Date() : null;
+    // Window 22 — "Available until" is a user-chosen expiry; turning the toggle
+    // off always clears it so a stale time can't leak into the next activation.
+    if (!profileData.isAvailableNow) {
+      (profileData as Record<string, unknown>).availableNowUntil = null;
+    }
   }
 
   const profile = await prisma.workerProfile.upsert({
