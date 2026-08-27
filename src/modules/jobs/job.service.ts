@@ -10,20 +10,31 @@ import {
 import { notify } from "../../lib/notify";
 import { canAccessMarketplace, missingRequiredDocs } from "../../middleware/marketplace.middleware";
 import { subscriptionGated, getActiveBasePlanKey, hasUnconsumedShiftPass, consumeShiftPass } from "../subscriptions/subscription.service";
-import { computeApplicationScore } from "./job-scoring";
+import { computeApplicationScore, EXPERIENCE_LEVEL_RANK } from "./job-scoring";
 import { notifyMatchingSavedSearches } from "../saved-searches/saved-search.service";
 import { assertCoordinatorPermission } from "../coordinator-connections/coordinator-connection.service";
+import { isBlockedFromMessaging } from "../users/block.service";
 import type { UserRole, JobCategory, JobUrgency, JobStatus } from "@prisma/client";
 import { ShiftType, FundingType } from "@prisma/client";
 import type {
   CreateJobInput,
   JobFiltersInput,
+  LiveDashboardFiltersInput,
   ApplyJobInput,
   CancelJobInput,
   AssignWorkerInput,
   SendMessageInput,
   CreateInvoiceInput,
   CreateReplacementInput,
+  ProposeMeetAndGreetInput,
+  RespondMeetAndGreetInput,
+  CreateChangeRequestInput,
+  RespondChangeRequestInput,
+  CloseConnectionInput,
+  NotifyRunningLateInput,
+  SaveWorkerNoteInput,
+  BookmarkJobInput,
+  UpdateDraftJobInput,
 } from "../../validators/job.schema";
 import { Prisma } from "@prisma/client";
 
@@ -53,6 +64,14 @@ const JOB_DETAIL_INCLUDE = {
     take: 10,
   },
   _count: { select: { messages: true, applications: true } },
+  meetAndGreets: {
+    include: { proposedBy: { select: { id: true, name: true } } },
+    orderBy: { createdAt: "desc" as const },
+  },
+  changeRequests: {
+    include: { requestedBy: { select: { id: true, name: true } } },
+    orderBy: { createdAt: "desc" as const },
+  },
 } as const;
 
 // Lean select — used for write (mutation) responses.
@@ -66,7 +85,18 @@ const JOB_WRITE_SELECT = {
   assignedWorkerUserId:    true,
   workerConfirmedAt:       true,
   updatedAt:               true,
+  closedOutcome:           true,
+  closedReasonCategory:    true,
+  closedFeedback:          true,
+  closedAt:                true,
+  runningLateNotifiedAt:   true,
+  runningLateMinutes:      true,
 } as const;
+
+// workerPrivateNote is deliberately excluded from JOB_WRITE_SELECT (shared by
+// poster-facing writes like assignWorker/cancelJob) — it must never be returned
+// to anyone but the worker who wrote it. saveWorkerNote selects it explicitly.
+const JOB_WRITE_SELECT_WITH_NOTE = { ...JOB_WRITE_SELECT, workerPrivateNote: true } as const;
 
 // Summary select — used for list views.
 const JOB_SUMMARY_SELECT = {
@@ -74,6 +104,7 @@ const JOB_SUMMARY_SELECT = {
   title:               true,
   category:            true,
   subcategory:         true,
+  workerPreferences:   true,
   urgency:             true,
   shiftType:           true,
   durationType:        true,
@@ -94,6 +125,7 @@ const JOB_SUMMARY_SELECT = {
   createdAt:           true,
   status:              true,
   featuredUntil:       true,
+  applicationDeadlineAt: true,
 } as const;
 
 const CONTACT_VISIBLE_STATUSES: JobStatus[] = ["ASSIGNED", "IN_PROGRESS", "COMPLETED", "CONFIRMED"];
@@ -105,7 +137,9 @@ function withContactDetails<T extends {
   workerConfirmedAt: Date | null;
   postedByUserId: string;
   addressLine: string | null;
+  hideParticipantName: boolean;
   forParticipant: { id: string; name: string; avatarUrl: string | null } | null;
+  workerPrivateNote?: string | null;
 }>(job: T, userId: string, participantContact: { phone: string | null; email: string | null } | null) {
   // The worker/provider "party" on a job is whichever of the two identity fields
   // is set — assignedWorkerUserId only gets set when a Provider hands the job to
@@ -113,6 +147,8 @@ function withContactDetails<T extends {
   // has selectedApplicantUserId. Checking just one of the two silently locked a
   // directly-hired worker out of contact/address info forever.
   const workerPartyId = job.assignedWorkerUserId ?? job.selectedApplicantUserId;
+  // Window 33 private note — only the worker who wrote it may ever read it back.
+  const canSeeWorkerNote = workerPartyId === userId;
 
   // Address/contact release requires BOTH: the job reached an active status AND
   // the worker/provider explicitly accepted the assignment (mutual confirmation,
@@ -128,12 +164,20 @@ function withContactDetails<T extends {
   // and are never redacted).
   const canSeeAddress = canSeeContact;
 
+  // SW doc §4-5 — a poster can opt to keep the participant's name hidden until
+  // the same mutual-confirmation point that already gates address/contact.
+  // `hideParticipantName` was previously stored and surfaced in list views but
+  // never enforced anywhere — it had no effect on what a worker actually saw.
+  const shouldMaskName = job.hideParticipantName && !canSeeContact;
+
   return {
     ...job,
     addressLine: canSeeAddress ? job.addressLine : null,
+    workerPrivateNote: canSeeWorkerNote ? (job.workerPrivateNote ?? null) : null,
     forParticipant: job.forParticipant
       ? {
           ...job.forParticipant,
+          ...(shouldMaskName ? { name: "NDIS Participant" } : {}),
           ...(canSeeContact && participantContact
             ? { phone: participantContact.phone, email: participantContact.email }
             : {}),
@@ -369,6 +413,42 @@ export async function publishJob(jobId: string, posterId: string) {
 
 // ─── List jobs (role-based, with spec filters) ────────────────────────────────
 
+// SW doc §4-5 profile-match indicator. Only the two fields with a real,
+// typed value-space shared between SupportRequest and WorkerProfile are
+// compared — job.category (JobCategory enum, identical strings to
+// WorkerProfile.servicesOffered) and workerPreferences.experienceLevel (the
+// same BEGINNER..EXPERT enum as WorkerProfile.experienceLevel, per the
+// existing client-side filter in Web/app/(dashboard)/jobs/page.tsx).
+// workerPreferences/selectedTasks/safetyFlags are otherwise untyped JSON
+// blobs with no fixed key contract, so they're deliberately not used here —
+// guessing at their shape would produce a "match" indicator that's just noise.
+function computeMatchSummary(
+  job: { category: JobCategory; workerPreferences: unknown },
+  worker: { servicesOffered: unknown; experienceLevel: string | null },
+): { met: string[]; missing: string[] } {
+  const met: string[] = [];
+  const missing: string[] = [];
+
+  const servicesOffered = Array.isArray(worker.servicesOffered) ? worker.servicesOffered : [];
+  if (servicesOffered.includes(job.category)) {
+    met.push("Service category");
+  } else {
+    missing.push("Service category");
+  }
+
+  const requiredLevel = (job.workerPreferences as { experienceLevel?: string } | null)?.experienceLevel;
+  if (requiredLevel && requiredLevel in EXPERIENCE_LEVEL_RANK) {
+    const workerRank = EXPERIENCE_LEVEL_RANK[worker.experienceLevel ?? ""] ?? -1;
+    if (workerRank >= EXPERIENCE_LEVEL_RANK[requiredLevel]) {
+      met.push("Experience level");
+    } else {
+      missing.push("Experience level");
+    }
+  }
+
+  return { met, missing };
+}
+
 export async function listJobs(
   userId: string,
   activeRole: UserRole,
@@ -377,7 +457,7 @@ export async function listJobs(
   const {
     suburb, state, category, urgency, status, shiftType, fundingType,
     isRecurring, visibilityTarget, startFrom, startTo, postedWithinHours,
-    postedByRole, page, limit, sortBy,
+    postedByRole, page, limit, sortBy, savedOnly, includeHidden,
   } = filters;
   const skip = (page - 1) * limit;
 
@@ -432,6 +512,12 @@ export async function listJobs(
         { visibilityTarget: "WORKERS_ONLY" },
         { visibilityTarget: null },
       ];
+      // SW doc Windows 16-17 — Saved tab / hidden-jobs handling
+      if (savedOnly) {
+        where.bookmarks = { some: { workerUserId: userId, saved: true } };
+      } else if (!includeHidden) {
+        where.bookmarks = { none: { workerUserId: userId, hidden: true } };
+      }
       break;
 
     case "PROVIDER":
@@ -490,17 +576,129 @@ export async function listJobs(
           select: { id: true, status: true },
           take:   1,
         },
+        bookmarks: {
+          where:  { workerUserId: userId },
+          select: { saved: true, hidden: true },
+          take:   1,
+        },
         _count: { select: { applications: true } },
       },
     }),
     prisma.supportRequest.count({ where: where as any }),
   ]);
 
-  const jobs = rawJobs.map(({ applications, createdAt, totalHours, ...rest }) => ({
+  // SW doc §4-5 — only meaningful for the browsing worker's own profile.
+  const workerSelf = activeRole === "SUPPORT_WORKER"
+    ? await prisma.workerProfile.findUnique({
+        where:  { userId },
+        select: { servicesOffered: true, experienceLevel: true },
+      })
+    : null;
+
+  const jobs = rawJobs.map(({ applications, bookmarks, createdAt, totalHours, ...rest }) => ({
     ...rest,
     postedAt:       createdAt,
     estimatedHours: totalHours,
     ownApplication: applications[0] ?? null,
+    saved:          bookmarks?.[0]?.saved ?? false,
+    hidden:         bookmarks?.[0]?.hidden ?? false,
+    matchSummary:   workerSelf ? computeMatchSummary(rest, workerSelf) : undefined,
+  }));
+
+  return { jobs, total, page, limit, pages: Math.ceil(total / limit) };
+}
+
+// ─── Live Dashboard (universal cross-role board) ──────────────────────────────
+// Deliberately NOT built on top of listJobs()/its `where` construction above —
+// that function's role-based scoping is a `switch` that also backs Coordinator's
+// "Urgent Requests" (own-posted-only) and other ownership-scoped call sites.
+// The Live Dashboard's whole point is to drop that ownership scoping (every
+// role sees every open job, not just their own), so it needs its own `where`
+// logic to avoid ever leaking the universal behavior into those existing paths.
+// It DOES still apply the same visibilityTarget gate listJobs() uses for
+// Worker/Provider viewers — the Live Dashboard removes ownership scoping, not
+// the Workers-only/Providers-only restriction (confirmed decision, see plan).
+export async function listLiveDashboardJobs(
+  userId: string,
+  activeRole: UserRole,
+  filters: LiveDashboardFiltersInput,
+) {
+  const {
+    suburb, state, category, urgency, shiftType, fundingType,
+    isRecurring, startFrom, startTo, postedWithinHours,
+    postedByRole, page, limit, sortBy,
+  } = filters;
+  const skip = (page - 1) * limit;
+
+  const where: Record<string, unknown> = { status: "OPEN" };
+
+  if (suburb) where.suburb = { contains: suburb, mode: "insensitive" };
+  if (state)  where.state  = { contains: state,  mode: "insensitive" };
+
+  if (category)    where.category    = category;
+  if (urgency)     where.urgency     = urgency;
+  if (shiftType)   where.shiftType   = shiftType;
+  if (fundingType) where.fundingType = fundingType;
+  if (typeof isRecurring === "boolean") where.isRecurring = isRecurring;
+
+  if (startFrom || startTo) {
+    where.scheduledStartAt = {
+      ...(startFrom ? { gte: new Date(startFrom) } : {}),
+      ...(startTo   ? { lte: new Date(startTo) }   : {}),
+    };
+  }
+  if (postedWithinHours) {
+    const cutoff = new Date(Date.now() - postedWithinHours * 60 * 60 * 1000);
+    where.createdAt = { gte: cutoff };
+  }
+
+  if (postedByRole) {
+    where.postedBy = { roles: { some: { role: postedByRole } } };
+  }
+
+  if (activeRole === "SUPPORT_WORKER") {
+    where.OR = [
+      { visibilityTarget: "ALL" },
+      { visibilityTarget: "VERIFIED" },
+      { visibilityTarget: "WORKERS_ONLY" },
+      { visibilityTarget: null },
+    ];
+  } else if (activeRole === "PROVIDER") {
+    where.OR = [
+      { visibilityTarget: "ALL" },
+      { visibilityTarget: "VERIFIED" },
+      { visibilityTarget: "PROVIDERS_ONLY" },
+      { visibilityTarget: null },
+    ];
+  }
+  // Participant/Coordinator/Plan Manager/Admin viewers: no visibilityTarget
+  // filter — that flag was never meant to restrict those roles.
+
+  const orderBy: Record<string, string>[] =
+    sortBy === "newest"    ? [{ featuredUntil: "desc" }, { createdAt: "desc" }]
+    : sortBy === "startDate" ? [{ scheduledStartAt: "asc" }]
+    : /* urgency/bestMatch (default) */ [{ urgency: "asc" }, { featuredUntil: "desc" }, { scheduledStartAt: "asc" }];
+
+  const [rawJobs, total] = await Promise.all([
+    prisma.supportRequest.findMany({
+      where:   where as any,
+      skip,
+      take:    limit,
+      orderBy: orderBy as any,
+      select:  {
+        ...JOB_SUMMARY_SELECT,
+        postedByUserId: true,
+        _count: { select: { applications: true } },
+      },
+    }),
+    prisma.supportRequest.count({ where: where as any }),
+  ]);
+
+  const jobs = rawJobs.map(({ createdAt, totalHours, ...rest }) => ({
+    ...rest,
+    postedAt:       createdAt,
+    estimatedHours: totalHours,
+    isOwnRequest:   rest.postedByUserId === userId,
   }));
 
   return { jobs, total, page, limit, pages: Math.ceil(total / limit) };
@@ -508,7 +706,10 @@ export async function listJobs(
 
 // ─── My jobs ─────────────────────────────────────────────────────────────────
 
-export async function listMyJobs(userId: string, activeRole: UserRole, status?: string) {
+// Shared role-scoping for "jobs I'm involved in" — used by both listMyJobs
+// and listMessageThreads (a message thread only ever exists on a job the
+// caller is already a party to, so the same scoping applies).
+async function buildMyJobsWhere(userId: string, activeRole: UserRole, status?: string) {
   let where: Record<string, unknown> = {};
   if (status) where.status = status;
 
@@ -551,6 +752,12 @@ export async function listMyJobs(userId: string, activeRole: UserRole, status?: 
     default:
       where.postedByUserId = userId;
   }
+
+  return where;
+}
+
+export async function listMyJobs(userId: string, activeRole: UserRole, status?: string) {
+  const where = await buildMyJobsWhere(userId, activeRole, status);
 
   const jobs = await prisma.supportRequest.findMany({
     where:   where as any,
@@ -655,11 +862,13 @@ export async function cancelJob(
       prisma.supportRequest.update({
         where: { id: jobId },
         data: {
-          status:            "CANCELLED",
-          cancelledAt:       new Date(),
-          cancelledByUserId: userId,
-          cancelledByRole:   activeRole,
-          cancelReason:      input.reason ?? null,
+          status:               "CANCELLED",
+          cancelledAt:          new Date(),
+          cancelledByUserId:    userId,
+          cancelledByRole:      activeRole,
+          cancelReason:         input.reason ?? null,
+          cancelReasonCategory: input.reasonCategory ?? null,
+          notifyReplacements:   input.notifyReplacements ?? false,
         },
       }),
       prisma.jobApplication.updateMany({
@@ -687,11 +896,13 @@ export async function cancelJob(
     prisma.supportRequest.update({
       where: { id: jobId },
       data: {
-        status:            "CANCELLED",
-        cancelledAt:       new Date(),
-        cancelledByUserId: userId,
-        cancelledByRole:   activeRole,
-        cancelReason:      input.reason ?? null,
+        status:               "CANCELLED",
+        cancelledAt:          new Date(),
+        cancelledByUserId:    userId,
+        cancelledByRole:      activeRole,
+        cancelReason:         input.reason ?? null,
+        cancelReasonCategory: input.reasonCategory ?? null,
+        notifyReplacements:   input.notifyReplacements ?? false,
       },
     }),
     prisma.jobApplication.updateMany({
@@ -700,7 +911,72 @@ export async function cancelJob(
     }),
   ]);
 
-  return { cancelled: await prisma.supportRequest.findUnique({ where: { id: jobId } }), promoted: null };
+  // SW doc Window 35 "Notify suitable replacement workers: Yes" — the
+  // job wasn't already auto-promoted (that only happens inside 4 hours of
+  // start), so open a fresh replacement request at the original urgency and
+  // alert any saved search that matches it, reusing the same clone shape the
+  // near-start auto-promotion path above already relies on.
+  let replacement = null;
+  if (input.notifyReplacements) {
+    replacement = await prisma.supportRequest.create({
+      data: cloneJobForReplacement(job!, { titlePrefix: "[REPLACEMENT] ", urgency: job!.urgency, promotedFromCancellation: true }),
+    });
+    void notifyMatchingSavedSearches({
+      id:          replacement.id,
+      title:       replacement.title,
+      suburb:      replacement.suburb,
+      state:       replacement.state,
+      category:    replacement.category,
+      urgency:     replacement.urgency,
+      shiftType:   replacement.shiftType,
+      fundingType: replacement.fundingType,
+      isRecurring: replacement.isRecurring,
+    });
+    void reinvitePreviousApplicants(jobId, replacement.id, userId).catch((err) =>
+      console.error("[replacement] re-invite previous applicants failed:", err),
+    );
+  }
+
+  return { cancelled: await prisma.supportRequest.findUnique({ where: { id: jobId } }), promoted: replacement };
+}
+
+// ─── Decline a confirmed selection (SW doc Window 30 "Decline") ───────────────
+// The worker was selected but hasn't accepted yet — unlike withdrawApplication
+// (blocked once SELECTED), this exists specifically to let the selected worker
+// back out at the confirmation step, reopening the job for the poster.
+
+export async function declineAssignment(jobId: string, userId: string) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.selectedApplicantUserId !== userId) {
+    throw new ForbiddenError("Only the selected worker/provider can decline this assignment");
+  }
+  if (job!.status !== "ASSIGNED" || job!.workerConfirmedAt) {
+    throw new BadRequestError("This assignment can no longer be declined.");
+  }
+
+  const app = await prisma.jobApplication.findUnique({
+    where: { jobId_applicantUserId: { jobId, applicantUserId: userId } },
+  });
+
+  const updated = await prisma.$transaction([
+    prisma.supportRequest.update({
+      where: { id: jobId },
+      data:  { status: "OPEN", selectedApplicantUserId: null, selectedAt: null },
+      select: JOB_WRITE_SELECT,
+    }),
+    ...(app ? [prisma.jobApplication.update({ where: { id: app.id }, data: { status: "DECLINED" as const } })] : []),
+  ]);
+
+  void notify.sendPushNotification(
+    job!.postedByUserId,
+    "Worker declined the confirmed support",
+    `The selected worker/provider declined "${job!.title}" — it's open again.`,
+    { jobId },
+    "JOB_ASSIGNMENT_DECLINED",
+  );
+
+  return updated[0];
 }
 
 // Shared clone shape — used by cancelJob's automatic emergency promotion above
@@ -746,6 +1022,42 @@ function cloneJobForReplacement(
   };
 }
 
+// SW doc §11/X04 — a replacement request should also reach people who already
+// showed interest in the original job, not just fresh saved-search matches.
+// Free re-invite (amountAud: null) regardless of poster role — this is a
+// system-generated follow-up on an existing application, not a new deliberate
+// paid Direct Connect action.
+async function reinvitePreviousApplicants(originalJobId: string, newJobId: string, posterId: string) {
+  const priorApplicants = await prisma.jobApplication.findMany({
+    where:    { jobId: originalJobId },
+    select:   { applicantUserId: true },
+    distinct: ["applicantUserId"],
+  });
+
+  for (const { applicantUserId } of priorApplicants) {
+    try {
+      const invite = await prisma.jobInvite.create({
+        data: {
+          jobId:           newJobId,
+          invitedByUserId: posterId,
+          invitedUserId:   applicantUserId,
+          message:         "You previously applied to a request that needed a replacement — you're invited to this one.",
+          amountAud:       null,
+        },
+      });
+      void notify.sendPushNotification(
+        applicantUserId,
+        "Invited to a replacement request",
+        "A request you previously applied to needs a replacement — you've been invited.",
+        { jobInviteId: invite.id },
+        "JOB_INVITE_RECEIVED",
+      );
+    } catch {
+      // Already invited to this replacement (unique constraint) — not fatal, skip.
+    }
+  }
+}
+
 // ─── Manual replacement (outside the automatic 4-hour promotion window) ───────
 // SC-04-05 — poster of a cancelled job can manually create a replacement
 // request, reusing the original details or changing time/requirements/rate.
@@ -769,7 +1081,24 @@ export async function createReplacementRequest(
   });
   if (input.budgetPerHour !== undefined) data.budgetPerHour = input.budgetPerHour;
 
-  return prisma.supportRequest.create({ data });
+  const created = await prisma.supportRequest.create({ data });
+
+  void notifyMatchingSavedSearches({
+    id:          created.id,
+    title:       created.title,
+    suburb:      created.suburb,
+    state:       created.state,
+    category:    created.category,
+    urgency:     created.urgency,
+    shiftType:   created.shiftType,
+    fundingType: created.fundingType,
+    isRecurring: created.isRecurring,
+  });
+  void reinvitePreviousApplicants(jobId, created.id, userId).catch((err) =>
+    console.error("[replacement] re-invite previous applicants failed:", err),
+  );
+
+  return created;
 }
 
 // ─── Repeat previous request (participant portfolio "repeat" action) ──────────
@@ -784,6 +1113,32 @@ export async function duplicateJob(jobId: string, userId: string) {
 
   const data = cloneJobForReplacement(job!, { urgency: job!.urgency, status: "DRAFT" });
   return prisma.supportRequest.create({ data });
+}
+
+// SC-PT05 "Repeat support" — change date/time, service/tasks, requirements,
+// funding/rate or convert-to-recurring on a still-DRAFT (not yet published)
+// duplicated job, before the poster publishes it.
+
+export async function updateDraftJob(
+  jobId: string,
+  posterId: string,
+  input: UpdateDraftJobInput,
+) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the original poster can edit this request");
+  if (job!.status !== "DRAFT") throw new BadRequestError("Only a draft request can be edited this way");
+
+  const { scheduledStartAt, scheduledEndAt, recurrencePattern, ...rest } = input;
+  return prisma.supportRequest.update({
+    where: { id: jobId },
+    data: {
+      ...rest,
+      ...(scheduledStartAt ? { scheduledStartAt: new Date(scheduledStartAt) } : {}),
+      ...(scheduledEndAt ? { scheduledEndAt: new Date(scheduledEndAt) } : {}),
+      ...(recurrencePattern ? { recurrencePattern: recurrencePattern as Prisma.InputJsonValue } : {}),
+    },
+  });
 }
 
 // ─── Apply (structured proposal) ─────────────────────────────────────────────
@@ -978,9 +1333,13 @@ export async function selectApplicant(jobId: string, appId: string, posterId: st
   if (!app || app.jobId !== jobId) throw new NotFoundError("Application not found");
 
   await prisma.$transaction([
+    // SW doc Window 27 "Request filled" — other applicants weren't personally
+    // rejected, the job was simply filled by someone else. Kept distinct from
+    // DECLINED ("Not proceeding"), which is reserved for declineApplicant's
+    // explicit per-candidate rejection.
     prisma.jobApplication.updateMany({
       where: { jobId, id: { not: appId } },
-      data:  { status: "DECLINED" },
+      data:  { status: "REQUEST_FILLED" },
     }),
     prisma.jobApplication.update({ where: { id: appId }, data: { status: "SELECTED" } }),
     prisma.supportRequest.update({
@@ -1252,6 +1611,272 @@ export async function confirmJob(jobId: string, posterId: string) {
   return updated;
 }
 
+// ─── Meet-and-greet (SW doc Window 29) ────────────────────────────────────────
+
+export async function proposeMeetAndGreet(jobId: string, userId: string, input: ProposeMeetAndGreetInput) {
+  const job = await prisma.supportRequest.findUnique({
+    where:   { id: jobId },
+    include: { applications: { select: { applicantUserId: true } } },
+  });
+  requireJob(job, jobId);
+  const isParty =
+    job!.postedByUserId          === userId ||
+    job!.selectedApplicantUserId === userId ||
+    job!.assignedWorkerUserId    === userId ||
+    job!.applications.some((a) => a.applicantUserId === userId);
+  if (!isParty) throw new ForbiddenError("You don't have access to this job's meet-and-greet.");
+
+  const meetAndGreet = await prisma.meetAndGreet.create({
+    data: {
+      jobId,
+      proposedByUserId: userId,
+      type:             input.type,
+      proposedTimes:    input.proposedTimes as Prisma.InputJsonValue,
+      location:         input.location ?? null,
+      cost:             input.cost,
+      topics:           input.topics as Prisma.InputJsonValue | undefined,
+    },
+  });
+
+  const recipientId = job!.postedByUserId === userId
+    ? (job!.selectedApplicantUserId ?? job!.assignedWorkerUserId)
+    : job!.postedByUserId;
+  if (recipientId) {
+    void notify.sendPushNotification(
+      recipientId, "Meet-and-greet proposed",
+      `A meet-and-greet was proposed for "${job!.title}"`, { jobId }, "MEET_AND_GREET_PROPOSED",
+    );
+  }
+
+  return meetAndGreet;
+}
+
+export async function respondToMeetAndGreet(meetAndGreetId: string, userId: string, input: RespondMeetAndGreetInput) {
+  const mag = await prisma.meetAndGreet.findUnique({
+    where:   { id: meetAndGreetId },
+    include: { job: { select: { id: true, title: true, postedByUserId: true, selectedApplicantUserId: true, assignedWorkerUserId: true } } },
+  });
+  if (!mag) throw new NotFoundError("We couldn't find that meet-and-greet proposal.");
+  if (mag.proposedByUserId === userId) throw new ForbiddenError("You can't respond to your own proposal.");
+  if (mag.status !== "PROPOSED") throw new BadRequestError("This meet-and-greet has already been responded to.");
+
+  const isParty =
+    mag.job.postedByUserId          === userId ||
+    mag.job.selectedApplicantUserId === userId ||
+    mag.job.assignedWorkerUserId    === userId;
+  if (!isParty) throw new ForbiddenError("You don't have access to this meet-and-greet.");
+
+  if (input.action === "CONFIRM" && !input.confirmedTime) {
+    throw new BadRequestError("Choose one of the proposed times to confirm.");
+  }
+
+  const updated = await prisma.meetAndGreet.update({
+    where: { id: meetAndGreetId },
+    data: {
+      status:        input.action === "CONFIRM" ? "CONFIRMED" : "DECLINED",
+      confirmedTime: input.action === "CONFIRM" ? new Date(input.confirmedTime!) : null,
+    },
+  });
+
+  void notify.sendPushNotification(
+    mag.proposedByUserId,
+    input.action === "CONFIRM" ? "Meet-and-greet confirmed" : "Meet-and-greet declined",
+    `Your meet-and-greet proposal for "${mag.job.title}" was ${input.action === "CONFIRM" ? "confirmed" : "declined"}.`,
+    { jobId: mag.job.id },
+    "MEET_AND_GREET_RESPONDED",
+  );
+
+  return updated;
+}
+
+// ─── Worker requests a change (SW doc Window 34) ──────────────────────────────
+
+export async function requestJobChange(jobId: string, userId: string, input: CreateChangeRequestInput) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.selectedApplicantUserId !== userId && job!.assignedWorkerUserId !== userId) {
+    throw new ForbiddenError("Only the selected worker/provider can request a change.");
+  }
+
+  const changeRequest = await prisma.jobChangeRequest.create({
+    data: {
+      jobId,
+      requestedByUserId: userId,
+      changeType:        input.changeType,
+      reason:            input.reason ?? null,
+      alternative:       input.alternative as Prisma.InputJsonValue,
+    },
+  });
+
+  void notify.sendPushNotification(
+    job!.postedByUserId, "Change requested",
+    `A change was requested for "${job!.title}"`, { jobId }, "JOB_CHANGE_REQUESTED",
+  );
+
+  return changeRequest;
+}
+
+export async function respondToJobChange(changeRequestId: string, posterId: string, input: RespondChangeRequestInput) {
+  const cr = await prisma.jobChangeRequest.findUnique({
+    where:   { id: changeRequestId },
+    include: { job: { select: { id: true, title: true, postedByUserId: true } } },
+  });
+  if (!cr) throw new NotFoundError("We couldn't find that change request.");
+  if (cr.job.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can respond to this change request.");
+  if (cr.status !== "PENDING") throw new BadRequestError("This change request has already been responded to.");
+
+  const updated = await prisma.jobChangeRequest.update({
+    where: { id: changeRequestId },
+    data:  { status: input.action === "ACCEPT" ? "ACCEPTED" : "REJECTED", respondedAt: new Date() },
+  });
+
+  void notify.sendPushNotification(
+    cr.requestedByUserId,
+    input.action === "ACCEPT" ? "Change request accepted" : "Change request declined",
+    `Your requested change for "${cr.job.title}" was ${input.action === "ACCEPT" ? "accepted" : "declined"}.`,
+    { jobId: cr.job.id },
+    "JOB_CHANGE_RESPONDED",
+  );
+
+  return updated;
+}
+
+// ─── My Connections (SW doc Window 27) ────────────────────────────────────────
+// Tabs: New / Connected / Discussing / Awaiting initiator decision / Confirmed /
+// Not proceeding / Withdrawn / Request filled. "New" is a pending JobInvite —
+// the worker hasn't Connected yet. The rest map onto ApplicationStatus, with
+// Connected vs Discussing derived from whether the job has any messages yet —
+// there's no separate stored state for "conversation started".
+
+export async function listMyConnections(userId: string) {
+  const [invites, applications] = await Promise.all([
+    prisma.jobInvite.findMany({
+      where:   { invitedUserId: userId, status: "PENDING" },
+      include: { job: { select: { ...JOB_SUMMARY_SELECT, postedBy: { select: { name: true } } } } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.jobApplication.findMany({
+      where:   { applicantUserId: userId },
+      include: {
+        job: {
+          select: {
+            ...JOB_SUMMARY_SELECT,
+            postedBy: { select: { name: true } },
+            _count:   { select: { messages: true } },
+          },
+        },
+      },
+      orderBy: { updatedAt: "desc" },
+    }),
+  ]);
+
+  const tabs = {
+    new:              invites as unknown[],
+    connected:        [] as unknown[],
+    discussing:       [] as unknown[],
+    awaitingDecision: [] as unknown[],
+    confirmed:        [] as unknown[],
+    notProceeding:    [] as unknown[],
+    withdrawn:        [] as unknown[],
+    requestFilled:    [] as unknown[],
+  };
+
+  for (const app of applications) {
+    const hasMessages = app.job._count.messages > 0;
+    if (app.status === "INTERESTED") {
+      (hasMessages ? tabs.discussing : tabs.connected).push(app);
+    } else if (app.status === "SHORTLISTED") {
+      tabs.awaitingDecision.push(app);
+    } else if (app.status === "SELECTED") {
+      tabs.confirmed.push(app);
+    } else if (app.status === "DECLINED") {
+      tabs.notProceeding.push(app);
+    } else if (app.status === "WITHDRAWN") {
+      tabs.withdrawn.push(app);
+    } else if (app.status === "REQUEST_FILLED") {
+      tabs.requestFilled.push(app);
+    }
+  }
+
+  return tabs;
+}
+
+// ─── Close connection (SW doc Window 38) ───────────────────────────────────────
+// A lightweight marketplace-outcome tag, independent of job.status — explicitly
+// NOT proof of delivery or payment approval (§17). Poster-only.
+
+export async function closeConnection(jobId: string, posterId: string, input: CloseConnectionInput) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can close this connection");
+
+  return prisma.supportRequest.update({
+    where: { id: jobId },
+    data: {
+      closedOutcome:        input.outcome,
+      closedReasonCategory: input.reasonCategory ?? null,
+      closedFeedback:       input.feedback ?? null,
+      closedAt:             new Date(),
+    },
+    select: JOB_WRITE_SELECT,
+  });
+}
+
+// ─── Save / hide (SW doc Windows 16-17) ─────────────────────────────────────────
+
+export async function bookmarkJob(jobId: string, workerId: string, input: BookmarkJobInput) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  return prisma.jobBookmark.upsert({
+    where:  { workerUserId_jobId: { workerUserId: workerId, jobId } },
+    create: { workerUserId: workerId, jobId, saved: input.saved ?? true, hidden: input.hidden ?? false },
+    update: {
+      ...(input.saved  !== undefined ? { saved: input.saved }   : {}),
+      ...(input.hidden !== undefined ? { hidden: input.hidden } : {}),
+    },
+  });
+}
+
+export async function removeBookmark(jobId: string, workerId: string) {
+  await prisma.jobBookmark.deleteMany({ where: { workerUserId: workerId, jobId } });
+  return { ok: true };
+}
+
+// ─── Running late / private note (SW doc Window 33) ────────────────────────────
+// "Running late" is a one-tap notice to the poster — not a GPS check-in.
+
+export async function notifyRunningLate(jobId: string, workerId: string, input: NotifyRunningLateInput) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.selectedApplicantUserId !== workerId && job!.assignedWorkerUserId !== workerId) {
+    throw new ForbiddenError("Only the assigned worker/provider can send a running-late notice");
+  }
+  const updated = await prisma.supportRequest.update({
+    where: { id: jobId },
+    data:  { runningLateNotifiedAt: new Date(), runningLateMinutes: input.minutesLate },
+    select: JOB_WRITE_SELECT,
+  });
+  void notify.sendPushNotification(
+    job!.postedByUserId, "Worker running late",
+    `Your worker for "${job!.title}" is running about ${input.minutesLate} minutes late.`,
+    { jobId }, "JOB_RUNNING_LATE",
+  );
+  return updated;
+}
+
+export async function saveWorkerNote(jobId: string, workerId: string, input: SaveWorkerNoteInput) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.selectedApplicantUserId !== workerId && job!.assignedWorkerUserId !== workerId) {
+    throw new ForbiddenError("Only the assigned worker/provider can save a note for this job");
+  }
+  return prisma.supportRequest.update({
+    where: { id: jobId },
+    data:  { workerPrivateNote: input.note },
+    select: JOB_WRITE_SELECT_WITH_NOTE,
+  });
+}
+
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
 export async function sendMessage(jobId: string, senderId: string, input: SendMessageInput) {
@@ -1267,6 +1892,17 @@ export async function sendMessage(jobId: string, senderId: string, input: SendMe
     job!.assignedWorkerUserId    === senderId ||
     job!.applications.some((a) => a.applicantUserId === senderId);
   if (!isParty) throw new ForbiddenError("You don't have access to this job's messages.");
+
+  // SW doc Window 44 — a party who blocked messages from this sender stops
+  // the message before it's created, not just hidden from their own view.
+  const partyIds = [
+    job!.postedByUserId, job!.forParticipantUserId, job!.selectedApplicantUserId, job!.assignedWorkerUserId,
+    ...job!.applications.map((a) => a.applicantUserId),
+  ].filter((id): id is string => !!id);
+  if (await isBlockedFromMessaging(senderId, partyIds)) {
+    throw new ForbiddenError("You can't message this conversation — a participant has blocked you.");
+  }
+
   return prisma.jobMessage.create({
     data: { jobId, senderUserId: senderId, body: input.body },
     include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
@@ -1291,6 +1927,97 @@ export async function getMessages(jobId: string, userId: string) {
     orderBy: { createdAt: "asc" },
     include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
   });
+}
+
+// ─── Message thread state (unread / archive) ───────────────────────────────────
+// Additive to JobMessage — a thread IS a job's messages, this just tracks
+// per-user read/archive state on top. Never gates send/receive.
+
+export async function markThreadRead(jobId: string, userId: string) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  return prisma.jobMessageThreadState.upsert({
+    where:  { userId_jobId: { userId, jobId } },
+    create: { userId, jobId, lastReadAt: new Date() },
+    update: { lastReadAt: new Date() },
+  });
+}
+
+export async function archiveThread(jobId: string, userId: string, archived: boolean) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  return prisma.jobMessageThreadState.upsert({
+    where:  { userId_jobId: { userId, jobId } },
+    create: { userId, jobId, archived },
+    update: { archived },
+  });
+}
+
+// GET /jobs/messages/threads — the messages inbox. Reuses the same
+// role-scoping as listMyJobs (a thread only exists on a job you're already a
+// party to) and enriches each job with its last message, unread count, and
+// archive state, so the Web inbox no longer needs an N+1 fetch per job.
+export async function listMessageThreads(
+  userId: string,
+  activeRole: UserRole,
+  includeArchived: boolean,
+) {
+  const where = await buildMyJobsWhere(userId, activeRole);
+
+  const rawJobs = await prisma.supportRequest.findMany({
+    where:   where as any,
+    select:  {
+      ...JOB_SUMMARY_SELECT,
+      messages: {
+        orderBy: { createdAt: "desc" },
+        take:    1,
+        include: { sender: { select: { id: true, name: true } } },
+      },
+      messageThreadStates: {
+        where:  { userId },
+        select: { lastReadAt: true, archived: true },
+        take:   1,
+      },
+    },
+    orderBy: [{ scheduledStartAt: "desc" }],
+    take:    100,
+  });
+
+  // Only jobs that actually have at least one message are real "threads".
+  const withMessages = rawJobs.filter((j) => j.messages.length > 0);
+
+  const threads = await Promise.all(
+    withMessages.map(async ({ messages, messageThreadStates, createdAt, totalHours, ...rest }) => {
+      const state = messageThreadStates[0] ?? null;
+      const [lastMessage] = messages;
+      const unreadCount = await prisma.jobMessage.count({
+        where: {
+          jobId:        rest.id,
+          senderUserId: { not: userId },
+          ...(state?.lastReadAt ? { createdAt: { gt: state.lastReadAt } } : {}),
+        },
+      });
+      return {
+        ...rest,
+        postedAt:    createdAt,
+        lastMessage: lastMessage
+          ? {
+              id:         lastMessage.id,
+              senderId:   lastMessage.sender.id,
+              senderName: lastMessage.sender.name,
+              body:       lastMessage.body,
+              createdAt:  lastMessage.createdAt,
+            }
+          : null,
+        unreadCount,
+        archived: state?.archived ?? false,
+      };
+    }),
+  );
+
+  return {
+    threads: threads.filter((t) => includeArchived || !t.archived),
+  };
 }
 
 // ─── Invoice ──────────────────────────────────────────────────────────────────
