@@ -173,7 +173,7 @@ export async function postReferral(
       title:                input.title,
       description:          input.description,
       category:             input.category as JobCategory,
-      urgency:              (input.urgency ?? "SCHEDULED") as JobUrgency,
+      urgency:              (input.urgency ?? "ROUTINE") as JobUrgency,
       status:               "OPEN",
       suburb:               input.suburb,
       state:                input.state,

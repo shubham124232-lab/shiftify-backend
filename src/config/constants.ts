@@ -47,7 +47,7 @@ export const JOB_CATEGORIES = [
   "OTHER",
 ] as const;
 
-export const JOB_URGENCY = ["EMERGENCY", "SAME_DAY", "SCHEDULED"] as const;
+export const JOB_URGENCY = ["RAPID", "URGENT", "LAST_MINUTE", "ROUTINE"] as const;
 
 export const JOB_STATUSES = [
   "DRAFT",

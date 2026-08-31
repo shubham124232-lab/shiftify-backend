@@ -47,15 +47,20 @@ async function main() {
   { key: "COORDINATOR_BASIC",    role: "COORDINATOR"    as const, name: "Coordinator — Basic",      amountAud: 49.99, isAddOn: false, features: ["Priority profile placement", "Priority support"] },
   // SC journey S03 — annual billing option for the same Basic tier, ~35% off the $49.99/mo x 12 rate.
   { key: "COORDINATOR_BASIC_ANNUAL", role: "COORDINATOR" as const, name: "Coordinator — Basic (Annual)", amountAud: 389.92, isAddOn: false, features: ["Priority profile placement", "Priority support", "Billed annually — save vs. monthly"] },
-  { key: "COORDINATOR_GROWTH",   role: "COORDINATOR"    as const, name: "Coordinator — Growth",     amountAud: 29.99, isAddOn: true,  features: ["Advanced analytics dashboard", "Lead generation tools"] },
-  { key: "COORDINATOR_SPEED",    role: "COORDINATOR"    as const, name: "Coordinator — Speed",      amountAud: 19.99, isAddOn: true,  features: ["Faster client matching", "Priority placement boost"] },
-  { key: "PROVIDER_BASIC",       role: "PROVIDER"       as const, name: "Provider — Basic",         amountAud: 99.99, isAddOn: false, features: ["Up to 20 active job listings", "Verified badge on profile", "Basic analytics dashboard", "Standard support"] },
-  { key: "PROVIDER_GROWTH",      role: "PROVIDER"       as const, name: "Provider — Growth",        amountAud: 39.99, isAddOn: true,  features: ["Up to 40 active job listings", "Priority in search results", "Advanced analytics dashboard", "Priority support"] },
-  { key: "PROVIDER_SPEED",       role: "PROVIDER"       as const, name: "Provider — Speed",         amountAud: 29.99, isAddOn: true,  features: ["Up to 10 active job listings", "Fast onboarding tools", "Standard support"] },
+  { key: "COORDINATOR_GROWTH",   role: "COORDINATOR"    as const, name: "Coordinator — Growth",     amountAud: 29.99, isAddOn: true,  features: ["Direct Invite", "Expanded professional network access", "Enhanced profile visibility"] },
+  { key: "COORDINATOR_GROWTH_ANNUAL", role: "COORDINATOR" as const, name: "Coordinator — Growth (Annual)", amountAud: 233.92, isAddOn: true, features: ["Direct Invite", "Expanded professional network access", "Enhanced profile visibility", "Billed annually — save vs. monthly"] },
+  { key: "COORDINATOR_SPEED",    role: "COORDINATOR"    as const, name: "Coordinator — Speed",      amountAud: 19.99, isAddOn: true,  features: ["Available Now worker filter", "Fast replacement tools", "Priority urgent workflow"] },
+  { key: "COORDINATOR_SPEED_ANNUAL", role: "COORDINATOR" as const, name: "Coordinator — Speed (Annual)", amountAud: 155.92, isAddOn: true, features: ["Available Now worker filter", "Fast replacement tools", "Priority urgent workflow", "Billed annually — save vs. monthly"] },
+  // Legacy per-listing Provider plans — superseded by PROVIDER_ORG_* below
+  // (Pricing V2 §5 has exactly 4 Provider plans, none of them listing-count
+  // based). Kept as inactive rows, not deleted, so old UserSubscription FK
+  // rows still resolve; `active: false` keeps them out of listPlans()/activateAccount().
+  { key: "PROVIDER_BASIC",       role: "PROVIDER"       as const, name: "Provider — Basic",         amountAud: 99.99, isAddOn: false, active: false, features: ["Up to 20 active job listings", "Verified badge on profile", "Basic analytics dashboard", "Standard support"] },
+  { key: "PROVIDER_GROWTH",      role: "PROVIDER"       as const, name: "Provider — Growth",        amountAud: 39.99, isAddOn: true,  active: false, features: ["Up to 40 active job listings", "Priority in search results", "Advanced analytics dashboard", "Priority support"] },
+  { key: "PROVIDER_SPEED",       role: "PROVIDER"       as const, name: "Provider — Speed",         amountAud: 29.99, isAddOn: true,  active: false, features: ["Up to 10 active job listings", "Fast onboarding tools", "Standard support"] },
   { key: "PLAN_MANAGER_BASIC",   role: "PLAN_MANAGER"   as const, name: "Plan Manager — Basic",     amountAud: 19.99, isAddOn: false, features: ["Manage up to 50 participant plans", "Budget tracking & reporting", "Claim submission tools", "Priority support"] },
   // Provider organisation tiers (Pricing V2 §4/§5) — Branch/Administrator/Team
-  // Member capacity, additive alongside the existing per-listing PROVIDER_BASIC/
-  // GROWTH/SPEED plans (which stay untouched — other code still keys off them).
+  // Member capacity. These are now the ONLY active Provider base plans.
   { key: "PROVIDER_ORG_STARTER", role: "PROVIDER" as const, name: "Provider Organisation — Starter", amountAud: 99.99,  isAddOn: false, features: ["2 Administrators", "10 Team Members", "2 Branches"], maxAdministrators: 2,  maxTeamMembers: 10,  maxBranches: 2 },
   { key: "PROVIDER_ORG_TEAM",    role: "PROVIDER" as const, name: "Provider Organisation — Team",    amountAud: 199.99, isAddOn: false, features: ["5 Administrators", "25 Team Members", "5 Branches"], maxAdministrators: 5,  maxTeamMembers: 25,  maxBranches: 5 },
   { key: "PROVIDER_ORG_GROWTH",  role: "PROVIDER" as const, name: "Provider Organisation — Growth",  amountAud: 499.99, isAddOn: false, features: ["7 Administrators", "50 Team Members", "7 Branches"], maxAdministrators: 7,  maxTeamMembers: 50,  maxBranches: 7 },
@@ -69,10 +74,11 @@ async function main() {
       maxTeamMembers:    (plan as any).maxTeamMembers ?? null,
       maxBranches:       (plan as any).maxBranches ?? null,
     };
+    const active = (plan as any).active ?? true;
     const row = await (prisma as any).plan.upsert({
       where:  { key: plan.key },
-      update: { name: plan.name, amountAud: plan.amountAud, active: true, features: plan.features, isAddOn: plan.isAddOn, ...caps },
-      create: { ...plan, ...caps },
+      update: { name: plan.name, amountAud: plan.amountAud, active, features: plan.features, isAddOn: plan.isAddOn, ...caps },
+      create: { ...plan, active, ...caps },
     });
     planRows[plan.key] = row;
     console.log(`  ✓ plan: ${plan.key} (AUD ${plan.amountAud})`);
@@ -288,7 +294,7 @@ async function main() {
     },
   });
   console.log(`  ✓ provider: ${provider.email}`);
-  await activateSubscription(provider.id, "PROVIDER_BASIC"); // no free tier — gated without this
+  await activateSubscription(provider.id, "PROVIDER_ORG_STARTER"); // no free tier — gated without this
   await seedRequiredDocs(provider.id, "PROVIDER");
 
   // Provider's worker — a MANAGED account: logs in by username, no email/phone, parent-owned.

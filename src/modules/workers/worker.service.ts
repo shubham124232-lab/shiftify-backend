@@ -5,12 +5,12 @@ import { cancellationRate } from "../jobs/job-scoring";
 import { hasActiveAddOn } from "../subscriptions/subscription.service";
 import type { UserRole } from "@prisma/client";
 
-// Coordinator/Provider need the Growth add-on to browse the support worker
-// list (pricing_plans.md: "Access to support worker list"). Participants and
-// Plan Managers are not gated — Growth isn't sold to those roles.
+// Coordinator needs the Growth add-on to browse the support worker list
+// (Pricing V2 §3.6). Provider is not gated — worker browsing is included in
+// every paid Provider Organisation plan (§5.2 item 30), no separate add-on.
+// Participants and Plan Managers are not gated either — Growth isn't sold to those roles.
 const GROWTH_PLAN_KEY: Partial<Record<UserRole, string>> = {
   COORDINATOR: "COORDINATOR_GROWTH",
-  PROVIDER:    "PROVIDER_GROWTH",
 };
 
 // GET /workers/available — public "Post My Availability" browse feed.
