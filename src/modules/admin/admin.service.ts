@@ -773,7 +773,7 @@ export async function getPlatformReports() {
     prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
     prisma.user.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
     prisma.supportRequest.count({ where: { status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] } } }),
-    prisma.supportRequest.count({ where: { status: "OPEN", urgency: "EMERGENCY" } }),
+    prisma.supportRequest.count({ where: { status: "OPEN", urgency: "RAPID" } }),
     prisma.invoice.count({ where: { sentAt: { gte: thirtyDaysAgo } } }),
     prisma.planManagerConnection.count(),
     prisma.planManagerConnection.count({ where: { status: "ACCEPTED" } }),

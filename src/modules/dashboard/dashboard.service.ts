@@ -146,7 +146,7 @@ async function participantDashboard(userId: string) {
     prisma.supportRequest.findMany({ where: { OR: pOR, status: "COMPLETED" }, select: JOB_SUMMARY, orderBy: { completedAt: "desc" }, take: 5 }),
     prisma.supportRequest.count({ where: { OR: pOR, status: "DRAFT" } }),
     prisma.supportRequest.count({ where: { OR: pOR, isRecurring: true, status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] } } }),
-    prisma.supportRequest.count({ where: { OR: pOR, urgency: "EMERGENCY", status: "OPEN" } }),
+    prisma.supportRequest.count({ where: { OR: pOR, urgency: "RAPID", status: "OPEN" } }),
     prisma.supportRequest.count({ where: { OR: pOR, status: "CONFIRMED" } }),
     prisma.notification.count({ where: { userId, read: false } }),
     prisma.jobApplication.count({
@@ -190,7 +190,7 @@ async function coordinatorDashboard(userId: string) {
 
   const [draftCount, urgentCount, unfilledCount] = await Promise.all([
     prisma.supportRequest.count({ where: { postedByUserId: userId, status: "DRAFT" } }),
-    prisma.supportRequest.count({ where: { postedByUserId: userId, urgency: "EMERGENCY", status: "OPEN" } }),
+    prisma.supportRequest.count({ where: { postedByUserId: userId, urgency: "RAPID", status: "OPEN" } }),
     prisma.supportRequest.count({ where: { postedByUserId: userId, status: "OPEN", applications: { none: {} } } }),
   ]);
 
@@ -289,7 +289,7 @@ async function planManagerDashboard(userId: string) {
     const idFilter = { in: clientIds };
     const refs = await Promise.all([
       prisma.supportRequest.count({ where: { forParticipantUserId: idFilter, status: "OPEN" } }),
-      prisma.supportRequest.count({ where: { forParticipantUserId: idFilter, urgency: "EMERGENCY", status: "OPEN" } }),
+      prisma.supportRequest.count({ where: { forParticipantUserId: idFilter, urgency: "RAPID", status: "OPEN" } }),
       prisma.supportRequest.count({ where: { forParticipantUserId: idFilter, status: "OPEN", applications: { none: {} } } }),
     ]);
     openReferrals = refs[0];
@@ -332,7 +332,7 @@ async function adminDashboard() {
     prisma.user.count(),
     prisma.supportRequest.count({ where: { status: "OPEN" } }),
     prisma.supportRequest.count({ where: { status: { in: activeStatuses } } }),
-    prisma.supportRequest.count({ where: { status: "OPEN", urgency: "EMERGENCY" } }),
+    prisma.supportRequest.count({ where: { status: "OPEN", urgency: "RAPID" } }),
     prisma.supportRequest.count({ where: { status: "CONFIRMED", confirmedAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } } }),
     prisma.invoice.count(),
   ]);

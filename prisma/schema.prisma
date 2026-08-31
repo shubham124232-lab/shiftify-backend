@@ -111,23 +111,18 @@ enum JobCategory {
   OTHER
 }
 
-// Revised: three tiers (was STANDARD/LAST_MINUTE/URGENT/EMERGENCY)
-// REPLACEMENT added separately — a named special post type (worker cancelled,
-// need a replacement urgently), distinct from a generic EMERGENCY post.
-// RAPID/LAST_MINUTE added for the participant posting-journeys spec (2026-08-12):
-// four participant-facing speed tiers (Rapid/Urgent/Last-Minute/Routine) map to
-// RAPID/SAME_DAY/LAST_MINUTE/SCHEDULED respectively. EMERGENCY is deliberately
-// NOT one of the four participant tiers — it keeps its existing broadcast/
-// promotion semantics (NotificationType.EMERGENCY_NEARBY, promotedFromCancellation)
-// reserved for genuine crisis escalation, not routine "need help soon" posts
-// (the app explicitly disclaims "Shiftify is not an emergency service").
+// SW/SC journey spec — exactly 4 speed tiers, no more: Rapid (0-60min),
+// Urgent (60min-4hr), Last-Minute (4-48hr), Routine (48hr+, one-time or
+// recurring). EMERGENCY/SAME_DAY/SCHEDULED/REPLACEMENT retired 2026-08-31 —
+// none had doc grounding as a 5th/6th tier. "Replacement" (a cancelled job
+// needing a new post) is not its own tier: the replacement post keeps
+// whichever of the 4 tiers matches its actual time-to-start, flagged via
+// promotedFromCancellation instead.
 enum JobUrgency {
-  EMERGENCY
-  SAME_DAY
-  SCHEDULED
-  REPLACEMENT
   RAPID
+  URGENT
   LAST_MINUTE
+  ROUTINE
 }
 
 // Revised flow: OPEN accumulates expressions of interest; poster selects → ASSIGNED.
@@ -1240,7 +1235,7 @@ model SupportRequest {
   description String
   category    JobCategory
   subcategory String?
-  urgency     JobUrgency  @default(SCHEDULED)
+  urgency     JobUrgency  @default(ROUTINE)
   status      JobStatus   @default(DRAFT)
 
   // Job location (the place the work happens) — distinct from any user's home address.
@@ -1806,10 +1801,10 @@ model DirectConnectRequest {
 // (SC-F01-06). Free when a Coordinator sends it. When a Provider sends it, this
 // is also the Pricing Spec V2 §9 "Direct Connect" product — $9.99, charged only
 // if the invited worker accepts (amountAud/mockReceiptRef mirror
-// DirectConnectRequest's proven pattern above). Deliberately NOT built as an
-// extension of DirectConnectRequest: that model is a free, no-shift "recruit to
-// my roster" request, a different product that happens to share a name in the
-// docs — see the reconciliation note in the delivery plan.
+// DirectConnectRequest's pattern above). Deliberately NOT built as an extension
+// of DirectConnectRequest: that model is a separate, no-shift "recruit to my
+// roster" request that also charges $9.99 on accept — two distinct products
+// that happen to share the "Direct Connect" name in the docs.
 // ───────────────────────────────────────────────────────────────────────────
 
 enum JobInviteStatus {

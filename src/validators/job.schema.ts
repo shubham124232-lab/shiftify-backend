@@ -21,7 +21,7 @@ export const FundingTypeEnum = z.enum([
   "SELF_MANAGED","PLAN_MANAGED","NDIA_MANAGED","PRIVATE","MIXED","DISCUSS",
 ]);
 
-export const UrgencyEnum = z.enum(["EMERGENCY","SAME_DAY","SCHEDULED","REPLACEMENT","RAPID","LAST_MINUTE"]);
+export const UrgencyEnum = z.enum(["RAPID","URGENT","LAST_MINUTE","ROUTINE"]);
 
 // ─── Create / draft ───────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ export const createJobSchema = z.object({
   ]).optional(),
 
   // ── Step 2: Schedule ────────────────────────────────────────────────────
-  urgency:                UrgencyEnum.default("SCHEDULED"),
+  urgency:                UrgencyEnum.default("ROUTINE"),
   shiftType:              ShiftTypeEnum.optional(),
   // EXACT | FLEXIBLE_SLIGHT | FLEXIBLE_MORNING | FLEXIBLE_AFTERNOON | FLEXIBLE_EVENING | FLEXIBLE_ANYTIME | DISCUSS
   timeFlexibility:        z.string().max(40).optional(),
@@ -218,7 +218,7 @@ export const cancelJobSchema = z.object({
 // ─── Manual "Find Replacement" for a cancelled job (SC-04-05) ─────────────────
 
 export const createReplacementSchema = z.object({
-  urgency:          z.enum(["RAPID", "SAME_DAY", "LAST_MINUTE", "EMERGENCY", "SCHEDULED"]).optional(),
+  urgency:          z.enum(["RAPID", "URGENT", "LAST_MINUTE", "ROUTINE"]).optional(),
   scheduledStartAt: z.string().datetime().optional(),
   scheduledEndAt:   z.string().datetime().optional(),
   totalHours:       z.number().positive().optional(),

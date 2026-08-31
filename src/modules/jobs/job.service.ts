@@ -308,7 +308,7 @@ export async function createJob(
       durationType:         input.durationType ?? null,
       participantPostedAs:  input.participantPostedAs ?? null,
       // Step 2
-      urgency:              (input.urgency ?? "SCHEDULED") as JobUrgency,
+      urgency:              (input.urgency ?? "ROUTINE") as JobUrgency,
       shiftType:            input.shiftType ? (input.shiftType as ShiftType) : null,
       timeFlexibility:      input.timeFlexibility ?? null,
       scheduledStartAt:     new Date(input.scheduledStartAt),
@@ -877,14 +877,15 @@ export async function cancelJob(
       }),
     ]);
 
+    const promotedTier = urgencyFromHoursToStart(hoursToStart);
     const promoted = await prisma.supportRequest.create({
-      data: cloneJobForReplacement(job!, { titlePrefix: "[EMERGENCY] ", urgency: "EMERGENCY", promotedFromCancellation: true }),
+      data: cloneJobForReplacement(job!, { titlePrefix: "[REPLACEMENT] ", urgency: promotedTier, promotedFromCancellation: true }),
     });
 
     void notify.sendPushNotification(
       userId,
-      "Job rescheduled as EMERGENCY",
-      `Your job "${job!.title}" was reposted as an emergency shift.`,
+      "Job reposted as a replacement",
+      `Your job "${job!.title}" was reposted as a ${TIER_LABEL[promotedTier]} replacement.`,
       { promotedJobId: promoted.id },
       "JOB_PROMOTED_EMERGENCY",
     );
@@ -913,13 +914,14 @@ export async function cancelJob(
 
   // SW doc Window 35 "Notify suitable replacement workers: Yes" — the
   // job wasn't already auto-promoted (that only happens inside 4 hours of
-  // start), so open a fresh replacement request at the original urgency and
-  // alert any saved search that matches it, reusing the same clone shape the
-  // near-start auto-promotion path above already relies on.
+  // start), so open a fresh replacement request tiered by the time actually
+  // left until start (not the original job's tier — cancelling late shrinks
+  // the window) and alert any saved search that matches it, reusing the same
+  // clone shape the near-start auto-promotion path above already relies on.
   let replacement = null;
   if (input.notifyReplacements) {
     replacement = await prisma.supportRequest.create({
-      data: cloneJobForReplacement(job!, { titlePrefix: "[REPLACEMENT] ", urgency: job!.urgency, promotedFromCancellation: true }),
+      data: cloneJobForReplacement(job!, { titlePrefix: "[REPLACEMENT] ", urgency: urgencyFromHoursToStart(hoursToStart), promotedFromCancellation: true }),
     });
     void notifyMatchingSavedSearches({
       id:          replacement.id,
@@ -979,7 +981,21 @@ export async function declineAssignment(jobId: string, userId: string) {
   return updated[0];
 }
 
-// Shared clone shape — used by cancelJob's automatic emergency promotion above
+// SC/SW journey doc time windows — Rapid 0-60min, Urgent 60min-4hr,
+// Last-Minute 4-48hr, Routine 48hr+. Used to tier a replacement post by how
+// much time is actually left until start, instead of a hardcoded tier.
+const TIER_LABEL: Record<JobUrgency, string> = {
+  RAPID: "Rapid", URGENT: "Urgent", LAST_MINUTE: "Last-Minute", ROUTINE: "Routine",
+};
+
+function urgencyFromHoursToStart(hoursToStart: number): JobUrgency {
+  if (hoursToStart <= 1)  return "RAPID";
+  if (hoursToStart <= 4)  return "URGENT";
+  if (hoursToStart <= 48) return "LAST_MINUTE";
+  return "ROUTINE";
+}
+
+// Shared clone shape — used by cancelJob's automatic replacement promotion above
 // and by createReplacementRequest's manual "Find Replacement" flow below, so
 // the two paths can't diverge on which fields carry over from the original job.
 function cloneJobForReplacement(
@@ -1368,15 +1384,14 @@ export async function selectApplicant(jobId: string, appId: string, posterId: st
 
 // ─── Featured Shift (Pricing V2 §8) ────────────────────────────────────────────
 // Paid pin/label on one open job post, priced and duration-capped by the job's
-// own urgency tier. RAPID/SAME_DAY/LAST_MINUTE/SCHEDULED map to the pricing
-// doc's Rapid/Urgent/Last-Minute/Routine tiers (see jobs/my/page.tsx's own
-// urgency-label mapping) — EMERGENCY/REPLACEMENT aren't sold as Featured Shift.
+// own urgency tier — all 4 tiers are sellable now that Featured Shift no
+// longer has to dodge the retired EMERGENCY/REPLACEMENT values.
 
 const FEATURED_SHIFT_CONFIG: Partial<Record<JobUrgency, { priceAud: number; durationMs: number }>> = {
   RAPID:       { priceAud: 19.99, durationMs: 60 * 60 * 1000 },
-  SAME_DAY:    { priceAud: 14.99, durationMs: 24 * 60 * 60 * 1000 },
+  URGENT:      { priceAud: 14.99, durationMs: 24 * 60 * 60 * 1000 },
   LAST_MINUTE: { priceAud: 9.99,  durationMs: 48 * 60 * 60 * 1000 },
-  SCHEDULED:   { priceAud: 21.99, durationMs: 7 * 24 * 60 * 60 * 1000 },
+  ROUTINE:     { priceAud: 21.99, durationMs: 7 * 24 * 60 * 60 * 1000 },
 };
 
 export async function purchaseFeaturedShift(jobId: string, purchasedByUserId: string) {

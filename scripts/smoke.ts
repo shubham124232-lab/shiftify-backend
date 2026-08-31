@@ -159,7 +159,7 @@ function jobBody(title: string) {
   const end = new Date(Date.now() + 25 * 3600 * 1000);
   return {
     title: `[SMOKE] ${title}`, description: "Automated smoke test job — safe to delete.",
-    category: "PERSONAL_CARE", urgency: "SCHEDULED",
+    category: "PERSONAL_CARE", urgency: "ROUTINE",
     suburb: "Parramatta", state: "NSW", postcode: "2150",
     scheduledStartAt: start.toISOString(), scheduledEndAt: end.toISOString(),
     totalHours: 1, budgetType: "FIXED_HOURLY", budgetPerHour: 55.5,
@@ -387,7 +387,7 @@ const sections: Record<string, () => Promise<void>> = {
     const pr = await register("PROVIDER", "prov");
     if (!pr) return;
     await verifyPhone(pr, "provider");
-    await activate(pr, "provider", "PROVIDER_BASIC", "PROVIDER");
+    await activate(pr, "provider", "PROVIDER_ORG_STARTER", "PROVIDER");
 
     let r = await req("POST", "/provider/listings",
       { listingCategory: "SERVICE", listingType: "IMMEDIATE_INTAKE", title: "[SMOKE] Service Listing", serviceCategory: "Personal Care", description: "Smoke test listing — safe to delete.", suburb: "Parramatta", serviceMode: "IN_PERSON", fundingTypes: ["Plan-managed"], acknowledgement: true }, pr.token);
