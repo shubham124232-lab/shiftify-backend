@@ -29,6 +29,7 @@ import providerOrgRoutes            from "./modules/provider-org/provider-org.ro
 import availabilityListingRoutes    from "./modules/availability-listings/availability-listing.routes";
 import professionalSearchRoutes     from "./modules/professional-search/professional-search.routes";
 import directInquiryRoutes          from "./modules/direct-inquiries/direct-inquiry.routes";
+import publicShiftboardRoutes       from "./modules/public-shiftboard/public-shiftboard.routes";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { requireAuth }    from "./middleware/auth.middleware";
 import { asyncHandler }   from "./utils/async-handler";
@@ -66,6 +67,17 @@ app.use(
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "shiftify-backend", env: env.NODE_ENV });
 });
+
+// ── API docs (static reference page) ────────────────────────────────────────
+app.get("/api-docs", (_req, res) => {
+  res.sendFile(path.resolve(__dirname, "public", "api-docs.html"));
+});
+
+// ── Public (no auth) ─────────────────────────────────────────────────────────
+// The Live Shiftboard marketing page — the only job-listing route in the app
+// that intentionally never runs requireAuth. Mounted here, not inside the
+// requireAuth-gated /jobs router.
+app.use("/public/shiftboard", publicShiftboardRoutes);
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 // More-specific /users/me/* paths MUST come BEFORE the /users catch-all so

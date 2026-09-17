@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Shiftify API Reference</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+:root{
+  --bg:#0f1115; --panel:#151822; --panel2:#1b1f2b; --border:#262b3a;
+  --text:#e7e9ee; --muted:#8b90a3; --accent:#6d8dff; --accent2:#9c6dff;
+  --get:#3fb950; --post:#58a6ff; --patch:#e3b341; --put:#d29922; --del:#f85149;
+  --code-bg:#0b0d13;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}
+a{color:var(--accent);text-decoration:none;}
+.layout{display:flex;min-height:100vh;}
+
+/* Sidebar */
+#sidebar{width:290px;flex:0 0 290px;background:var(--panel);border-right:1px solid var(--border);
+  position:sticky;top:0;height:100vh;overflow-y:auto;padding:0 0 40px;}
+.brand{padding:22px 20px 14px;border-bottom:1px solid var(--border);}
+.brand h1{font-size:16px;margin:0 0 4px;}
+.brand p{font-size:12px;color:var(--muted);margin:0;}
+#search{width:calc(100% - 32px);margin:14px 16px;padding:9px 12px;background:var(--panel2);
+  border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;}
+#search:focus{outline:1px solid var(--accent);}
+.nav-group{margin-bottom:2px;}
+.nav-group-title{padding:10px 20px 6px;font-size:11px;font-weight:600;letter-spacing:.04em;
+  color:var(--muted);text-transform:uppercase;cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center;}
+.nav-group-title:hover{color:var(--text);}
+.nav-items{display:block;}
+.nav-group.collapsed .nav-items{display:none;}
+.nav-item{display:flex;align-items:center;gap:8px;padding:6px 20px 6px 24px;font-size:12.5px;
+  color:var(--muted);cursor:pointer;border-left:2px solid transparent;}
+.nav-item:hover{color:var(--text);background:rgba(255,255,255,.02);}
+.nav-item.active{color:var(--text);border-left-color:var(--accent);background:rgba(109,141,255,.08);}
+.nav-m{font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:3px;min-width:34px;text-align:center;color:#0b0d13;}
+.nav-m.GET{background:var(--get);} .nav-m.POST{background:var(--post);}
+.nav-m.PATCH{background:var(--patch);} .nav-m.PUT{background:var(--put);} .nav-m.DELETE{background:var(--del);color:#fff;}
+
+/* Main */
+#main{flex:1;min-width:0;padding:36px 44px 100px;max-width:900px;}
+.intro{margin-bottom:40px;padding-bottom:28px;border-bottom:1px solid var(--border);}
+.intro h1{font-size:26px;margin:0 0 6px;}
+.intro .sub{color:var(--muted);font-size:14px;margin-bottom:18px;}
+.intro-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px;}
+.info-box{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 16px;}
+.info-box h3{margin:0 0 8px;font-size:12.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);}
+.info-box code, .intro code{background:var(--code-bg);padding:1px 6px;border-radius:4px;font-size:12.5px;}
+pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px;
+  overflow-x:auto;font-size:12.5px;line-height:1.55;margin:8px 0 0;}
+pre code{background:none;padding:0;}
+
+.module-heading{font-size:20px;margin:0 0 2px;padding-top:6px;}
+.module-base{color:var(--muted);font-size:13px;margin-bottom:22px;}
+.endpoint{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px 20px 20px;margin-bottom:16px;}
+.ep-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
+.method{font-size:11px;font-weight:700;padding:3px 9px;border-radius:5px;color:#0b0d13;letter-spacing:.02em;}
+.method.GET{background:var(--get);} .method.POST{background:var(--post);}
+.method.PATCH{background:var(--patch);} .method.PUT{background:var(--put);} .method.DELETE{background:var(--del);color:#fff;}
+.path{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14.5px;}
+.badge{font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:20px;border:1px solid var(--border);color:var(--muted);}
+.badge.pub{color:#3fb950;border-color:#234a2c;}
+.badge.auth{color:#58a6ff;border-color:#1f3a5c;}
+.badge.role{color:#e3b341;border-color:#4a3c1a;}
+.badge.admin{color:#f85149;border-color:#4a1f1f;}
+.desc{color:var(--muted);font-size:13px;margin:6px 0 10px;line-height:1.5;}
+.section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin:12px 0 4px;}
+.mid{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;color:#5b6178;}
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-thumb{background:#2a2f3d;border-radius:6px;}
+.hidden{display:none !important;}
+.count{font-size:10px;color:var(--muted);font-weight:400;}
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav id="sidebar">
+    <div class="brand">
+      <h1>Shiftify API</h1>
+      <p>Backend reference &middot; v1</p>
+    </div>
+    <input id="search" type="text" placeholder="Search endpoints...">
+    <div id="nav"></div>
+  </nav>
+  <main id="main">
+    <section class="intro" id="intro-section">
+      <h1>Shiftify Backend API Reference</h1>
+      <p class="sub">Express + TypeScript + Prisma + PostgreSQL &middot; Australian NDIS marketplace. Flutter and Web clients call these same endpoints.</p>
+
+      <div class="info-box" style="margin-bottom:16px;">
+        <h3>Base URL</h3>
+        <p style="margin:0;font-size:13.5px;">There is <strong>no <code>/api</code> prefix</strong>. Routes are mounted directly on the app root.</p>
+        <pre><code>http://localhost:5000   (development)</code></pre>
+      </div>
+
+      <div class="intro-grid">
+        <div class="info-box">
+          <h3>Authentication</h3>
+          <p style="font-size:12.5px;margin:0 0 6px;">Bearer access token in the <code>Authorization</code> header, obtained from <code>/auth/login</code> or <code>/auth/register</code>.</p>
+          <pre><code>Authorization: Bearer &lt;accessToken&gt;</code></pre>
+          <p style="font-size:12.5px;margin:8px 0 0;">Refresh token is set as an httpOnly cookie (<code>shiftify_refresh</code>) and also returned in the response body as a fallback for cross-site mobile/Flutter clients.</p>
+        </div>
+        <div class="info-box">
+          <h3>Auth badges</h3>
+          <p style="font-size:12.5px;margin:0;">
+            <span class="badge pub" style="margin-right:6px;">PUBLIC</span> no token needed<br><br>
+            <span class="badge auth" style="margin-right:6px;">AUTH</span> valid Bearer token required<br><br>
+            <span class="badge role" style="margin-right:6px;">ROLE</span> token + specific active role(s)<br><br>
+            <span class="badge admin" style="margin-right:6px;">ADMIN</span> ADMIN / SUPER_ADMIN tier only
+          </p>
+        </div>
+      </div>
+
+      <div class="info-box" style="margin-top:16px;">
+        <h3>Response envelope</h3>
+        <p style="font-size:12.5px;margin:0 0 4px;">Every successful response is wrapped in <code>{ data }</code>. List endpoints using pagination wrap items in <code>{ data: { items, total, page, limit } }</code>. Errors always come back as <code>{ error }</code>, never as a bare 200.</p>
+        <pre><code>// success
+{ "data": { "...": "..." } }
+
+// paginated
+{ "data": { "items": [ /* ... */ ], "total": 42, "page": 1, "limit": 20 } }
+
+// error
+{ "error": { "code": "VALIDATION_ERROR", "message": "...", "details": [ /* optional */ ] } }</code></pre>
+      </div>
+
+      <div class="info-box" style="margin-top:16px;">
+        <h3>Notes</h3>
+        <ul style="font-size:12.5px;margin:0;padding-left:18px;color:var(--muted);line-height:1.7;">
+          <li><code>blockManagedSelfService</code> &mdash; a MANAGED sub-account (created by a parent Provider/Coordinator via <code>/linking</code>) is blocked from calling this endpoint on itself; the parent acts on its behalf instead.</li>
+          <li>Request bodies shown are the exact Zod validator shapes (fields marked with a default or omitted "optional" note are required). Types are illustrative example values, not literal defaults.</li>
+          <li>Multipart/form-data endpoints (file uploads) are marked accordingly &mdash; the JSON shown for those is the non-file form fields only.</li>
+        </ul>
+      </div>
+    </section>
+
+    <div id="content"></div>
+  </main>
+</div>
+
+<script>
+// ─── Data: sourced directly from Backend/src/modules/**/*.routes.ts,
+// *.controller.ts and Backend/src/validators/*.schema.ts. Auth badges reflect
+// the exact middleware chain in each route file.
+const API = [
+{ name:"Auth", base:"/auth", endpoints:[
+  {m:"POST",p:"/auth/register",a:"pub",d:"Self-registration. Picks ONE initial role; more can be added later via /auth/roles. Phone is required, email optional.",
+   rq:{email:"user@example.com (optional)",phone:"0412345678",username:"optional, 3-40 chars",password:"min 8 chars",name:"string",role:"PARTICIPANT | SUPPORT_WORKER | PROVIDER | COORDINATOR | PLAN_MANAGER"},
+   rs:{user:"{ id, email, phone, username, name, roles, activeRole, ... }",accessToken:"jwt",refreshToken:"jwt (cookie + body fallback)"}},
+  {m:"POST",p:"/auth/login",a:"pub",d:"Single identifier (email/phone/username) + password. Phone identifiers trigger an OTP step; email/username log in directly.",
+   rq:{identifier:"email, phone, or username",password:"string"},
+   rs:{"(phone, OTP required)":{pendingToken:"string",maskedContact:"04**...45",channel:"phone"},"(email/username, direct)":{user:"{...}",accessToken:"jwt",refreshToken:"jwt"}}},
+  {m:"POST",p:"/auth/login/verify",a:"pub",d:"Step 2 of phone login — submit the 6-digit OTP received against the pendingToken.",
+   rq:{pendingToken:"string",code:"6-digit string"},
+   rs:{user:"{...}",accessToken:"jwt",refreshToken:"jwt"}},
+  {m:"POST",p:"/auth/refresh",a:"pub",d:"Exchanges a refresh token (cookie or body) for a new access token.",
+   rq:{refreshToken:"optional — also read from shiftify_refresh cookie"},
+   rs:{accessToken:"jwt",refreshToken:"jwt",activeRole:"UserRole",roles:"UserRole[]",phoneVerified:"boolean",emailVerified:"boolean"}},
+  {m:"POST",p:"/auth/logout",a:"pub",d:"Revokes the refresh token and clears the cookie.",rq:null,rs:{ok:true}},
+  {m:"POST",p:"/auth/roles",a:"auth",d:"Adds another role to the current account (self-service; ADMIN not grantable here).",
+   rq:{role:"UserRole enum"},rs:{roles:"UserRole[]"}},
+  {m:"POST",p:"/auth/switch-role",a:"auth",d:"Switches the active role; returns a re-scoped access token.",
+   rq:{role:"UserRole",password:"optional — only needed for a managed/separate account switch"},
+   rs:{accessToken:"jwt",activeRole:"UserRole",roles:"UserRole[]"}},
+  {m:"POST",p:"/auth/verify/request",a:"auth",d:"Sends a new OTP to the authenticated account's email or phone.",
+   rq:{channel:"email | phone"},rs:{"...":"channel dispatch result"}},
+  {m:"POST",p:"/auth/verify/resend",a:"auth",d:"Alias of /auth/verify/request.",rq:{channel:"email | phone"},rs:{"...":"channel dispatch result"}},
+  {m:"POST",p:"/auth/verify/confirm",a:"auth",d:"Submits the OTP to mark email/phone verified. Returns a fresh access token.",
+   rq:{channel:"email | phone",code:"6-digit numeric string"},
+   rs:{verified:true,phoneVerified:"boolean",emailVerified:"boolean",accessToken:"jwt"}},
+  {m:"GET",p:"/auth/check-username",a:"pub",d:"Query: ?username=. Checks availability.",rq:null,rs:{available:"boolean",reason:"string (only when invalid)"}},
+  {m:"POST",p:"/auth/password/forgot",a:"pub",d:"Requests a password-reset code by email or phone identifier.",rq:{identifier:"email or phone"},rs:{"...":"dispatch result"}},
+  {m:"POST",p:"/auth/password/reset",a:"pub",d:"Consumes the reset code and sets a new password.",
+   rq:{identifier:"email or phone",code:"6-digit string",newPassword:"min 8 chars"},rs:{message:"Password reset successfully. Please log in again."}},
+  {m:"GET",p:"/auth/dev/inbox",a:"pub",d:"Dev-only. Returns mock emails/SMS sent this server session. Disabled in production unless RETURN_DEV_OTP=true.",rq:null,rs:{ok:true,data:{messages:"MockMessage[]"}}},
+]},
+
+{ name:"Users", base:"/users", endpoints:[
+  {m:"GET",p:"/users/me",a:"auth",d:"Returns the current authenticated user.",rq:null,rs:{user:"{...}"}},
+  {m:"PATCH",p:"/users/me",a:"auth",d:"Updates own account fields (PATCH semantics — only sent fields change).",
+   rq:{name:"optional",email:"optional",username:"optional",phone:"optional",avatarUrl:"optional URL",defaultSuburb:"optional",defaultState:"optional",defaultPostcode:"optional",address:"optional { unitApartment, street, suburb, state, postcode, notes }"},
+   rs:{user:"{...}"}},
+  {m:"POST",p:"/users/blocks",a:"auth",d:"Blocks another user (SW doc Window 44).",
+   rq:{blockedUserId:"uuid",blockMessages:"boolean optional",hideProfile:"boolean optional",reportReason:"string optional, max 500"},rs:{"...":"block record"}},
+  {m:"GET",p:"/users/blocks",a:"auth",d:"Lists blocks created by the current user.",rq:null,rs:{"...":"block list"}},
+  {m:"DELETE",p:"/users/blocks/:blockedUserId",a:"auth",d:"Removes a block.",rq:null,rs:{ok:true}},
+  {m:"GET",p:"/users/:id",a:"auth",d:"Parent fetches the full profile of a MANAGED child account.",rq:null,rs:{"...":"child user + profile"}},
+  {m:"PATCH",p:"/users/:id",a:"auth",d:"Parent/coordinator edits a managed child account's base fields.",rq:{"...":"partial user fields"},rs:{"...":"updated child"}},
+  {m:"POST",p:"/users/:id/profile/:role",a:"auth",d:"Parent saves a role-specific profile for a managed child.",rq:{"...":"role profile schema (see Profile module)"},rs:{"...":"profile"}},
+  {m:"PUT",p:"/users/:id/availability",a:"auth",d:"Parent (Provider) replaces a managed worker's availability slots.",
+   rq:{slots:[{dayOfWeek:"MON..SUN",startTime:"HH:MM",endTime:"HH:MM"}]},rs:{"...":"availability slots"}},
+  {m:"POST",p:"/users/:id/reset-password",a:"auth",d:"Parent resets a managed child's password.",rq:{"...":"new password"},rs:{ok:true}},
+  {m:"POST",p:"/users/:id/documents",a:"auth",d:"Parent uploads a managed child's compliance document. multipart/form-data: file + docType.",
+   rq:{docType:"DOCUMENT_TYPES enum",referenceNumber:"optional",issueDate:"YYYY-MM-DD optional",expiryDate:"YYYY-MM-DD optional"},rs:{document:"{...}"}},
+  {m:"GET",p:"/users/:id/documents",a:"auth",d:"Lists a managed child's documents.",rq:null,rs:{documents:"[...]"}},
+  {m:"DELETE",p:"/users/:id/documents/:docId",a:"auth",d:"Deletes a managed child's document.",rq:null,rs:{ok:true}},
+]},
+
+{ name:"Profile", base:"/users/me/profile", endpoints:[
+  {m:"GET",p:"/users/me/profile/progress",a:"auth",d:"Wizard completion progress for the active role.",rq:null,rs:{"...":"progress summary"}},
+  {m:"GET",p:"/users/me/profile/participant",a:"role:PARTICIPANT",d:"Read back participant profile for wizard pre-fill.",rq:null,rs:{profile:"{...}"}},
+  {m:"GET",p:"/users/me/profile/worker",a:"role:SUPPORT_WORKER",d:"Read back worker profile.",rq:null,rs:{profile:"{...}"}},
+  {m:"GET",p:"/users/me/profile/provider",a:"role:PROVIDER",d:"Read back provider profile.",rq:null,rs:{profile:"{...}"}},
+  {m:"GET",p:"/users/me/profile/coordinator",a:"role:COORDINATOR",d:"Read back coordinator profile.",rq:null,rs:{profile:"{...}"}},
+  {m:"GET",p:"/users/me/profile/plan-manager",a:"role:PLAN_MANAGER",d:"Read back plan manager profile.",rq:null,rs:{profile:"{...}"}},
+  {m:"POST / PATCH",p:"/users/me/profile/participant",a:"role:PARTICIPANT",d:"Upsert participant profile (step-by-step wizard saves use PATCH; same handler). Blocked for MANAGED accounts.",
+   rq:{profileStep:"0-20 optional",preferredName:"optional",ageGroup:"CHILD|ADULT|SENIOR",participantType:"SELF|PARENT|GUARDIAN|CARER|NOMINEE",suburb:"optional",ndisNumber:"optional",fundingManagementType:"SELF_MANAGED|PLAN_MANAGED|NDIA_MANAGED",primarySupportNeeds:"string[] optional",emergencyContactName:"optional","...":"see profile-participant.schema.ts for full ~35-field list"},
+   rs:{profile:"{...}"}},
+  {m:"POST / PATCH",p:"/users/me/profile/worker",a:"role:SUPPORT_WORKER",d:"Upsert worker profile (largest schema — personal, work rights, insurance, skills, rates, compliance, references). Blocked for MANAGED accounts.",
+   rq:{profileStep:"0-20 optional",dob:"YYYY-MM-DD",rightToWork:"CITIZEN|PR|VISA_HOLDER",workType:"CONTRACTOR|AGENCY (abn required if CONTRACTOR)",servicesOffered:"string[]",hourlyRate:"number",availability:"AvailabilitySlot[] optional",references:"Reference[] optional","...":"see profile-worker.schema.ts for full ~80-field list"},
+   rs:{profile:"{...}"}},
+  {m:"POST / PATCH",p:"/users/me/profile/provider",a:"role:PROVIDER",d:"Upsert provider profile (business identity, insurance, services, SIL/SDA, workforce, pricing). Blocked for MANAGED accounts.",
+   rq:{businessName:"optional",abn:"optional",ndisRegistered:"boolean",coreServices:"string[]",offersSil:"boolean (silType+silSupportLevel required if true)",offersSda:"boolean (sdaDesignCategory required if true)","...":"see profile-provider.schema.ts for full field list"},
+   rs:{profile:"{...}"}},
+  {m:"POST / PATCH",p:"/users/me/profile/coordinator",a:"role:COORDINATOR",d:"Upsert coordinator profile (20-step wizard: identity, compliance, capability, coverage, rates, declarations). Blocked for MANAGED accounts.",
+   rq:{profileStep:"0-20",roleType:"INDEPENDENT|SC_ORGANISATION|NDIS_PROVIDER|OTHER_ORGANISATION",organisationName:"required if roleType != INDEPENDENT",ndisRegistered:"boolean (ndisProviderNumber required if true)",supportCoordinationLevel:"string[]","...":"see profile-coordinator.schema.ts for full field list"},
+   rs:{profile:"{...}"}},
+  {m:"POST / PATCH",p:"/users/me/profile/plan-manager",a:"role:PLAN_MANAGER",d:"Upsert plan manager profile (business, NDIS registration, capability, coverage, payment ops, compliance, staff access). Blocked for MANAGED accounts.",
+   rq:{profileStep:"0-20",pmRoleType:"PLAN_MANAGER|PM_ORG_ADMIN|PM_STAFF_MEMBER",businessName:"optional",ndisRegistrationStatus:"REGISTERED|IN_PROGRESS|NOT_REGISTERED (provider number + expiry required if REGISTERED)","...":"see profile-planmanager.schema.ts for full ~70-field list"},
+   rs:{profile:"{...}"}},
+  {m:"POST",p:"/users/me/profile/coordinator/invite-code",a:"role:COORDINATOR",d:"SC-A05 — generates a shareable org invite code. Blocked for MANAGED accounts.",rq:null,rs:{inviteCode:"string"}},
+]},
+
+{ name:"Availability (profile)", base:"/users/me/availability", endpoints:[
+  {m:"GET",p:"/users/me/availability",a:"role:SUPPORT_WORKER",d:"Gets the worker's recurring availability slots.",rq:null,rs:{slots:"AvailabilitySlot[]"}},
+  {m:"PUT",p:"/users/me/availability",a:"role:SUPPORT_WORKER",d:"Replaces all availability slots.",rq:{slots:[{dayOfWeek:"MON..SUN",startTime:"HH:MM",endTime:"HH:MM"}]},rs:{slots:"AvailabilitySlot[]"}},
+  {m:"POST",p:"/users/me/unavailability",a:"role:SUPPORT_WORKER",d:"Adds a one-off unavailable date.",rq:{date:"YYYY-MM-DD",reason:"optional, max 200"},rs:{"...":"unavailability record"}},
+  {m:"DELETE",p:"/users/me/unavailability/:id",a:"role:SUPPORT_WORKER",d:"Removes an unavailability entry.",rq:null,rs:{ok:true}},
+  {m:"GET",p:"/users/me/provider-availability",a:"role:PROVIDER",d:"Gets provider-level availability slots.",rq:null,rs:{slots:"AvailabilitySlot[]"}},
+  {m:"PUT",p:"/users/me/provider-availability",a:"role:PROVIDER",d:"Replaces all provider availability slots.",rq:{slots:"AvailabilitySlot[]"},rs:{slots:"AvailabilitySlot[]"}},
+]},
+
+{ name:"Documents", base:"/users/me/documents", endpoints:[
+  {m:"POST",p:"/users/me/documents",a:"auth",d:"Uploads a compliance document. multipart/form-data: file + fields below. Blocked for MANAGED accounts (parent uploads via /linking instead).",
+   rq:{docType:"POLICE_CHECK | NDIS_SCREENING | WWCC | FIRST_AID | CPR | MANUAL_HANDLING | INFECTION_CONTROL | DRIVERS_LICENCE | VEHICLE_INSURANCE | PUBLIC_LIABILITY_INSURANCE | PROFESSIONAL_INDEMNITY | WORKERS_COMP | NDIS_AUDIT | PERSONAL_ACCIDENT_INSURANCE | QUALIFICATION_CERTIFICATE | ABN_CONFIRMATION | NDIS_REGISTRATION_PROOF | BUSINESS_REP_PROOF | POLICIES_PROCEDURES | BUSINESS_ADDRESS_EVIDENCE | CONTACT_IDENTITY_EVIDENCE | BANK_FINANCE_EVIDENCE | OTHER",
+       referenceNumber:"optional, max 80",issueDate:"YYYY-MM-DD optional",expiryDate:"YYYY-MM-DD optional"},
+   rs:{document:"{...}"}},
+  {m:"GET",p:"/users/me/documents",a:"auth",d:"Lists own documents. MANAGED accounts may still view what was uploaded for them.",rq:null,rs:{documents:"[...]"}},
+  {m:"DELETE",p:"/users/me/documents/:id",a:"auth",d:"Deletes own document. Blocked for MANAGED accounts.",rq:null,rs:{ok:true}},
+]},
+
+{ name:"Linking (managed accounts)", base:"/linking", endpoints:[
+  {m:"POST",p:"/linking/workers",a:"role:PROVIDER",d:"Provider creates a MANAGED SUPPORT_WORKER sub-account (DRAFT status). MANAGED accounts use username+password only, no email/phone.",
+   rq:{username:"3-40 chars",password:"min 8 chars",name:"string"},rs:{user:"{...}"}},
+  {m:"GET",p:"/linking/workers",a:"role:PROVIDER",d:"Lists the provider's managed workers.",rq:null,rs:{users:"[...]"}},
+  {m:"GET",p:"/linking/workers/:id/onboarding-status",a:"role:PROVIDER",d:"Completeness check for a draft managed worker.",rq:null,rs:{"...":"onboarding status"}},
+  {m:"POST",p:"/linking/workers/:id/activate",a:"role:PROVIDER",d:"Flips the worker from DRAFT to ACTIVE once onboarding is complete.",rq:null,rs:{user:"{...}"}},
+  {m:"POST",p:"/linking/workers/:id/profile",a:"role:PROVIDER",d:"Provider fills the managed worker's profile (same shape as /users/me/profile/worker).",rq:{"...":"workerProfileSchema"},rs:{profile:"{...}"}},
+  {m:"POST",p:"/linking/workers/:id/documents",a:"role:PROVIDER",d:"Provider uploads a document for the managed worker. multipart/form-data.",rq:{docType:"DOCUMENT_TYPES enum","...":"see Documents module"},rs:{document:"{...}"}},
+  {m:"GET",p:"/linking/workers/:id/documents",a:"role:PROVIDER",d:"Lists a managed worker's documents.",rq:null,rs:{documents:"[...]"}},
+  {m:"DELETE",p:"/linking/workers/:id/documents/:docId",a:"role:PROVIDER",d:"Deletes a managed worker's document.",rq:null,rs:{ok:true}},
+  {m:"DELETE",p:"/linking/workers/:id",a:"role:PROVIDER",d:"Unlinks (detaches) a managed worker. Admin can also call this via internal bypass.",rq:null,rs:{ok:true}},
+  {m:"POST",p:"/linking/participants",a:"role:COORDINATOR",d:"Coordinator creates a MANAGED PARTICIPANT sub-account, declaring authority to act for them (submission gate, not doc-verification).",
+   rq:{username:"3-40 chars",password:"min 8 chars",name:"string",preferredName:"string",ageGroup:"CHILD|TEENAGER|ADULT|OLDER_ADULT",suburb:"string",postcode:"string",contactEmail:"optional",contactPhone:"optional",participantType:"PARTICIPANT|NOMINEE|GUARDIAN|AUTHORISED_REPRESENTATIVE|PARENT_FAMILY_REPRESENTATIVE|OTHER",authorisingPersonName:"required if participantType != PARTICIPANT",authorisingPersonRelationship:"required if participantType != PARTICIPANT",authorityConfirmed:"must be true",infoAccuracyConfirmed:"must be true"},
+   rs:{user:"{...}"}},
+  {m:"GET",p:"/linking/participants",a:"role:COORDINATOR",d:"Lists the coordinator's managed participants.",rq:null,rs:{users:"[...]"}},
+  {m:"POST",p:"/linking/participants/:id/profile",a:"role:COORDINATOR",d:"Coordinator fills the managed participant's profile.",rq:{"...":"participantProfileSchema"},rs:{profile:"{...}"}},
+  {m:"GET",p:"/linking/participants/:id/profile",a:"role:COORDINATOR",d:"Reads a managed participant's profile (used to prefill a job posted on their behalf).",rq:null,rs:{profile:"{...}"}},
+  {m:"POST",p:"/linking/participants/:id/invite",a:"role:COORDINATOR",d:"SC-N04 — sends the participant an invitation to claim their managed account.",rq:{method:"EMAIL | SMS"},rs:{"...":"invitation dispatch result"}},
+  {m:"DELETE",p:"/linking/participants/:id",a:"role:COORDINATOR",d:"Unlinks a managed participant. Admin can also call this via internal bypass.",rq:null,rs:{ok:true}},
+]},
+
+{ name:"Notifications", base:"/notifications", endpoints:[
+  {m:"GET",p:"/notifications",a:"auth",d:"Lists notifications. Query: ?unread=true to filter unread only.",rq:null,rs:{"...":"notifications list"}},
+  {m:"PATCH",p:"/notifications/read-all",a:"auth",d:"Marks all notifications read.",rq:null,rs:{ok:true}},
+  {m:"GET",p:"/notifications/preferences",a:"auth",d:"Gets notification preferences.",rq:null,rs:{preference:"{...}"}},
+  {m:"PATCH",p:"/notifications/preferences",a:"auth",d:"Updates notification preferences.",
+   rq:{pushEnabled:"boolean optional",emailEnabled:"boolean optional",smsEnabled:"boolean optional",jobUpdates:"boolean optional",messages:"boolean optional",connectionsAndInvites:"boolean optional",marketingTips:"boolean optional"},rs:{preference:"{...}"}},
+  {m:"PATCH",p:"/notifications/:id/read",a:"auth",d:"Marks one notification read.",rq:null,rs:{ok:true}},
+]},
+
+{ name:"Subscriptions", base:"/subscriptions", endpoints:[
+  {m:"GET",p:"/subscriptions/plans",a:"pub",d:"Browse available subscription plans. No auth required.",rq:null,rs:{"...":"plan list"}},
+  {m:"POST",p:"/subscriptions/activate",a:"auth",d:"Activates a subscription plan for the current account.",rq:{"...":"plan selection"},rs:{"...":"subscription record"}},
+  {m:"GET",p:"/subscriptions/me",a:"auth",d:"Gets the current active subscription.",rq:null,rs:{"...":"subscription"}},
+  {m:"GET",p:"/subscriptions/me/all",a:"auth",d:"Gets all active subscriptions on the account (multi-role accounts can hold more than one).",rq:null,rs:{"...":"subscription[]"}},
+  {m:"POST",p:"/subscriptions/shift-pass",a:"auth",d:"Purchases a one-off Shift Pass ($9.99, per Pricing V2).",rq:null,rs:{"...":"shift pass purchase record"}},
+]},
+
+{ name:"Admin", base:"/admin", endpoints:[
+  {m:"GET",p:"/admin/db-snapshot",a:"admin2",d:"SUPER_ADMIN only. Raw DB snapshot for diagnostics.",rq:null,rs:{"...":"snapshot"}},
+  {m:"GET",p:"/admin/stats",a:"admin",d:"Platform-wide stats.",rq:null,rs:{"...":"stats"}},
+  {m:"GET",p:"/admin/flags",a:"admin",d:"Query: ?limit=. Urgent flags needing admin attention.",rq:null,rs:{"...":"flags"}},
+  {m:"GET",p:"/admin/users",a:"admin",d:"Query: ?status=&role=&page=&limit=. Lists all users.",rq:null,rs:{"...":"paginated users"}},
+  {m:"GET",p:"/admin/users/:id",a:"admin",d:"Gets one user's admin detail view.",rq:null,rs:{user:"{...}"}},
+  {m:"PATCH",p:"/admin/users/:id/status",a:"admin",d:"Sets a user's status.",rq:{status:"ACTIVE | SUSPENDED",reason:"string optional"},rs:{"...":"updated user"}},
+  {m:"POST",p:"/admin/users/:id/notify",a:"admin",d:"Sends a direct notification to one user.",rq:{title:"string, required",body:"string, required"},rs:{"...":"dispatch result"}},
+  {m:"GET",p:"/admin/verification-queue",a:"admin",d:"Query: ?page=&limit=. SUSPENDED users queue.",rq:null,rs:{"...":"paginated queue"}},
+  {m:"GET",p:"/admin/jobs",a:"admin",d:"Query: ?status=&category=&urgency=&dateFrom=&dateTo=&page=&limit=. Lists all jobs platform-wide.",rq:null,rs:{"...":"paginated jobs"}},
+  {m:"PATCH",p:"/admin/jobs/:id/cancel",a:"admin",d:"Admin force-cancels a job.",rq:{reason:"string optional"},rs:{"...":"cancelled job"}},
+  {m:"GET",p:"/admin/listings",a:"admin",d:"Query: ?status=&listingCategory=&page=&limit=. Moderates provider listings.",rq:null,rs:{"...":"paginated listings"}},
+  {m:"PATCH",p:"/admin/listings/:id/status",a:"admin",d:"Sets a listing's moderation status.",rq:{status:"string, required",reason:"string optional"},rs:{"...":"updated listing"}},
+  {m:"GET",p:"/admin/documents/:id/view",a:"admin",d:"Gets a signed view URL for a submitted document.",rq:null,rs:{"...":"view URL"}},
+  {m:"PATCH",p:"/admin/documents/:id/verify",a:"admin",d:"Approves/rejects a document. NOTE: per locked Document Verification Policy this has zero effect on marketplace access — submission alone gates posting/accepting jobs.",rq:{approved:"boolean, required",reason:"string optional"},rs:{"...":"updated document"}},
+  {m:"GET",p:"/admin/subscriptions",a:"admin",d:"Query: ?status=&page=&limit=. Lists all subscriptions.",rq:null,rs:{"...":"paginated subscriptions"}},
+  {m:"PATCH",p:"/admin/subscriptions/:id/cancel",a:"admin",d:"Admin cancels a subscription.",rq:{reason:"string optional"},rs:{"...":"cancelled subscription"}},
+  {m:"POST",p:"/admin/broadcast",a:"admin2",d:"SUPER_ADMIN only. Broadcasts a notification to all users or a role.",rq:{title:"required",body:"required",role:"optional UserRole filter"},rs:{"...":"broadcast result"}},
+  {m:"GET",p:"/admin/reports",a:"admin",d:"Platform analytics/reports.",rq:null,rs:{"...":"reports"}},
+  {m:"GET",p:"/admin/audit-log",a:"admin2",d:"SUPER_ADMIN only. Query: ?targetUserId=&action=&page=&limit=.",rq:null,rs:{"...":"paginated audit log"}},
+]},
+
+{ name:"Dashboard", base:"/dashboard", endpoints:[
+  {m:"GET",p:"/dashboard/summary",a:"auth",d:"Role-scoped summary dashboard with real DB counts and placeholders for unbuilt widgets.",rq:null,rs:{summary:"{...}"}},
+]},
+
+{ name:"Jobs", base:"/jobs", endpoints:[
+  {m:"POST",p:"/jobs",a:"auth",d:"Creates a job/support request (8-step form; set asDraft:true to save without publishing).",
+   rq:{title:"3-200 chars",category:"JobCategoryEnum",urgency:"RAPID|URGENT|LAST_MINUTE|ROUTINE, default ROUTINE",scheduledStartAt:"ISO datetime",scheduledEndAt:"ISO datetime",suburb:"required",state:"required",fundingType:"SELF_MANAGED|PLAN_MANAGED|NDIA_MANAGED|PRIVATE|MIXED|DISCUSS optional",budgetPerHour:"number optional",asDraft:"boolean, default false",forParticipantUserId:"optional (coordinator posting for a participant)","...":"~40 fields total across 8 steps — see job.schema.ts createJobSchema"},
+   rs:{job:"{...}"}},
+  {m:"GET",p:"/jobs",a:"auth",d:"Load board listing with rich filters + pagination.",
+   rq:{suburb:"optional",category:"optional",urgency:"optional",status:"DRAFT|OPEN|ASSIGNED|IN_PROGRESS|COMPLETED|CONFIRMED|CANCELLED",shiftType:"optional",savedOnly:"boolean optional",includeHidden:"boolean optional",page:"default 1",limit:"default 20, max 100",sortBy:"newest|urgency|startDate|bestMatch, default urgency"},
+   rs:{items:"Job[]",total:"number",page:"number",limit:"number"}},
+  {m:"GET",p:"/jobs/live-dashboard",a:"auth",d:"Universal cross-role board of OPEN jobs (Workers/Providers-only gating applied server-side by viewer role).",rq:{"...":"same filter shape as GET /jobs minus savedOnly/includeHidden"},rs:{items:"Job[]",total:"number",page:"number",limit:"number"}},
+  {m:"GET",p:"/jobs/my",a:"auth",d:"Query: ?status=. Jobs the current user posted or is engaged on.",rq:null,rs:{"...":"jobs"}},
+  {m:"GET",p:"/jobs/connections/mine",a:"auth",d:"SW doc Window 27 'My Connections' — tabbed lists of the caller's job connections.",rq:null,rs:{"...":"connection tabs"}},
+  {m:"GET",p:"/jobs/messages/threads",a:"auth",d:"Query: ?includeArchived=true. Lists message threads across all jobs.",rq:null,rs:{"...":"threads"}},
+  {m:"PATCH",p:"/jobs/meet-and-greet/:magId/respond",a:"auth",d:"Confirms or declines a proposed meet-and-greet.",rq:{action:"CONFIRM | DECLINE",confirmedTime:"ISO datetime, required if CONFIRM"},rs:{meetAndGreet:"{...}"}},
+  {m:"PATCH",p:"/jobs/change-request/:changeRequestId/respond",a:"auth",d:"Accepts or rejects a worker-initiated job change request.",rq:{action:"ACCEPT | REJECT"},rs:{changeRequest:"{...}"}},
+  {m:"GET",p:"/jobs/:id",a:"auth",d:"Gets one job's full detail.",rq:null,rs:{job:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id",a:"auth",d:"SC-PT05 'Repeat support' edit — DRAFT-only, before (re)publishing.",rq:{scheduledStartAt:"optional",scheduledEndAt:"optional",category:"optional",budgetPerHour:"optional","...":"see updateDraftJobSchema"},rs:{job:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/cancel",a:"auth",d:"SW doc Window 35 — structured cancellation.",rq:{reason:"optional, max 500",reasonCategory:"ILLNESS|EMERGENCY|TRANSPORT|SCHEDULING_CONFLICT|UNSAFE_OR_UNSUITABLE|OTHER",notifyReplacements:"boolean optional"},rs:{job:"{...}"}},
+  {m:"POST",p:"/jobs/:id/replacement",a:"auth",d:"SC-04-05 — manual 'Find Replacement' for a cancelled job.",rq:{urgency:"optional",scheduledStartAt:"optional",scheduledEndAt:"optional",totalHours:"optional",budgetPerHour:"optional"},rs:{job:"{...}"}},
+  {m:"POST",p:"/jobs/:id/duplicate",a:"auth",d:"Participant portfolio 'Repeat previous request'.",rq:null,rs:{job:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/publish",a:"auth",d:"Publishes a DRAFT job to the load board.",rq:null,rs:{job:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/assign-worker",a:"auth",d:"Assigns a worker after selection.",rq:{workerUserId:"uuid"},rs:{job:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/confirm-assignment",a:"auth",d:"Worker confirms their assignment.",rq:null,rs:{job:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/start",a:"auth",d:"Marks the job as started/in-progress.",rq:null,rs:{job:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/complete",a:"auth",d:"Marks the job as completed.",rq:null,rs:{job:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/confirm",a:"auth",d:"Participant/coordinator confirms a completed job.",rq:null,rs:{job:"{...}"}},
+  {m:"POST",p:"/jobs/:id/assignments",a:"auth",d:"Multi-worker roster — adds an assignment (additive to assign-worker).",rq:{workerUserId:"uuid"},rs:{assignment:"{...}"}},
+  {m:"GET",p:"/jobs/:id/assignments",a:"auth",d:"Lists roster assignments for a job.",rq:null,rs:{assignments:"[...]"}},
+  {m:"PATCH",p:"/jobs/:id/assignments/:assignmentId/status",a:"auth",d:"Updates a roster assignment's status.",rq:{status:"COMPLETED | CANCELLED"},rs:{assignment:"{...}"}},
+  {m:"POST",p:"/jobs/:id/apply",a:"auth",d:"Structured application with availability/rate/introduction steps.",
+   rq:{note:"legacy short note optional",availabilityType:"YES_EXACT|YES_ADJUSTED|PARTIAL|DISCUSS|UNAVAILABLE optional",rateResponse:"ACCEPT|OFFER_OWN|QUOTE_AFTER|DISCUSS optional",proposedRate:"number optional",introduction:"string optional",applicationData:"object optional"},
+   rs:{application:"{...}"}},
+  {m:"GET",p:"/jobs/:id/applications",a:"auth",d:"Lists applications for a job.",rq:null,rs:{applications:"[...]"}},
+  {m:"PATCH",p:"/jobs/:id/applications/:appId/select",a:"auth",d:"Selects an applicant.",rq:null,rs:{job:"{...}"}},
+  {m:"POST",p:"/jobs/:id/featured-shift",a:"auth",d:"Purchases a Featured Shift paid promotion for this job.",rq:null,rs:{purchase:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/applications/:appId/shortlist",a:"auth",d:"Shortlists an applicant.",rq:null,rs:{application:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/applications/:appId/decline",a:"auth",d:"Declines an applicant.",rq:null,rs:{application:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/applications/:appId/withdraw",a:"auth",d:"Applicant withdraws their own application.",rq:null,rs:{application:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/decline-assignment",a:"auth",d:"Worker declines an assignment offered to them.",rq:null,rs:{job:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/close-connection",a:"auth",d:"SW doc Window 38 — closes out a job connection with an outcome.",rq:{outcome:"FILLED_CONFIRMED|CANCELLED|NOT_PROCEEDING|UNFILLED",reasonCategory:"optional",feedback:"optional, max 1000"},rs:{job:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/save",a:"auth",d:"SW doc Windows 16-17 — bookmark/hide a job.",rq:{saved:"boolean optional",hidden:"boolean optional"},rs:{bookmark:"{...}"}},
+  {m:"DELETE",p:"/jobs/:id/save",a:"auth",d:"Removes a bookmark.",rq:null,rs:{"...":"result"}},
+  {m:"PATCH",p:"/jobs/:id/running-late",a:"auth",d:"SW doc Window 33 — notify running late.",rq:{minutesLate:"1-240"},rs:{job:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/worker-note",a:"auth",d:"Saves a private worker note on the job.",rq:{note:"string, max 2000"},rs:{job:"{...}"}},
+  {m:"POST",p:"/jobs/:id/meet-and-greet",a:"auth",d:"SW doc Window 29 — proposes a meet-and-greet.",rq:{type:"PHONE|VIDEO|IN_PERSON",proposedTimes:"1-3 ISO datetimes",location:"optional",cost:"FREE|AGREED_RATE|DISCUSS",topics:"array optional"},rs:{meetAndGreet:"{...}"}},
+  {m:"POST",p:"/jobs/:id/change-request",a:"auth",d:"SW doc Window 34 — worker requests a change to the job.",rq:{changeType:"TIME|DURATION|DATE|RECURRENCE|RATE|OTHER",reason:"optional",alternative:"object, required"},rs:{changeRequest:"{...}"}},
+  {m:"POST",p:"/jobs/:id/messages",a:"auth",d:"Sends a message in the job thread.",rq:{body:"1-5000 chars"},rs:{message:"{...}"}},
+  {m:"GET",p:"/jobs/:id/messages",a:"auth",d:"Gets a job's message thread.",rq:null,rs:{messages:"[...]"}},
+  {m:"PATCH",p:"/jobs/:id/messages/read",a:"auth",d:"Marks the thread read.",rq:null,rs:{threadState:"{...}"}},
+  {m:"PATCH",p:"/jobs/:id/messages/archive",a:"auth",d:"Archives/unarchives the thread.",rq:{archived:"boolean"},rs:{threadState:"{...}"}},
+  {m:"GET",p:"/jobs/:id/invoice-recipients",a:"auth",d:"Gets eligible invoice recipients for a job (plan manager linking).",rq:null,rs:{"...":"recipients"}},
+  {m:"POST",p:"/jobs/:id/invoice",a:"auth",d:"Creates an invoice record (record-only — no in-app payment; see project memory).",rq:{planManagerUserId:"uuid",participantUserId:"uuid",hours:"optional",note:"optional"},rs:{invoice:"{...}"}},
+  {m:"POST",p:"/jobs/:id/reviews",a:"auth",d:"Creates a post-job review.",rq:{rating:"1-5",comment:"optional",reliabilityRating:"1-5 optional",communicationRating:"1-5 optional",qualityRating:"1-5 optional",privateConcern:"optional, never shown to reviewee"},rs:{review:"{...}"}},
+  {m:"GET",p:"/jobs/:id/reviews",a:"auth",d:"Lists reviews for a job.",rq:null,rs:{reviews:"[...]"}},
+  {m:"POST",p:"/jobs/:id/incidents",a:"auth",d:"Pilot safety gate — creates an incident report. isDraft:true saves in-progress.",rq:{category:"SAFETY|NO_SHOW|MISCONDUCT|OTHER",description:"optional, max 2000",evidenceUrls:"up to 10 URLs, optional",isDraft:"boolean, default false"},rs:{incident:"{...}"}},
+  {m:"GET",p:"/jobs/:id/incidents/draft",a:"auth",d:"Resumes an in-progress draft incident report for this job, if any.",rq:null,rs:{incident:"{...} | null"}},
+  {m:"PATCH",p:"/jobs/:id/incidents/:incidentId",a:"auth",d:"Completes a draft and/or attaches evidence. finalize:true transitions DRAFT to OPEN.",rq:{category:"optional",description:"optional",evidenceUrls:"optional",finalize:"boolean, default false"},rs:{incident:"{...}"}},
+]},
+
+{ name:"Invoices", base:"/invoices", endpoints:[
+  {m:"GET",p:"/invoices",a:"auth",d:"Lists invoices visible to the current user/role. Mounted directly in app.ts (not under /jobs).",rq:null,rs:{invoices:"[...]"}},
+]},
+
+{ name:"Reviews", base:"/reviews", endpoints:[
+  {m:"PATCH",p:"/reviews/:reviewId/respond",a:"auth",d:"SW doc Window 45 — reviewee responds publicly to a review.",rq:{response:"1-1000 chars"},rs:{review:"{...}"}},
+  {m:"POST",p:"/reviews/:reviewId/report",a:"auth",d:"Reports a review for moderation.",rq:{reason:"1-500 chars"},rs:{review:"{...}"}},
+]},
+
+{ name:"Job Invites", base:"/job-invites", endpoints:[
+  {m:"POST",p:"/job-invites/:jobId",a:"role:PARTICIPANT,COORDINATOR,PROVIDER",d:"SW doc Window 19 / SC-F01-06 / Pricing V2 §9 — poster invites a worker or provider to a job.",rq:{invitedUserId:"uuid",message:"optional, max 500"},rs:{invite:"{...}"}},
+  {m:"GET",p:"/job-invites/:jobId",a:"role:PARTICIPANT,COORDINATOR,PROVIDER",d:"Lists invites sent for a job.",rq:null,rs:{invites:"[...]"}},
+  {m:"GET",p:"/job-invites",a:"auth",d:"Lists invites received by the current user.",rq:null,rs:{invites:"[...]"}},
+  {m:"PATCH",p:"/job-invites/:id/respond",a:"auth",d:"Invited party accepts or declines.",rq:{action:"ACCEPT | DECLINE"},rs:{invite:"{...}"}},
+]},
+
+{ name:"Direct Connect", base:"/direct-connect", endpoints:[
+  {m:"POST",p:"/direct-connect",a:"role:PROVIDER",d:"Provider sends a paid Direct Connect invite to a worker off their public listing.",rq:{workerUserId:"uuid",message:"optional, max 500"},rs:{request:"{...}"}},
+  {m:"GET",p:"/direct-connect",a:"role:PROVIDER,SUPPORT_WORKER",d:"Provider views sent invites; worker views received invites.",rq:null,rs:{requests:"[...]"}},
+  {m:"PATCH",p:"/direct-connect/:id/respond",a:"role:SUPPORT_WORKER",d:"Worker accepts or declines.",rq:{action:"ACCEPT | DECLINE"},rs:{request:"{...}"}},
+]},
+
+{ name:"Direct Inquiries", base:"/direct-inquiries", endpoints:[
+  {m:"POST",p:"/direct-inquiries",a:"auth",d:"SC-F06 'Message first' — one-shot pre-connection message before any job/connection exists.",rq:{recipientUserId:"uuid",body:"1-2000 chars",participantConnectionId:"optional uuid"},rs:{inquiry:"{...}"}},
+  {m:"GET",p:"/direct-inquiries/sent",a:"auth",d:"Lists inquiries sent by the current user.",rq:null,rs:{inquiries:"[...]"}},
+  {m:"GET",p:"/direct-inquiries/received",a:"auth",d:"Lists inquiries received.",rq:null,rs:{inquiries:"[...]"}},
+  {m:"PATCH",p:"/direct-inquiries/:id/read",a:"auth",d:"Marks an inquiry read.",rq:null,rs:{inquiry:"{...}"}},
+]},
+
+{ name:"Coordinator Connections", base:"/coordinator-connections", endpoints:[
+  {m:"POST",p:"/coordinator-connections",a:"role:COORDINATOR,PARTICIPANT",d:"Either side initiates — coordinator connecting to a known participant, or participant enquiring from a coordinator's public profile.",rq:{targetUserId:"uuid",message:"optional, max 500"},rs:{connection:"{...}"}},
+  {m:"GET",p:"/coordinator-connections",a:"role:COORDINATOR,PARTICIPANT",d:"Coordinator views inbox (sent+received); participant views their connections.",rq:null,rs:{connections:"[...]"}},
+  {m:"PATCH",p:"/coordinator-connections/:id/respond",a:"role:COORDINATOR,PARTICIPANT",d:"Non-initiating side accepts or declines.",rq:{action:"ACCEPT | DECLINE"},rs:{connection:"{...}"}},
+  {m:"POST",p:"/coordinator-connections/:id/resend",a:"role:COORDINATOR,PARTICIPANT",d:"SC-C04 — resends a still-pending request.",rq:null,rs:{connection:"{...}"}},
+  {m:"PATCH",p:"/coordinator-connections/:id/cancel",a:"role:COORDINATOR,PARTICIPANT",d:"SC-C04 — cancels a still-pending request.",rq:null,rs:{connection:"{...}"}},
+  {m:"PATCH",p:"/coordinator-connections/:id/permissions",a:"role:PARTICIPANT",d:"Participant adjusts granular permissions on an accepted connection.",
+   rq:{canViewInfo:"boolean optional",canPostRequests:"boolean optional",canShortlist:"boolean optional",canMessage:"boolean optional",canConfirmBookings:"boolean optional",canManageReplacements:"boolean optional"},rs:{connection:"{...}"}},
+  {m:"POST",p:"/coordinator-connections/request-posting-approval",a:"role:COORDINATOR",d:"SC-P01 — coordinator asks the participant to approve a specific posting instead of self-certifying authority.",rq:{participantUserId:"uuid"},rs:{connection:"{...}"}},
+  {m:"PATCH",p:"/coordinator-connections/:id/respond-posting-approval",a:"role:PARTICIPANT",d:"Participant approves or declines the posting-approval request.",rq:{action:"APPROVE | DECLINE"},rs:{connection:"{...}"}},
+  {m:"POST",p:"/coordinator-connections/request-permissions",a:"role:COORDINATOR",d:"SC-PT04 — coordinator requests one or more additional permissions.",rq:{participantUserId:"uuid",requested:"{ canViewInfo, canPostRequests, canShortlist, canMessage, canConfirmBookings, canManageReplacements } (each boolean optional)"},rs:{connection:"{...}"}},
+  {m:"PATCH",p:"/coordinator-connections/:id/respond-permissions",a:"role:PARTICIPANT",d:"Participant approves or declines the permission request.",rq:{action:"APPROVE | DECLINE"},rs:{connection:"{...}"}},
+]},
+
+{ name:"Coordinators", base:"/coordinators", endpoints:[
+  {m:"GET",p:"/coordinators/available",a:"role:PARTICIPANT",d:"Browse Coordinators who've finished onboarding. Query: ?search=&page=&limit=.",rq:null,rs:{items:"Coordinator[]",total:"number",page:"number",limit:"number"}},
+]},
+
+{ name:"Professional Search", base:"/professional-search", endpoints:[
+  {m:"GET",p:"/professional-search",a:"role:COORDINATOR",d:"SC-F01-06 'Find directly' — coordinator's direct worker/provider search (distinct from GET /workers/available).",
+   rq:{searchType:"SUPPORT_WORKER|PROVIDER|BOTH, default BOTH",forParticipantUserId:"optional",suburb:"optional",state:"optional",service:"optional",genderRequirement:"optional",language:"optional",transportRequired:"boolean optional",overnightRequired:"boolean optional",rapidAvailability:"boolean optional",highIntensityExperience:"boolean optional",registeredProviderOnly:"boolean optional",rateMin:"optional",rateMax:"optional",documentsComplete:"boolean optional — submission-only, never a verification filter",page:"default 1",limit:"default 20"},
+   rs:{items:"[...]",total:"number",page:"number",limit:"number"}},
+  {m:"POST",p:"/professional-search/connect",a:"role:COORDINATOR",d:"SC-F06 — connects with a searched profile.",
+   rq:{professionalUserId:"uuid",action:"INVITE_TO_EXISTING_REQUEST | SAVE_TO_SHORTLIST | SAVE_AS_PREFERRED_BACKUP",jobId:"required if INVITE_TO_EXISTING_REQUEST",message:"optional",forParticipantUserId:"optional",listType:"PREFERRED_WORKER|PREFERRED_PROVIDER|BACKUP — only for SAVE_AS_PREFERRED_BACKUP"},
+   rs:{"...":"connect result"}},
+  {m:"GET",p:"/professional-search/:userId",a:"role:COORDINATOR",d:"Gets one searched profile's full detail.",rq:null,rs:{"...":"profile"}},
+]},
+
+{ name:"Workers (public browse)", base:"/workers", endpoints:[
+  {m:"GET",p:"/workers/available",a:"role:PARTICIPANT,COORDINATOR,PLAN_MANAGER,PROVIDER",d:"Browse workers who opted into public 'Post My Availability' listing. Query: ?suburb=&state=&page=&limit=.",rq:null,rs:{items:"Worker[]",total:"number",page:"number",limit:"number"}},
+]},
+
+{ name:"Availability Listings", base:"/availability-listings", endpoints:[
+  {m:"GET",p:"/availability-listings/mine",a:"role:SUPPORT_WORKER",d:"Lists the worker's own availability listings.",rq:null,rs:{listings:"[...]"}},
+  {m:"GET",p:"/availability-listings",a:"auth",d:"Browse listings. Query: ?category=&suburb=&state=.",rq:null,rs:{listings:"[...]"}},
+  {m:"POST",p:"/availability-listings",a:"role:SUPPORT_WORKER",d:"Creates a 'Post My Availability' listing.",
+   rq:{listingType:"DATE_RANGE|FORTNIGHTLY|ONGOING|BACKUP",startDate:"date",endDate:"optional",services:"JobCategoryEnum[], min 1",suburb:"optional",state:"optional",travelRadiusKm:"0-200 optional",rate:"0-1000 optional",visibility:"ALL|CONNECTIONS_ONLY optional",expiresAt:"optional"},
+   rs:{listing:"{...}"}},
+  {m:"PATCH",p:"/availability-listings/:id",a:"role:SUPPORT_WORKER",d:"Updates a listing (all createSchema fields optional, plus status).",rq:{"...":"partial create fields",status:"DRAFT|ACTIVE|PAUSED|EXPIRED optional"},rs:{listing:"{...}"}},
+  {m:"DELETE",p:"/availability-listings/:id",a:"role:SUPPORT_WORKER",d:"Deletes a listing.",rq:null,rs:{deleted:true}},
+]},
+
+{ name:"Provider Listings", base:"/provider/listings", endpoints:[
+  {m:"POST",p:"/provider/listings",a:"role:PROVIDER",d:"Creates a SERVICE or HOUSING listing (post-service / SIL-vacancy forms).",
+   rq:{listingCategory:"SERVICE | HOUSING",title:"5-200 chars",description:"10-5000 chars",suburb:"2-120 chars",listingType:"required if SERVICE — IMMEDIATE_INTAKE|RECURRING_CAPACITY|ONE_TIME_SLOT|SHORT_TERM|URGENT_FILL|WAITLIST_OPENING|ONGOING_REFERRALS",serviceCategory:"required if SERVICE",vacancyCategory:"required if HOUSING — SIL|SDA|SIL_SDA|RESPITE|MEDIUM_TERM|SHORT_TERM|OTHER","...":"see listing.schema.ts for full field list"},
+   rs:{listing:"{...}"}},
+  {m:"GET",p:"/provider/listings",a:"role:PROVIDER",d:"Lists own listings. Query: ?category=&status=.",rq:null,rs:{listings:"[...]"}},
+  {m:"PATCH",p:"/provider/listings/:id",a:"role:PROVIDER",d:"Updates a listing (edit fields / pause / close / reactivate).",rq:{status:"ACTIVE|PAUSED|FILLED|CLOSED optional","...":"partial listing fields"},rs:{listing:"{...}"}},
+  {m:"POST",p:"/provider/listings/:id/featured",a:"role:PROVIDER",d:"Purchases Featured Listing paid promotion.",rq:null,rs:{"...":"purchase result"}},
+  {m:"POST",p:"/provider/listings/platinum-tile",a:"role:PROVIDER",d:"Purchases a Platinum Tile campaign.",rq:{coverage:"string, required",durationMonths:"number, required",centreSuburb:"optional"},rs:{campaign:"{...}"}},
+  {m:"GET",p:"/provider/listings/platinum-tile",a:"role:PROVIDER",d:"Lists own Platinum Tile campaigns.",rq:null,rs:{campaigns:"[...]"}},
+]},
+
+{ name:"Provider Org", base:"/provider-org", endpoints:[
+  {m:"POST",p:"/provider-org/branches",a:"role:PROVIDER",d:"Creates a branch/location.",rq:{name:"1-120 chars"},rs:{"...":"branch"}},
+  {m:"GET",p:"/provider-org/branches",a:"role:PROVIDER",d:"Lists branches.",rq:null,rs:{"...":"branches"}},
+  {m:"DELETE",p:"/provider-org/branches/:id",a:"role:PROVIDER",d:"Deletes a branch.",rq:null,rs:{ok:true}},
+  {m:"POST",p:"/provider-org/administrators",a:"role:PROVIDER",d:"Adds an org administrator by email.",rq:{email:"valid email",branchIds:"uuid[] optional"},rs:{"...":"administrator"}},
+  {m:"GET",p:"/provider-org/administrators",a:"role:PROVIDER",d:"Lists administrators.",rq:null,rs:{"...":"administrators"}},
+  {m:"DELETE",p:"/provider-org/administrators/:id",a:"role:PROVIDER",d:"Removes an administrator.",rq:null,rs:{ok:true}},
+  {m:"POST",p:"/provider-org/team-members",a:"role:PROVIDER",d:"Adds a team member to a branch.",rq:{name:"1-120 chars",mobile:"6-20 chars",skills:"string[] max 20 optional",branchId:"uuid, required"},rs:{"...":"team member"}},
+  {m:"GET",p:"/provider-org/team-members",a:"role:PROVIDER",d:"Lists team members.",rq:null,rs:{"...":"team members"}},
+  {m:"DELETE",p:"/provider-org/team-members/:id",a:"role:PROVIDER",d:"Removes a team member.",rq:null,rs:{ok:true}},
+  {m:"POST",p:"/provider-org/team-members/:id/verify/resend",a:"role:PROVIDER",d:"Resends the team member's verification code.",rq:null,rs:{"...":"dispatch result"}},
+  {m:"POST",p:"/provider-org/team-members/:id/verify/confirm",a:"role:PROVIDER",d:"Confirms the team member's verification code.",rq:{code:"4-10 chars"},rs:{"...":"verified team member"}},
+]},
+
+{ name:"PM (Plan Manager)", base:"/pm", endpoints:[
+  {m:"POST",p:"/pm/connect",a:"auth",d:"Creates a plan-manager connection request.",rq:{planManagerUserId:"uuid"},rs:{"...":"connection"}},
+  {m:"GET",p:"/pm/connections",a:"auth",d:"Lists PM connections.",rq:null,rs:{"...":"connections"}},
+  {m:"PATCH",p:"/pm/connections/:id/respond",a:"auth",d:"Accepts or declines a PM connection.",rq:{action:"ACCEPT | DECLINE"},rs:{"...":"connection"}},
+  {m:"GET",p:"/pm/participants",a:"auth",d:"Plan Manager lists their linked participants.",rq:null,rs:{"...":"participants"}},
+  {m:"GET",p:"/pm/participants/:participantId/budget-statement",a:"auth",d:"Gets a linked participant's budget statement.",rq:null,rs:{"...":"budget statement"}},
+  {m:"POST",p:"/pm/referral",a:"auth",d:"Plan Manager posts a load-board referral on behalf of a linked participant.",rq:{"...":"createJobSchema-shaped payload"},rs:{"...":"referral/job"}},
+  {m:"GET",p:"/pm/referrals",a:"auth",d:"Lists referrals posted by this Plan Manager.",rq:null,rs:{"...":"referrals"}},
+  {m:"GET",p:"/pm/load-board",a:"auth",d:"Browses the open support-request load board.",rq:null,rs:{"...":"load board items"}},
+]},
+
+{ name:"Saved Searches", base:"/saved-searches", endpoints:[
+  {m:"POST",p:"/saved-searches",a:"auth",d:"Creates a standing 'notify me' saved search.",
+   rq:{label:"optional, max 80",filters:{suburb:"optional",state:"optional",category:"optional",urgency:"optional",shiftType:"optional",fundingType:"optional",isRecurring:"boolean optional"}},rs:{"...":"saved search"}},
+  {m:"GET",p:"/saved-searches",a:"auth",d:"Lists saved searches.",rq:null,rs:{"...":"saved searches"}},
+  {m:"PATCH",p:"/saved-searches/:id",a:"auth",d:"Updates label/filters/active state.",rq:{label:"optional",filters:"optional",isActive:"boolean optional"},rs:{"...":"saved search"}},
+  {m:"DELETE",p:"/saved-searches/:id",a:"auth",d:"Deletes a saved search.",rq:null,rs:{ok:true}},
+]},
+
+{ name:"Saved Professionals", base:"/saved-professionals", endpoints:[
+  {m:"POST",p:"/saved-professionals",a:"auth",d:"SC-SV01 — saves a professional into a stackable list category.",
+   rq:{professionalUserId:"uuid",note:"optional, max 300",listType:"GENERAL|PREFERRED_WORKER|PREFERRED_PROVIDER|BACKUP|RAPID_RESPONSE|PARTICIPANT_FAVOURITE|DO_NOT_INVITE, default GENERAL",forParticipantUserId:"optional"},
+   rs:{"...":"saved professional"}},
+  {m:"GET",p:"/saved-professionals",a:"auth",d:"Lists saved professionals. Query: ?listType= optional filter.",rq:null,rs:{"...":"saved professionals"}},
+  {m:"DELETE",p:"/saved-professionals/:professionalUserId",a:"auth",d:"Removes from a list. Query: ?listType=(default GENERAL)&forParticipantUserId=.",rq:null,rs:{ok:true}},
+]},
+
+{ name:"Upload", base:"/upload", endpoints:[
+  {m:"GET",p:"/upload/presign",a:"auth",d:"Gets a pre-signed upload URL for direct-to-storage uploads (S3/R2 in production).",rq:null,rs:{"...":"presigned URL + fields"}},
+  {m:"POST",p:"/upload/avatar",a:"auth",d:"Uploads a profile avatar. multipart/form-data field 'avatar'. jpeg/png/heic/webp only, 5MB limit.",rq:{avatar:"binary file"},rs:{"...":"avatar URL"}},
+  {m:"POST",p:"/upload/register-document",a:"auth",d:"Registers document metadata after a direct storage upload.",rq:{"...":"document metadata"},rs:{"...":"document record"}},
+  {m:"POST",p:"/upload/document/presign",a:"auth",d:"Gets a pre-signed URL specifically for a compliance document upload.",rq:{"...":"docType + file metadata"},rs:{"...":"presigned URL"}},
+  {m:"POST",p:"/upload/document/confirm",a:"auth",d:"Confirms a document upload completed successfully.",rq:{"...":"upload confirmation"},rs:{"...":"document record"}},
+  {m:"GET",p:"/upload/document",a:"auth",d:"Lists the user's uploaded documents.",rq:null,rs:{"...":"documents"}},
+  {m:"DELETE",p:"/upload/document/:id",a:"auth",d:"Deletes an uploaded document.",rq:null,rs:{ok:true}},
+]},
+];
+
+const AUTH_LABELS = {
+  pub:  {cls:"pub",  text:"PUBLIC"},
+  auth: {cls:"auth", text:"AUTH"},
+  admin:{cls:"admin",text:"ADMIN"},
+  admin2:{cls:"admin",text:"SUPER ADMIN"},
+};
+function authBadge(a){
+  if (a.startsWith("role:")) {
+    return {cls:"role", text:a.slice(5).split(",").join(" / ")};
+  }
+  return AUTH_LABELS[a] || {cls:"auth", text:a.toUpperCase()};
+}
+function esc(s){return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+function fmtBlock(obj){
+  if (!obj) return null;
+  const lines = Object.entries(obj).map(([k,v])=>`  "${k}": ${typeof v==="object" ? JSON.stringify(v) : `"${v}"`}`);
+  return "{\n" + lines.join(",\n") + "\n}";
+}
+
+const nav = document.getElementById("nav");
+const content = document.getElementById("content");
+
+function render(){
+  nav.innerHTML = "";
+  content.innerHTML = "";
+  API.forEach((mod, mi) => {
+    const group = document.createElement("div");
+    group.className = "nav-group";
+    const title = document.createElement("div");
+    title.className = "nav-group-title";
+    title.innerHTML = `<span>${esc(mod.name)}</span><span class="count">${mod.endpoints.length}</span>`;
+    title.onclick = () => group.classList.toggle("collapsed");
+    group.appendChild(title);
+    const items = document.createElement("div");
+    items.className = "nav-items";
+    mod.endpoints.forEach((ep, ei) => {
+      const item = document.createElement("div");
+      item.className = "nav-item";
+      item.dataset.target = `ep-${mi}-${ei}`;
+      const methodShort = ep.m.split(" ")[0];
+      item.innerHTML = `<span class="nav-m ${methodShort}">${methodShort}</span><span>${esc(ep.p)}</span>`;
+      item.onclick = () => {
+        document.getElementById(`ep-${mi}-${ei}`).scrollIntoView({behavior:"smooth",block:"start"});
+        document.querySelectorAll(".nav-item.active").forEach(n=>n.classList.remove("active"));
+        item.classList.add("active");
+      };
+      items.appendChild(item);
+    });
+    group.appendChild(items);
+    nav.appendChild(group);
+
+    const section = document.createElement("section");
+    section.innerHTML = `<h2 class="module-heading">${esc(mod.name)}</h2><p class="module-base">Base path: <code>${esc(mod.base)}</code></p>`;
+    mod.endpoints.forEach((ep, ei) => {
+      const badge = authBadge(ep.a);
+      const card = document.createElement("div");
+      card.className = "endpoint";
+      card.id = `ep-${mi}-${ei}`;
+      const methodShort = ep.m.split(" ")[0];
+      let html = `<div class="ep-head">
+        <span class="method ${methodShort}">${esc(ep.m)}</span>
+        <span class="path">${esc(ep.p)}</span>
+        <span class="badge ${badge.cls}">${esc(badge.text)}</span>
+      </div>
+      <p class="desc">${esc(ep.d)}</p>`;
+      if (ep.rq) {
+        html += `<div class="section-label">Request body</div><pre><code>${esc(fmtBlock(ep.rq))}</code></pre>`;
+      }
+      if (ep.rs) {
+        html += `<div class="section-label">Response &mdash; <span class="mid">{ data: ... }</span></div><pre><code>${esc(fmtBlock(ep.rs))}</code></pre>`;
+      }
+      card.innerHTML = html;
+      section.appendChild(card);
+    });
+    content.appendChild(section);
+  });
+}
+render();
+
+// Search
+document.getElementById("search").addEventListener("input", (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll(".nav-group").forEach(group => {
+    let anyVisible = false;
+    group.querySelectorAll(".nav-item").forEach(item => {
+      const match = item.textContent.toLowerCase().includes(q);
+      item.classList.toggle("hidden", !match);
+      if (match) anyVisible = true;
+    });
+    group.classList.toggle("hidden", q && !anyVisible);
+    if (q && anyVisible) group.classList.remove("collapsed");
+  });
+});
+</script>
+</body>
+</html>
