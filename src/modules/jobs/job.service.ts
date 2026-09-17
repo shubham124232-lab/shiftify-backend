@@ -14,6 +14,7 @@ import { computeApplicationScore, EXPERIENCE_LEVEL_RANK } from "./job-scoring";
 import { notifyMatchingSavedSearches } from "../saved-searches/saved-search.service";
 import { assertCoordinatorPermission } from "../coordinator-connections/coordinator-connection.service";
 import { isBlockedFromMessaging } from "../users/block.service";
+import { resolveJobCentroid } from "../../lib/au-postcode-centroids";
 import type { UserRole, JobCategory, JobUrgency, JobStatus } from "@prisma/client";
 import { ShiftType, FundingType } from "@prisma/client";
 import type {
@@ -98,8 +99,9 @@ const JOB_WRITE_SELECT = {
 // to anyone but the worker who wrote it. saveWorkerNote selects it explicitly.
 const JOB_WRITE_SELECT_WITH_NOTE = { ...JOB_WRITE_SELECT, workerPrivateNote: true } as const;
 
-// Summary select — used for list views.
-const JOB_SUMMARY_SELECT = {
+// Summary select — used for list views. Exported for public-shiftboard.service.ts
+// to spread + extend (lat/lng added, participant-identifying fields excluded).
+export const JOB_SUMMARY_SELECT = {
   id:                  true,
   title:               true,
   category:            true,
@@ -140,6 +142,8 @@ function withContactDetails<T extends {
   hideParticipantName: boolean;
   forParticipant: { id: string; name: string; avatarUrl: string | null } | null;
   workerPrivateNote?: string | null;
+  lat?: unknown;
+  lng?: unknown;
 }>(job: T, userId: string, participantContact: { phone: string | null; email: string | null } | null) {
   // The worker/provider "party" on a job is whichever of the two identity fields
   // is set — assignedWorkerUserId only gets set when a Provider hands the job to
@@ -173,6 +177,12 @@ function withContactDetails<T extends {
   return {
     ...job,
     addressLine: canSeeAddress ? job.addressLine : null,
+    // Job-location coordinates are the same "shown only after booking" tier as
+    // addressLine — a suburb centroid is still precise enough to be a privacy
+    // concern before mutual confirmation. See withContactDetails' addressLine
+    // gating above; this mirrors it exactly.
+    lat: canSeeAddress ? job.lat : null,
+    lng: canSeeAddress ? job.lng : null,
     workerPrivateNote: canSeeWorkerNote ? (job.workerPrivateNote ?? null) : null,
     forParticipant: job.forParticipant
       ? {
@@ -295,6 +305,13 @@ export async function createJob(
 
   const status: JobStatus = input.asDraft ? "DRAFT" : "OPEN";
 
+  // No posting-flow UI collects lat/lng today — fall back to a suburb/postcode
+  // centroid so the public Live Shiftboard's map/radius search has something
+  // to show. Suburb-level precision only, never street-address.
+  const fallbackCentroid = input.lat == null || input.lng == null
+    ? resolveJobCentroid(input.suburb, input.state, input.postcode)
+    : null;
+
   const created = await prisma.supportRequest.create({
     data: {
       postedByUserId:       posterId,
@@ -324,8 +341,8 @@ export async function createJob(
       addressLine:          input.addressLine ?? null,
       serviceDeliveryMode:  input.serviceDeliveryMode ?? null,
       locationNotes:        input.locationNotes ?? null,
-      lat:                  input.lat ?? null,
-      lng:                  input.lng ?? null,
+      lat:                  input.lat ?? fallbackCentroid?.lat ?? null,
+      lng:                  input.lng ?? fallbackCentroid?.lng ?? null,
       travelRequired:       input.travelRequired ?? null,
       // Step 6
       fundingType:          input.fundingType ? (input.fundingType as FundingType) : null,

@@ -9,6 +9,7 @@
     "postinstall": "prisma generate",
     "dev": "tsx watch src/server.ts",
     "build": "npx tsc -p tsconfig.json",
+    "postbuild": "node -e \"require('fs').cpSync('src/public','dist/public',{recursive:true})\"",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -17,6 +18,7 @@
     "seed": "tsx prisma/seed.ts",
     "smoke": "tsx scripts/smoke.ts",
     "backfill:scores": "tsx scripts/backfill-application-scores.ts",
+    "backfill:job-coordinates": "tsx scripts/backfill-job-coordinates.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -35,6 +37,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
+    "express-rate-limit": "^8.7.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.1.1",
     "prisma": "^5.22.0",
