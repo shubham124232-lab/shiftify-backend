@@ -30,7 +30,7 @@ function layout(title: string, bodyHtml: string): string {
           <tr>
             <td style="background:#4F46E5;padding:24px 32px;">
               <span style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.5px;">Shiftify</span>
-              <span style="color:#C7D2FE;font-size:13px;margin-left:8px;">NDIS Marketplace</span>
+              <span style="color:#C7D2FE;font-size:13px;margin-left:8px;">Disability Support Platform</span>
             </td>
           </tr>
           <!-- Body -->
@@ -145,7 +145,7 @@ export function welcomeEmail(name: string): EmailTemplate {
   const text = [
     `Hi ${name},`,
     "",
-    "Welcome to Shiftify — Australia's NDIS marketplace.",
+    "Welcome to Shiftify — an independent technology platform connecting Australia's disability support community.",
     "",
     "Complete your profile to get started. Once your account is activated, you'll have full access to the platform.",
     "",
@@ -155,7 +155,7 @@ export function welcomeEmail(name: string): EmailTemplate {
   const html = layout(
     subject,
     heading(`Welcome, ${name}!`) +
-      paragraph("You've successfully created your Shiftify account. We're thrilled to have you on Australia's leading NDIS marketplace.") +
+      paragraph("You've successfully created your Shiftify account. Shiftify is an independent technology platform connecting Australia's disability support community.") +
       paragraph("To get started, complete your profile and activate your account — it only takes a few minutes.") +
       `<div style="margin:24px 0;">
         <a href="#" style="display:inline-block;background:#4F46E5;color:#ffffff;padding:12px 28px;border-radius:6px;

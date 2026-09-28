@@ -187,7 +187,7 @@ function withContactDetails<T extends {
     forParticipant: job.forParticipant
       ? {
           ...job.forParticipant,
-          ...(shouldMaskName ? { name: "NDIS Participant" } : {}),
+          ...(shouldMaskName ? { name: "Participant" } : {}),
           ...(canSeeContact && participantContact
             ? { phone: participantContact.phone, email: participantContact.email }
             : {}),
