@@ -425,6 +425,50 @@ export async function unlinkParticipant(input: {
   });
 }
 
+// POST /linking/participants/:id/transfer — move a managed participant to
+// another Coordinator. Gated by ENABLE_MANAGED_TRANSFER in the controller.
+// Past jobs keep their original postedBy (old Coordinator).
+export async function transferParticipant(input: {
+  callerId: string;
+  callerIsAdmin: boolean;
+  participantId: string;
+  newCoordinatorUserId: string;
+}): Promise<void> {
+  const target = await prisma.user.findUnique({
+    where: { id: input.participantId },
+    include: { roles: { select: { role: true } } },
+  });
+  if (
+    !target ||
+    target.accountType !== "MANAGED" ||
+    !target.roles.some((r) => r.role === "PARTICIPANT")
+  ) {
+    throw new NotFoundError("Managed account not found");
+  }
+  if (!input.callerIsAdmin && target.parentUserId !== input.callerId) {
+    throw new ForbiddenError("You are not the parent of this account");
+  }
+  if (target.parentUserId === input.newCoordinatorUserId) {
+    throw new BadRequestError("Participant already belongs to that coordinator");
+  }
+  const newParent = await prisma.user.findUnique({
+    where: { id: input.newCoordinatorUserId },
+    include: { roles: { select: { role: true } } },
+  });
+  if (
+    !newParent ||
+    newParent.accountType === "MANAGED" ||
+    newParent.status !== "ACTIVE" ||
+    !newParent.roles.some((r) => r.role === "COORDINATOR")
+  ) {
+    throw new NotFoundError("Coordinator not found");
+  }
+  await prisma.user.update({
+    where: { id: input.participantId },
+    data: { parentUserId: input.newCoordinatorUserId },
+  });
+}
+
 // GET /linking/participants — list MANAGED PARTICIPANTs created by this Coordinator.
 export async function listParticipants(parentUserId: string): Promise<ManagedAccountResult[]> {
   const users = await prisma.user.findMany({

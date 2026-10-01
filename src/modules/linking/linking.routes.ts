@@ -96,6 +96,15 @@ router.post(
   asyncHandler(ctrl.sendParticipantInvitation),
 );
 
+// Transfer a managed participant to another Coordinator (inactive unless
+// ENABLE_MANAGED_TRANSFER=true).
+router.post(
+  "/participants/:id/transfer",
+  requireAuth,
+  requireRole("COORDINATOR"),
+  asyncHandler(ctrl.transferParticipant),
+);
+
 // ── Unlink (parent detaches managed sub-account; admin can also call) ────
 // Provider unlinks worker — requireRole("PROVIDER") enforces active role;
 // admin bypass is handled inside the service via callerIsAdmin flag.

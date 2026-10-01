@@ -68,3 +68,9 @@ export const sendParticipantInvitationSchema = z.object({
   method: z.enum(["EMAIL", "SMS"]),
 }).strict();
 export type SendParticipantInvitationInput = z.infer<typeof sendParticipantInvitationSchema>;
+
+// POST /linking/participants/:id/transfer
+export const transferParticipantSchema = z.object({
+  newCoordinatorUserId: z.string().min(1),
+}).strict();
+export type TransferParticipantInput = z.infer<typeof transferParticipantSchema>;

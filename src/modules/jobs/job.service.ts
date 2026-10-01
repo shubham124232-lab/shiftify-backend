@@ -1539,8 +1539,9 @@ export async function assignWorker(
 export async function confirmAssignment(jobId: string, userId: string) {
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
-  const workerPartyId = job!.assignedWorkerUserId ?? job!.selectedApplicantUserId;
-  if (workerPartyId !== userId) {
+  // A managed worker can't confirm for themselves — the selected provider
+  // confirms on their behalf (route blocks MANAGED callers).
+  if (job!.selectedApplicantUserId !== userId) {
     throw new ForbiddenError("Only the selected worker/provider can confirm this assignment");
   }
   if (job!.status !== "ASSIGNED") {
