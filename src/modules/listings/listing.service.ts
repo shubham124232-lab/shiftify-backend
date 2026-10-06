@@ -4,10 +4,12 @@
 import { randomUUID } from "crypto";
 import { prisma } from "../../lib/prisma";
 import { ApiError, ForbiddenError, BadRequestError } from "../../lib/errors";
-import { subscriptionGated } from "../subscriptions/subscription.service";
+import { subscriptionGated, getActiveBasePlanKey } from "../subscriptions/subscription.service";
 import type { CreateListingInput, ListListingsQuery, UpdateListingInput } from "../../validators/listing.schema";
 import type { UserRole } from "@prisma/client";
 
+
+const LISTING_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 
 const LISTING_SELECT = {
   id: true,
@@ -34,6 +36,8 @@ const LISTING_SELECT = {
   isFeatured: true,
   featuredExpiresAt: true,
   featuredQueuePosition: true,
+  standardPaidAt: true,
+  listingExpiresAt: true,
 } as const;
 
 export async function createListing(providerUserId: string, activeRole: UserRole, input: CreateListingInput) {
@@ -51,16 +55,29 @@ export async function createListing(providerUserId: string, activeRole: UserRole
   // acknowledgement is a form-only declaration — not persisted.
   const { acknowledgement: _ack, ...data } = input;
 
-  return (prisma as any).providerListing.create({
+  // Pricing V2 §7.2 — a housing/vacancy listing is the fixed 30-day Standard
+  // package; it expires automatically unless renewed. Service listings are not priced.
+  const isHousing = data.listingCategory === "HOUSING";
+  const now = new Date();
+
+  const listing = await (prisma as any).providerListing.create({
     data: {
       providerUserId,
       ...data,
       fundingTypes:  data.fundingTypes ?? undefined,
       suitableFor:   data.suitableFor ?? undefined,
       fundingRoutes: data.fundingRoutes ?? undefined,
+      ...(isHousing
+        ? {
+            standardPaidAt: now,
+            listingExpiresAt: new Date(now.getTime() + LISTING_DURATION_MS),
+            packageReceiptRef: `DEV-${randomUUID().toUpperCase()}`,
+          }
+        : {}),
     },
     select: LISTING_SELECT,
   });
+  return isHousing ? { ...listing, packagePriceAud: STANDARD_LISTING_PRICE_AUD } : listing;
 }
 
 export async function updateListing(providerUserId: string, listingId: string, input: UpdateListingInput) {
@@ -97,8 +114,9 @@ export async function updateListing(providerUserId: string, listingId: string, i
 // Paid 30-day SIL/SDA promotion, first-purchased-first-displayed within the
 // same suburb + listing category.
 
+const STANDARD_LISTING_PRICE_AUD = 199.0;
 const FEATURED_LISTING_PRICE_AUD = 399.0;
-const FEATURED_LISTING_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+const FEATURED_LISTING_DURATION_MS = LISTING_DURATION_MS;
 
 async function recomputeFeaturedQueue(suburb: string, listingCategory: string): Promise<void> {
   const active = await (prisma as any).providerListing.findMany({
@@ -113,6 +131,18 @@ async function recomputeFeaturedQueue(suburb: string, listingCategory: string): 
       }),
     ),
   );
+}
+
+// Pricing V2 §7.3 item 44 — disclose the queue position before the buyer pays.
+export async function previewFeaturedListing(providerUserId: string, listingId: string) {
+  const listing = await (prisma as any).providerListing.findUnique({ where: { id: listingId } });
+  if (!listing || listing.providerUserId !== providerUserId) {
+    throw new ApiError(404, "NOT_FOUND", "Listing not found");
+  }
+  const existingActive = await (prisma as any).providerListing.count({
+    where: { suburb: listing.suburb, listingCategory: listing.listingCategory, isFeatured: true, status: "ACTIVE" },
+  });
+  return { queuePosition: existingActive + 1, priceAud: FEATURED_LISTING_PRICE_AUD, durationDays: 30 };
 }
 
 export async function purchaseFeaturedListing(providerUserId: string, listingId: string) {
@@ -157,11 +187,15 @@ const PLATINUM_TILE_PRICE_AUD: Record<string, Record<number, number>> = {
   NATIONAL: { 1: 1499.99, 3: 3374.99, 6: 6299.99,  12: 11699.99 },
 };
 
+// Pricing V2 §7.1 item 37 — three sponsored positions per defined market.
+const PLATINUM_POSITIONS_PER_MARKET = 3;
+
 export async function purchasePlatinumTileCampaign(
   providerUserId: string,
   coverage: string,
   durationMonths: number,
   centreSuburb?: string,
+  marketState?: string,
 ) {
   const tierPrices = PLATINUM_TILE_PRICE_AUD[coverage];
   if (!tierPrices) throw new BadRequestError("Invalid coverage — must be METRO, STATE or NATIONAL");
@@ -171,14 +205,43 @@ export async function purchasePlatinumTileCampaign(
     throw new BadRequestError("Metro coverage requires a nominated campaign centre suburb");
   }
 
+  if (coverage === "STATE" && !marketState) {
+    throw new BadRequestError("State coverage requires a nominated state or territory");
+  }
+
+  // Item 40 — requires an active paid Provider subscription.
+  const planKey = await getActiveBasePlanKey(providerUserId, "PROVIDER");
+  if (!planKey || planKey.endsWith("_FREE")) {
+    throw new ApiError(403, "SUBSCRIPTION_REQUIRED", "Platinum Tile Sponsorship requires an active paid Provider subscription.");
+  }
+
   const startsAt = new Date();
+
+  // Item 37 — only three sponsored positions per market at a time.
+  const marketWhere =
+    coverage === "METRO"    ? { coverage, centreSuburb: { equals: centreSuburb, mode: "insensitive" as const } }
+    : coverage === "STATE"  ? { coverage, marketState: { equals: marketState, mode: "insensitive" as const } }
+    :                         { coverage };
+  const live = await (prisma as any).platinumTileCampaign.findMany({
+    where: { ...marketWhere, endsAt: { gt: startsAt } },
+    orderBy: { endsAt: "asc" },
+    select: { endsAt: true },
+  });
+  if (live.length >= PLATINUM_POSITIONS_PER_MARKET) {
+    throw new ApiError(
+      409,
+      "CONFLICT",
+      `All ${PLATINUM_POSITIONS_PER_MARKET} sponsored positions for this market are taken. The next one opens ${new Date(live[0].endsAt).toLocaleDateString("en-AU")}.`,
+    );
+  }
+
   const endsAt = new Date(startsAt);
   endsAt.setMonth(endsAt.getMonth() + durationMonths);
   const mockReceiptRef = `DEV-${randomUUID().toUpperCase()}`;
 
   return (prisma as any).platinumTileCampaign.create({
     data: {
-      providerUserId, coverage, centreSuburb: centreSuburb ?? null,
+      providerUserId, coverage, centreSuburb: centreSuburb ?? null, marketState: marketState ?? null,
       durationMonths, priceAud, startsAt, endsAt, mockReceiptRef,
     },
   });

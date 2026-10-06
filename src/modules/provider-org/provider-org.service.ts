@@ -9,7 +9,7 @@ import { prisma } from "../../lib/prisma";
 import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from "../../lib/errors";
 import { ApiError } from "../../lib/errors";
 import { notify } from "../../lib/notify";
-import { env } from "../../config/env";
+import { devCodesEnabled } from "../../config/env";
 import { getActiveProviderOrgCaps } from "../subscriptions/subscription.service";
 import type {
   CreateBranchInput,
@@ -19,7 +19,7 @@ import type {
 } from "../../validators/provider-org.schema";
 
 const VERIFICATION_TTL_MINUTES = 10;
-const returnDevCode = (): boolean => env.NODE_ENV !== "production" || env.RETURN_DEV_OTP;
+const returnDevCode = (): boolean => devCodesEnabled;
 
 async function requireCaps(providerUserId: string) {
   const caps = await getActiveProviderOrgCaps(providerUserId);
@@ -35,6 +35,12 @@ async function requireCaps(providerUserId: string) {
 
 // ─── Branches ───────────────────────────────────────────────────────────────
 
+// "PROVIDER_ORG_STARTER_ANNUAL" -> "Starter" for user-facing capacity messages.
+function planLabel(planKey: string): string {
+  const name = planKey.replace("PROVIDER_ORG_", "").replace("_ANNUAL", "").toLowerCase();
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 export async function createBranch(providerUserId: string, input: CreateBranchInput) {
   const caps = await requireCaps(providerUserId);
   if (caps.maxBranches != null) {
@@ -43,7 +49,7 @@ export async function createBranch(providerUserId: string, input: CreateBranchIn
       throw new ApiError(
         403,
         "SUBSCRIPTION_LIMIT",
-        `Your ${caps.planKey.replace("PROVIDER_ORG_", "")} plan allows up to ${caps.maxBranches} Branches. Upgrade to add more.`,
+        `Your ${planLabel(caps.planKey)} plan allows up to ${caps.maxBranches} Branches. Upgrade to add more.`,
       );
     }
   }
@@ -61,6 +67,18 @@ export async function listBranches(providerUserId: string) {
 export async function deleteBranch(providerUserId: string, branchId: string) {
   const branch = await prisma.providerBranch.findUnique({ where: { id: branchId } });
   if (!branch || branch.providerUserId !== providerUserId) throw new NotFoundError("Branch not found");
+  // Deleting a Branch cascades to its Team Member rows, which would erase the
+  // record that keeps this period's capacity honest — so refuse while any are on it.
+  const caps = await getActiveProviderOrgCaps(providerUserId);
+  const stillCounted = await prisma.providerTeamMember.count({
+    where: {
+      branchId,
+      ...(caps ? { OR: [{ removedAt: null }, { removedAt: { gte: caps.periodStart } }] } : {}),
+    },
+  });
+  if (stillCounted > 0) {
+    throw new BadRequestError("This Branch still has Team Members assigned this billing period. Move or remove them first; removed members stay counted until the period ends.");
+  }
   await prisma.providerBranch.delete({ where: { id: branchId } });
 }
 
@@ -84,7 +102,7 @@ export async function createAdministrator(providerUserId: string, input: CreateA
       throw new ApiError(
         403,
         "SUBSCRIPTION_LIMIT",
-        `Your ${caps.planKey.replace("PROVIDER_ORG_", "")} plan allows up to ${caps.maxAdministrators} Administrators. Upgrade to add more.`,
+        `Your ${planLabel(caps.planKey)} plan allows up to ${caps.maxAdministrators} Administrators. Upgrade to add more.`,
       );
     }
   }
@@ -137,17 +155,33 @@ export async function createTeamMember(providerUserId: string, input: CreateTeam
   const existing = await prisma.providerTeamMember.findUnique({
     where: { providerUserId_mobile: { providerUserId, mobile: input.mobile } },
   });
-  if (existing) throw new ConflictError("A Team Member with that mobile number already exists on your organisation.");
+  if (existing && !existing.removedAt) throw new ConflictError("A Team Member with that mobile number already exists on your organisation.");
 
-  if (caps.maxTeamMembers != null) {
-    const count = await prisma.providerTeamMember.count({ where: { providerUserId } });
+  // Capacity is Provider-wide and counts each unique person once, including anyone
+  // removed earlier in this billing period — so removing and re-adding someone,
+  // or swapping people out, cannot be used to exceed the plan limit.
+  const alreadyCounted = !!existing?.removedAt && existing.removedAt >= caps.periodStart;
+  if (caps.maxTeamMembers != null && !alreadyCounted) {
+    const count = await prisma.providerTeamMember.count({
+      where: { providerUserId, OR: [{ removedAt: null }, { removedAt: { gte: caps.periodStart } }] },
+    });
     if (count >= caps.maxTeamMembers) {
       throw new ApiError(
         403,
         "SUBSCRIPTION_LIMIT",
-        `Your ${caps.planKey.replace("PROVIDER_ORG_", "")} plan allows up to ${caps.maxTeamMembers} Team Members. Upgrade to add more.`,
+        `Your ${planLabel(caps.planKey)} plan allows up to ${caps.maxTeamMembers} Team Members per billing period, including anyone removed earlier in the period. Upgrade to add more.`,
       );
     }
+  }
+
+  if (existing?.removedAt) {
+    // Re-adding someone previously removed: restore the same row instead of creating a duplicate.
+    const restored = await prisma.providerTeamMember.update({
+      where: { id: existing.id },
+      data: { removedAt: null, branchId: input.branchId, name: input.name, skills: input.skills ?? [] },
+    });
+    const _dev_code = await sendVerificationSms(restored.id, providerUserId);
+    return { ...restored, _dev_code };
   }
 
   const teamMember = await prisma.providerTeamMember.create({
@@ -166,7 +200,7 @@ export async function createTeamMember(providerUserId: string, input: CreateTeam
 
 export async function listTeamMembers(providerUserId: string) {
   return prisma.providerTeamMember.findMany({
-    where: { providerUserId },
+    where: { providerUserId, removedAt: null },
     orderBy: { createdAt: "asc" },
     select: {
       id: true, name: true, mobile: true, skills: true, inviteStatus: true,
@@ -178,8 +212,9 @@ export async function listTeamMembers(providerUserId: string) {
 
 export async function removeTeamMember(providerUserId: string, teamMemberId: string) {
   const member = await prisma.providerTeamMember.findUnique({ where: { id: teamMemberId } });
-  if (!member || member.providerUserId !== providerUserId) throw new NotFoundError("Team Member not found");
-  await prisma.providerTeamMember.delete({ where: { id: teamMemberId } });
+  if (!member || member.providerUserId !== providerUserId || member.removedAt) throw new NotFoundError("Team Member not found");
+  // Soft-remove: the row stays so the person still counts toward this period's capacity.
+  await prisma.providerTeamMember.update({ where: { id: teamMemberId }, data: { removedAt: new Date() } });
 }
 
 // Re-sends the mobile verification code (e.g. the first one expired).
@@ -236,4 +271,25 @@ export async function confirmTeamMemberVerification(
       verificationCodeExpiresAt: null,
     },
   });
+}
+
+// Plan limits and current usage for the Internal Workforce screen (PR-W04). Usage
+// counts each unique Team Member once for the billing period, including anyone
+// removed earlier in it (Pricing V2 §5.3).
+export async function getCapacitySummary(providerUserId: string) {
+  const caps = await getActiveProviderOrgCaps(providerUserId);
+  if (!caps) return null;
+  const [teamMembers, administrators, branches] = await Promise.all([
+    prisma.providerTeamMember.count({
+      where: { providerUserId, OR: [{ removedAt: null }, { removedAt: { gte: caps.periodStart } }] },
+    }),
+    prisma.providerAdministrator.count({ where: { providerUserId } }),
+    prisma.providerBranch.count({ where: { providerUserId } }),
+  ]);
+  return {
+    planLabel: planLabel(caps.planKey),
+    teamMembers:    { used: teamMembers,    max: caps.maxTeamMembers },
+    administrators: { used: administrators, max: caps.maxAdministrators },
+    branches:       { used: branches,       max: caps.maxBranches },
+  };
 }

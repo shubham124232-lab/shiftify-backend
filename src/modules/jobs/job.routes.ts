@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { asyncHandler } from "../../utils/async-handler";
 import { requireAuth } from "../../middleware/auth.middleware";
+import { blockManagedSelfService, blockManagedMarketplaceBrowse } from "../../middleware/managed.middleware";
 import * as ctrl from "./job.controller";
 import * as reviewCtrl from "./review.controller";
 import * as assignmentCtrl from "./job-assignment.controller";
@@ -12,9 +13,9 @@ const router = Router();
 router.use(requireAuth);
 
 // ── Jobs CRUD ──────────────────────────────────────────────────────────────
-router.post  ("/",                                    asyncHandler(ctrl.createJob));
-router.get   ("/",                                    asyncHandler(ctrl.listJobs));
-router.get   ("/live-dashboard",                      asyncHandler(ctrl.listLiveDashboardJobs));
+router.post  ("/",                                    blockManagedSelfService, asyncHandler(ctrl.createJob));
+router.get   ("/",                                    blockManagedMarketplaceBrowse, asyncHandler(ctrl.listJobs));
+router.get   ("/live-dashboard",                      blockManagedMarketplaceBrowse, asyncHandler(ctrl.listLiveDashboardJobs));
 router.get   ("/my",                                  asyncHandler(ctrl.listMyJobs));
 router.get   ("/connections/mine",                    asyncHandler(ctrl.listMyConnections));
 router.get   ("/messages/threads",                    asyncHandler(ctrl.listMessageThreads));
@@ -29,7 +30,7 @@ router.patch ("/:id/publish",                         asyncHandler(ctrl.publishJ
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 router.patch ("/:id/assign-worker",                   asyncHandler(ctrl.assignWorker));
-router.patch ("/:id/confirm-assignment",              asyncHandler(ctrl.confirmAssignment));
+router.patch ("/:id/confirm-assignment",              blockManagedSelfService, asyncHandler(ctrl.confirmAssignment));
 router.patch ("/:id/start",                           asyncHandler(ctrl.startJob));
 router.patch ("/:id/complete",                        asyncHandler(ctrl.completeJob));
 router.patch ("/:id/confirm",                         asyncHandler(ctrl.confirmJob));
@@ -40,7 +41,7 @@ router.get   ("/:id/assignments",                     asyncHandler(assignmentCtr
 router.patch ("/:id/assignments/:assignmentId/status", asyncHandler(assignmentCtrl.updateAssignmentStatus));
 
 // ── Applications ───────────────────────────────────────────────────────────
-router.post  ("/:id/apply",                           asyncHandler(ctrl.applyToJob));
+router.post  ("/:id/apply",                           blockManagedSelfService, asyncHandler(ctrl.applyToJob));
 router.get   ("/:id/applications",                    asyncHandler(ctrl.listApplications));
 router.patch ("/:id/applications/:appId/select",      asyncHandler(ctrl.selectApplicant));
 router.post  ("/:id/featured-shift",                  asyncHandler(ctrl.purchaseFeaturedShift));
@@ -48,9 +49,13 @@ router.patch ("/:id/applications/:appId/shortlist",   asyncHandler(ctrl.shortlis
 router.patch ("/:id/applications/:appId/decline",     asyncHandler(ctrl.declineApplicant));
 router.patch ("/:id/applications/:appId/withdraw",    asyncHandler(ctrl.withdrawApplication));
 router.patch ("/:id/decline-assignment",              asyncHandler(ctrl.declineAssignment));
+router.patch ("/:id/pause",                           asyncHandler(ctrl.pauseJob));
+router.patch ("/:id/resume",                          asyncHandler(ctrl.resumeJob));
+router.patch ("/:id/extend",                          asyncHandler(ctrl.extendJob));
+router.post  ("/:id/rebroadcast",                     asyncHandler(ctrl.rebroadcastJob));
 router.patch ("/:id/close-connection",                asyncHandler(ctrl.closeConnection));
-router.patch ("/:id/save",                            asyncHandler(ctrl.bookmarkJob));
-router.delete("/:id/save",                            asyncHandler(ctrl.removeBookmark));
+router.patch ("/:id/save",                            blockManagedSelfService, asyncHandler(ctrl.bookmarkJob));
+router.delete("/:id/save",                            blockManagedSelfService, asyncHandler(ctrl.removeBookmark));
 router.patch ("/:id/running-late",                    asyncHandler(ctrl.notifyRunningLate));
 router.patch ("/:id/worker-note",                     asyncHandler(ctrl.saveWorkerNote));
 router.post  ("/:id/meet-and-greet",                  asyncHandler(ctrl.proposeMeetAndGreet));

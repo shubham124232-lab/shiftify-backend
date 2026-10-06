@@ -60,7 +60,7 @@ export async function saveFile(input: UploadInput): Promise<SavedFile> {
     };
   }
 
-  const absPath = path.resolve(env.UPLOAD_DIR, fileKey);
+  const absPath = getAbsolutePath(fileKey);
   await fs.mkdir(path.dirname(absPath), { recursive: true });
   await fs.writeFile(absPath, input.buffer);
   return {
@@ -71,11 +71,35 @@ export async function saveFile(input: UploadInput): Promise<SavedFile> {
   };
 }
 
-export function getAbsolutePath(relPath: string): string {
-  return path.resolve(env.UPLOAD_DIR, relPath);
+// Keys are always <category>/<userId>/<random><ext> (see buildFileKey). Anything
+// else — traversal segments, absolute paths, other prefixes — is rejected.
+const STORAGE_KEY_RE = /^(compliance|avatars|incident-evidence)\/([A-Za-z0-9-]+)\/[A-Za-z0-9._-]+$/;
+
+export function isSafeStorageKey(key: string): boolean {
+  return STORAGE_KEY_RE.test(key) && !key.includes("..");
 }
 
-export async function deleteFile(relPath: string): Promise<void> {
+/** True when key is a well-formed storage key inside this user's own folder. */
+export function isOwnedStorageKey(key: string, userId: string): boolean {
+  const m = STORAGE_KEY_RE.exec(key);
+  return !!m && !key.includes("..") && m[2] === userId;
+}
+
+export function getAbsolutePath(relPath: string): string {
+  const root = path.resolve(env.UPLOAD_DIR);
+  const abs  = path.resolve(root, relPath);
+  if (abs !== root && !abs.startsWith(root + path.sep)) {
+    throw new Error("Storage path escapes the upload directory");
+  }
+  return abs;
+}
+
+// ownerUserId: when given, the key must live in that user's own folder, so one
+// user can never cause deletion of another user's (or an arbitrary) object.
+export async function deleteFile(relPath: string, ownerUserId?: string): Promise<void> {
+  if (!isSafeStorageKey(relPath) || (ownerUserId !== undefined && !isOwnedStorageKey(relPath, ownerUserId))) {
+    throw new Error("Refusing to delete a file outside the caller's storage area");
+  }
   if (r2Configured()) {
     const res = await fetch(presignR2Url("DELETE", relPath), { method: "DELETE" });
     // 404 = already gone — same tolerance as the ENOENT branch below.

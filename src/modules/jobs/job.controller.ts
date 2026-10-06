@@ -19,6 +19,7 @@ import {
   createChangeRequestSchema,
   respondChangeRequestSchema,
   closeConnectionSchema,
+  extendJobSchema,
   notifyRunningLateSchema,
   saveWorkerNoteSchema,
   bookmarkJobSchema,
@@ -105,7 +106,7 @@ export async function updateDraftJob(req: Request, res: Response): Promise<void>
 // PATCH /jobs/:id/publish
 export async function publishJob(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
-  const job = await svc.publishJob(req.params.id, req.user.id);
+  const job = await svc.publishJob(req.params.id, req.user.id, role(req));
   success(res, { job });
 }
 
@@ -338,4 +339,29 @@ export async function listInvoices(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const invoices = await svc.listInvoices(req.user.id, role(req));
   success(res, { invoices });
+}
+
+// PATCH /jobs/:id/pause
+export async function pauseJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, { job: await svc.pauseJob(req.params.id, req.user.id) });
+}
+
+// PATCH /jobs/:id/resume
+export async function resumeJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, { job: await svc.resumeJob(req.params.id, req.user.id) });
+}
+
+// PATCH /jobs/:id/extend
+export async function extendJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(extendJobSchema, req.body);
+  success(res, { job: await svc.extendJob(req.params.id, req.user.id, data) });
+}
+
+// POST /jobs/:id/rebroadcast
+export async function rebroadcastJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, await svc.rebroadcastJob(req.params.id, req.user.id));
 }

@@ -11,8 +11,9 @@ import { prisma } from "../../lib/prisma";
 import { hashPassword, assertPasswordStrength } from "../../lib/hash";
 import { BadRequestError, NotFoundError, UnauthorizedError } from "../../lib/errors";
 import { notify } from "../../lib/notify";
-import { env } from "../../config/env";
+import { devCodesEnabled } from "../../config/env";
 import { verifyEmail as tmplVerifyEmail, passwordReset as tmplPasswordReset } from "../../lib/email-templates";
+import { phoneVariants } from "../../lib/phone";
 import type { OtpChannel, OtpPurpose } from "@prisma/client";
 
 // Constant-time sleep — prevents enumeration via response timing.
@@ -45,9 +46,8 @@ function checkRateLimit(key: string): void {
 const OTP_TTL_MINUTES = 10;
 const OTP_MAX_ATTEMPTS = 5;
 
-// Plaintext codes are echoed in responses outside production, or in production
-// when RETURN_DEV_OTP=true (staging without a real SMS/email provider).
-const returnDevCode = (): boolean => env.NODE_ENV !== "production" || env.RETURN_DEV_OTP;
+// Plaintext codes are echoed only when devCodesEnabled (see config/env.ts).
+const returnDevCode = (): boolean => devCodesEnabled;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -189,7 +189,7 @@ export async function forgotPassword(input: {
     const id = input.identifier.trim();
     const isEmail = id.includes("@");
     const user = await prisma.user.findFirst({
-      where: isEmail ? { email: id.toLowerCase() } : { phone: id },
+      where: isEmail ? { email: id.toLowerCase() } : { phone: { in: phoneVariants(id) } },
     });
 
     if (!user) return { message: MSG };
@@ -230,7 +230,7 @@ export async function resetPassword(input: {
   const isEmail = id.includes("@");
 
   const user = await prisma.user.findFirst({
-    where: isEmail ? { email: id.toLowerCase() } : { phone: id },
+    where: isEmail ? { email: id.toLowerCase() } : { phone: { in: phoneVariants(id) } },
   });
 
   if (!user) throw new UnauthorizedError("Invalid or expired reset code.");

@@ -5,6 +5,7 @@
 // sendPushNotification always writes a Notification row regardless of environment.
 
 import { prisma } from "./prisma";
+import { devCodesEnabled, devInboxEnabled } from "../config/env";
 import type { NotificationType } from "@prisma/client";
 
 // SW doc Window 46 — coarse category each NotificationType rolls up into, for
@@ -29,10 +30,10 @@ const CATEGORY_BY_TYPE: Partial<Record<NotificationType, PreferenceCategory>> = 
   COORDINATOR_CONNECTION_DECLINED: "connectionsAndInvites", COORDINATOR_ENQUIRY_RECEIVED: "connectionsAndInvites",
 };
 
-const isDev = process.env.NODE_ENV !== "production";
-// Staging without a real provider: RETURN_DEV_OTP=true keeps the dev inbox
-// capturing mock sends in production so OTP flows remain testable.
-const captureInbox = isDev || process.env.RETURN_DEV_OTP === "true";
+// Bodies carry OTP codes, so they are logged/captured/returned only when the
+// fail-safe flags in config/env.ts allow it (local runtime; staging opt-in for responses).
+const isDev = devCodesEnabled;
+const captureInbox = devInboxEnabled;
 
 // ─── Dev inbox (in-memory, capped at 200 entries) ────────────────────────────
 
@@ -129,7 +130,7 @@ async function sendPushNotification(
     data: { userId, type, title, body, data: data ?? undefined },
   });
 
-  console.log(`[notify:push] userId=${userId}  title="${title}"  body="${body}"`);
+  if (devInboxEnabled) console.log(`[notify:push] userId=${userId}  title="${title}"  body="${body}"`);
 
   if (isDev) {
     return { _dev_notification: { userId, title, body } };

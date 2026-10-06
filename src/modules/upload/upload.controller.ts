@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { success } from "../../utils/response";
 import { UnauthorizedError, ValidationError, BadRequestError, NotFoundError, ForbiddenError } from "../../lib/errors";
-import { generatePresignedUrl, buildFileKey, buildFileUrl, saveFile, deleteFile } from "../../lib/storage";
+import { generatePresignedUrl, buildFileKey, buildFileUrl, saveFile, deleteFile, isOwnedStorageKey } from "../../lib/storage";
 import { prisma } from "../../lib/prisma";
 import { updateProfile } from "../users/user.service";
 import { ROLE_LABELS } from "../../config/constants";
@@ -113,6 +113,7 @@ export async function registerDocument(req: Request, res: Response): Promise<voi
   }
 
   const { fileKey, fileName, mimeType, sizeBytes, docType, referenceNumber, issueDate, expiryDate } = parsed.data;
+  if (!isOwnedStorageKey(fileKey, req.user.id)) throw new BadRequestError("Invalid file key");
 
   const doc = await prisma.document.create({
     data: {
@@ -286,6 +287,12 @@ export async function documentConfirm(req: Request, res: Response): Promise<void
   }
 
   const { docType, referenceNumber, issueDate, expiryDate } = parsed.data;
+  if (!parsed.data.metadataOnly) {
+    // Client-supplied key/URL must point at this user's own upload from /document/presign.
+    if (!isOwnedStorageKey(parsed.data.key, req.user.id) || !parsed.data.publicUrl.endsWith(`/${parsed.data.key}`)) {
+      throw new BadRequestError("Invalid file key");
+    }
+  }
   const dt = docType as DocumentType;
   const isMulti = MULTI_UPLOAD_TYPES.includes(dt);
 
@@ -319,7 +326,7 @@ export async function documentConfirm(req: Request, res: Response): Promise<void
     const existing = await prisma.document.findFirst({ where: { userId: req.user.id, docType: dt } });
     if (existing) {
       if (existing.filePath && existing.filePath !== key) {
-        await deleteFile(existing.filePath).catch(() => null);
+        await deleteFile(existing.filePath, req.user.id).catch(() => null);
       }
       doc = await prisma.document.update({
         where: { id: existing.id },
@@ -372,7 +379,7 @@ export async function deleteUserDocument(req: Request, res: Response): Promise<v
   const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
   if (!doc) throw new NotFoundError("Document not found");
   if (doc.userId !== req.user.id) throw new ForbiddenError("Not your document");
-  await deleteFile(doc.filePath).catch(() => null);
+  await deleteFile(doc.filePath, req.user.id).catch(() => null);
   await prisma.document.delete({ where: { id: doc.id } });
   success(res, { ok: true });
 }

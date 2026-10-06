@@ -32,6 +32,9 @@ const EnvSchema = z.object({
 
   // Staging escape hatch: return OTP codes in API responses while no real
   // SMS/email provider is wired up. Must be removed/false once Twilio/Resend go live.
+  // Explicit deployment tier. RETURN_DEV_OTP is only honoured when this is "staging".
+  APP_ENV: z.enum(["local", "staging", "production"]).optional(),
+
   RETURN_DEV_OTP: z
     .string()
     .optional()
@@ -53,4 +56,13 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+// Fail-safe dev-OTP gates. NODE_ENV=production never exposes codes unless the
+// deployment is explicitly marked APP_ENV=staging AND RETURN_DEV_OTP=true.
+const isLocalRuntime = env.NODE_ENV === "development" || env.NODE_ENV === "test";
+// Plaintext OTP/dev fields in API responses.
+export const devCodesEnabled: boolean =
+  isLocalRuntime || (env.RETURN_DEV_OTP && env.APP_ENV === "staging");
+// Unauthenticated /auth/dev/inbox + in-memory capture of mock sends: local runtime only.
+export const devInboxEnabled: boolean = isLocalRuntime;
 export type Env = typeof env;

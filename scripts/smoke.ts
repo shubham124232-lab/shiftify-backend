@@ -155,8 +155,8 @@ async function ensureWorker(): Promise<Actor> {
 }
 
 function jobBody(title: string) {
-  const start = new Date(Date.now() + 24 * 3600 * 1000);
-  const end = new Date(Date.now() + 25 * 3600 * 1000);
+  const start = new Date(Date.now() + 72 * 3600 * 1000); // Routine: starts more than 48h ahead
+  const end = new Date(Date.now() + 73 * 3600 * 1000);
   return {
     title: `[SMOKE] ${title}`, description: "Automated smoke test job — safe to delete.",
     category: "PERSONAL_CARE", urgency: "ROUTINE",
@@ -266,7 +266,7 @@ const sections: Record<string, () => Promise<void>> = {
     report(r.status === 200 && found, "job visible on load board", `found=${found}`);
 
     r = await req("POST", `/jobs/${jid}/apply`,
-      { note: "smoke", availabilityType: "YES_EXACT", rateResponse: "ACCEPT", introduction: "Smoke suite application.", applicationData: { documentsConfirmed: true } }, w.token);
+      { note: "smoke", availabilityType: "YES_EXACT", rateResponse: "ACCEPT", introduction: "Smoke suite application.", applicationData: { connectAcknowledgement: true, documentsConfirmed: true } }, w.token);
     report(r.status === 201 || r.status === 200, "worker applies (structured)", JSON.stringify(r.body).slice(0, 200));
 
     r = await req("GET", `/jobs/${jid}`, undefined, p.token);
@@ -294,7 +294,7 @@ const sections: Record<string, () => Promise<void>> = {
     // messages on a fresh open job
     r = await req("POST", "/jobs", jobBody("Messages"), p.token);
     const mjid = (data(r).job ?? data(r)).id;
-    await req("POST", `/jobs/${mjid}/apply`, { note: "msg test" }, w.token);
+    await req("POST", `/jobs/${mjid}/apply`, { note: "msg test", applicationData: { connectAcknowledgement: true } }, w.token);
     r = await req("POST", `/jobs/${mjid}/messages`, { body: "Hello from smoke suite" }, w.token);
     report(r.status === 201 || r.status === 200, "send job message", JSON.stringify(r.body).slice(0, 150));
     r = await req("GET", `/jobs/${mjid}/messages`, undefined, p.token);
@@ -313,7 +313,7 @@ const sections: Record<string, () => Promise<void>> = {
     const p0 = await ensureParticipant();
     r = await req("POST", "/jobs", jobBody("CounterConfirm"), p0.token);
     const cjid = (data(r).job ?? data(r)).id;
-    await req("POST", `/jobs/${cjid}/apply`, { note: "counter test" }, w.token);
+    await req("POST", `/jobs/${cjid}/apply`, { note: "counter test", applicationData: { connectAcknowledgement: true } }, w.token);
     r = await req("GET", `/jobs/${cjid}`, undefined, p0.token);
     const capp = ((data(r).job ?? data(r)).applications ?? [])[0]?.id;
     await req("PATCH", `/jobs/${cjid}/applications/${capp}/select`, {}, p0.token);
@@ -330,7 +330,7 @@ const sections: Record<string, () => Promise<void>> = {
     const p = await ensureParticipant();
     r = await req("POST", "/jobs", jobBody("CancelAttribution"), p.token);
     const jid = (data(r).job ?? data(r)).id;
-    await req("POST", `/jobs/${jid}/apply`, { note: "cancel test" }, w.token);
+    await req("POST", `/jobs/${jid}/apply`, { note: "cancel test", applicationData: { connectAcknowledgement: true } }, w.token);
     r = await req("GET", `/jobs/${jid}`, undefined, p.token);
     const appId = ((data(r).job ?? data(r)).applications ?? [])[0]?.id;
     await req("PATCH", `/jobs/${jid}/applications/${appId}/select`, {}, p.token);
@@ -410,7 +410,7 @@ const sections: Record<string, () => Promise<void>> = {
 
     const r = await req("POST", "/jobs", jobBody("GateTest"), p.token);
     const jid = (data(r).job ?? data(r)).id;
-    const rr = await req("POST", `/jobs/${jid}/apply`, { note: "gate" }, g.token);
+    const rr = await req("POST", `/jobs/${jid}/apply`, { note: "gate", applicationData: { connectAcknowledgement: true } }, g.token);
     report(rr.status === 403 && errCode(rr) === "SUBSCRIPTION_REQUIRED",
       "unsubscribed worker blocked (SUBSCRIPTION_REQUIRED)", `status=${rr.status} code=${errCode(rr)}`);
   },

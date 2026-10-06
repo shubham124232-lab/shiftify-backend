@@ -40,17 +40,22 @@ async function main() {
   console.log("[seed] Seeding subscription plans...");
 
   const plans = [
-  { key: "WORKER_FREE",          role: "SUPPORT_WORKER" as const, name: "Worker — Free",            amountAud: 0,     isAddOn: false, features: ["Basic profile listing", "Apply to open shifts", "Standard support"] },
-  { key: "WORKER_BASIC",         role: "SUPPORT_WORKER" as const, name: "Worker — Basic",           amountAud: 49.99, isAddOn: false, features: ["Priority profile placement", "Unlimited shift applications", "Priority support"] },
-  { key: "WORKER_AVAILABLE_NOW", role: "SUPPORT_WORKER" as const, name: "Worker — Available Now",   amountAud: 24.99, isAddOn: true,  features: ["\"Available Now\" badge on profile", "Boosted visibility in urgent searches"] },
-  { key: "COORDINATOR_FREE",     role: "COORDINATOR"    as const, name: "Coordinator — Free",       amountAud: 0,     isAddOn: false, features: ["Basic profile listing", "Standard support"] },
-  { key: "COORDINATOR_BASIC",    role: "COORDINATOR"    as const, name: "Coordinator — Basic",      amountAud: 49.99, isAddOn: false, features: ["Priority profile placement", "Priority support"] },
-  // SC journey S03 — annual billing option for the same Basic tier, ~35% off the $49.99/mo x 12 rate.
-  { key: "COORDINATOR_BASIC_ANNUAL", role: "COORDINATOR" as const, name: "Coordinator — Basic (Annual)", amountAud: 389.92, isAddOn: false, features: ["Priority profile placement", "Priority support", "Billed annually — save vs. monthly"] },
-  { key: "COORDINATOR_GROWTH",   role: "COORDINATOR"    as const, name: "Coordinator — Growth",     amountAud: 29.99, isAddOn: true,  features: ["Direct Invite", "Expanded professional network access", "Enhanced profile visibility"] },
-  { key: "COORDINATOR_GROWTH_ANNUAL", role: "COORDINATOR" as const, name: "Coordinator — Growth (Annual)", amountAud: 233.92, isAddOn: true, features: ["Direct Invite", "Expanded professional network access", "Enhanced profile visibility", "Billed annually — save vs. monthly"] },
-  { key: "COORDINATOR_SPEED",    role: "COORDINATOR"    as const, name: "Coordinator — Speed",      amountAud: 19.99, isAddOn: true,  features: ["Available Now worker filter", "Fast replacement tools", "Priority urgent workflow"] },
-  { key: "COORDINATOR_SPEED_ANNUAL", role: "COORDINATOR" as const, name: "Coordinator — Speed (Annual)", amountAud: 155.92, isAddOn: true, features: ["Available Now worker filter", "Fast replacement tools", "Priority urgent workflow", "Billed annually — save vs. monthly"] },
+  // Pricing V2 (20 Aug 2026) §2/§3 — names, prices and inclusions follow V2 exactly.
+  { key: "WORKER_FREE",          role: "SUPPORT_WORKER" as const, name: "Worker — Free",            amountAud: 0,     isAddOn: false, features: ["Profile, visibility and shift browsing", "10 once-only introductory Connect actions (no expiry)", "Receive invitations and message existing connections"] },
+  { key: "WORKER_BASIC",         role: "SUPPORT_WORKER" as const, name: "Shiftify Basic",           amountAud: 49.99, isAddOn: false, features: ["Unlimited eligible Connect actions", "Messaging and general availability", "Eligible invitation responses", "Direct Connect access"] },
+  { key: "WORKER_BASIC_ANNUAL",  role: "SUPPORT_WORKER" as const, name: "Shiftify Basic (Annual)",  amountAud: 389.92, isAddOn: false, features: ["Unlimited eligible Connect actions", "Messaging and general availability", "Eligible invitation responses", "Direct Connect access", "Billed annually — 35% discount"] },
+  { key: "WORKER_AVAILABLE_NOW", role: "SUPPORT_WORKER" as const, name: "Available Now add-on",     amountAud: 24.99, isAddOn: true,  features: ["Available Now status", "Increased urgent visibility", "Relevant Rapid, Urgent, Last-Minute and replacement alerts", "Requires Shiftify Basic"] },
+  { key: "COORDINATOR_FREE",     role: "COORDINATOR"    as const, name: "Coordinator — Free",       amountAud: 0,     isAddOn: false, features: ["Professional profile and platform visibility", "10 once-only introductory actions (no expiry)", "Receive participant enquiries"] },
+  { key: "COORDINATOR_BASIC",    role: "COORDINATOR"    as const, name: "Shiftify Pro",             amountAud: 49.99, isAddOn: false, features: ["Unlimited support-request posts", "Multiple-participant workspace", "Request and response management", "Messaging and core business tools"] },
+  // Annual billing for the same Pro tier — 35% off the $49.99/mo x 12 rate (V2 §3.6).
+  { key: "COORDINATOR_BASIC_ANNUAL", role: "COORDINATOR" as const, name: "Shiftify Pro (Annual)", amountAud: 389.92, isAddOn: false, features: ["Unlimited support-request posts", "Multiple-participant workspace", "Request and response management", "Messaging and core business tools", "Billed annually — 35% discount"] },
+  { key: "COORDINATOR_GROWTH",   role: "COORDINATOR"    as const, name: "Growth add-on",            amountAud: 29.99, isAddOn: true,  features: ["Direct Invite", "Expanded professional network access", "Enhanced profile visibility", "Requires Shiftify Pro"] },
+  { key: "COORDINATOR_GROWTH_ANNUAL", role: "COORDINATOR" as const, name: "Growth add-on (Annual)", amountAud: 233.92, isAddOn: true, features: ["Direct Invite", "Expanded professional network access", "Enhanced profile visibility", "Requires Shiftify Pro", "Billed annually — 35% discount"] },
+  { key: "COORDINATOR_SPEED",    role: "COORDINATOR"    as const, name: "Speed add-on",             amountAud: 19.99, isAddOn: true,  features: ["Available Now worker filter", "Fast replacement tools", "Priority urgent workflow", "Requires Shiftify Pro"] },
+  { key: "COORDINATOR_SPEED_ANNUAL", role: "COORDINATOR" as const, name: "Speed add-on (Annual)", amountAud: 155.92, isAddOn: true, features: ["Available Now worker filter", "Fast replacement tools", "Priority urgent workflow", "Requires Shiftify Pro", "Billed annually — 35% discount"] },
+  // Provider free tier — V2 §2: 10 once-only introductory Provider actions, then a
+  // paid plan or a $19.99 Shift Pass. Same `_FREE` key convention as the SW/SC rows.
+  { key: "PROVIDER_FREE",        role: "PROVIDER"       as const, name: "Provider — Free",          amountAud: 0,     isAddOn: false, features: ["10 once-only introductory Provider actions (no expiry)", "Provider profile, notifications and history"] },
   // Legacy per-listing Provider plans — superseded by PROVIDER_ORG_* below
   // (Pricing V2 §5 has exactly 4 Provider plans, none of them listing-count
   // based). Kept as inactive rows, not deleted, so old UserSubscription FK
@@ -61,10 +66,15 @@ async function main() {
   { key: "PLAN_MANAGER_BASIC",   role: "PLAN_MANAGER"   as const, name: "Plan Manager — Basic",     amountAud: 19.99, isAddOn: false, features: ["Manage up to 50 participant plans", "Budget tracking & reporting", "Claim submission tools", "Priority support"] },
   // Provider organisation tiers (Pricing V2 §4/§5) — Branch/Administrator/Team
   // Member capacity. These are now the ONLY active Provider base plans.
-  { key: "PROVIDER_ORG_STARTER", role: "PROVIDER" as const, name: "Provider Organisation — Starter", amountAud: 99.99,  isAddOn: false, features: ["2 Administrators", "10 Team Members", "2 Branches"], maxAdministrators: 2,  maxTeamMembers: 10,  maxBranches: 2 },
-  { key: "PROVIDER_ORG_TEAM",    role: "PROVIDER" as const, name: "Provider Organisation — Team",    amountAud: 199.99, isAddOn: false, features: ["5 Administrators", "25 Team Members", "5 Branches"], maxAdministrators: 5,  maxTeamMembers: 25,  maxBranches: 5 },
-  { key: "PROVIDER_ORG_GROWTH",  role: "PROVIDER" as const, name: "Provider Organisation — Growth",  amountAud: 499.99, isAddOn: false, features: ["7 Administrators", "50 Team Members", "7 Branches"], maxAdministrators: 7,  maxTeamMembers: 50,  maxBranches: 7 },
-  { key: "PROVIDER_ORG_SCALE",   role: "PROVIDER" as const, name: "Provider Organisation — Scale",   amountAud: 799.99, isAddOn: false, features: ["10 Administrators", "100 Team Members", "10 Branches"], maxAdministrators: 10, maxTeamMembers: 100, maxBranches: 10 },
+  { key: "PROVIDER_ORG_STARTER", role: "PROVIDER" as const, name: "Starter", amountAud: 99.99,  isAddOn: false, features: ["2 Administrators", "10 Team Members", "2 Branches"], maxAdministrators: 2,  maxTeamMembers: 10,  maxBranches: 2 },
+  { key: "PROVIDER_ORG_TEAM",    role: "PROVIDER" as const, name: "Team",    amountAud: 199.99, isAddOn: false, features: ["5 Administrators", "25 Team Members", "5 Branches"], maxAdministrators: 5,  maxTeamMembers: 25,  maxBranches: 5 },
+  { key: "PROVIDER_ORG_GROWTH",  role: "PROVIDER" as const, name: "Growth",  amountAud: 499.99, isAddOn: false, features: ["7 Administrators", "50 Team Members", "7 Branches"], maxAdministrators: 7,  maxTeamMembers: 50,  maxBranches: 7 },
+  { key: "PROVIDER_ORG_SCALE",   role: "PROVIDER" as const, name: "Scale",   amountAud: 799.99, isAddOn: false, features: ["10 Administrators", "100 Team Members", "10 Branches"], maxAdministrators: 10, maxTeamMembers: 100, maxBranches: 10 },
+  // Annual Provider pricing — 35% off twelve monthly payments (V2 §5.1).
+  { key: "PROVIDER_ORG_STARTER_ANNUAL", role: "PROVIDER" as const, name: "Starter (Annual)", amountAud: 779.92,  isAddOn: false, features: ["2 Administrators", "10 Team Members", "2 Branches", "Billed annually — 35% discount"], maxAdministrators: 2,  maxTeamMembers: 10,  maxBranches: 2 },
+  { key: "PROVIDER_ORG_TEAM_ANNUAL",    role: "PROVIDER" as const, name: "Team (Annual)",    amountAud: 1559.92, isAddOn: false, features: ["5 Administrators", "25 Team Members", "5 Branches", "Billed annually — 35% discount"], maxAdministrators: 5,  maxTeamMembers: 25,  maxBranches: 5 },
+  { key: "PROVIDER_ORG_GROWTH_ANNUAL",  role: "PROVIDER" as const, name: "Growth (Annual)",  amountAud: 3899.92, isAddOn: false, features: ["7 Administrators", "50 Team Members", "7 Branches", "Billed annually — 35% discount"], maxAdministrators: 7,  maxTeamMembers: 50,  maxBranches: 7 },
+  { key: "PROVIDER_ORG_SCALE_ANNUAL",   role: "PROVIDER" as const, name: "Scale (Annual)",   amountAud: 6239.92, isAddOn: false, features: ["10 Administrators", "100 Team Members", "10 Branches", "Billed annually — 35% discount"], maxAdministrators: 10, maxTeamMembers: 100, maxBranches: 10 },
 ];
 
   const planRows: Record<string, { id: string }> = {};

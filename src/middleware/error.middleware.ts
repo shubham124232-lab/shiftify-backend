@@ -21,6 +21,10 @@ function humanizeFieldName(path: string): string {
 // issue kinds into plain sentences; anything unrecognised falls back to a
 // generic "check this field" line rather than the raw Zod text.
 function humanizeZodIssue(issue: ZodIssue): string {
+  // Strict-object unknown keys have an empty path — name the keys, not an empty field.
+  if (issue.code === "unrecognized_keys") {
+    return `Unexpected field${issue.keys.length > 1 ? "s" : ""}: ${issue.keys.map((k) => `"${k}"`).join(", ")}.`;
+  }
   const field = humanizeFieldName(issue.path.join("."));
 
   switch (issue.code) {
@@ -58,6 +62,14 @@ export const errorMiddleware: ErrorRequestHandler = (err, _req, res, _next) => {
           message: humanizeZodIssue(i),
         })),
       },
+    });
+    return;
+  }
+
+  // Malformed JSON body (express.json) is a client error, not a server fault.
+  if (err && typeof err === "object" && (err as { type?: string }).type === "entity.parse.failed") {
+    res.status(400).json({
+      error: { code: "BAD_REQUEST", message: "Request body is not valid JSON" },
     });
     return;
   }

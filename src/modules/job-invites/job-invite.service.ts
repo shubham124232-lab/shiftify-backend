@@ -51,18 +51,7 @@ export async function createInvite(
   const existing = await prisma.jobInvite.findUnique({
     where: { jobId_invitedUserId: { jobId, invitedUserId: input.invitedUserId } },
   });
-  if (existing) {
-    if (existing.status === "PENDING") throw new ConflictError("An invitation is already pending for this person");
-    if (existing.status === "ACCEPTED") throw new ConflictError("This person has already accepted an invitation to this job");
-    // Previously declined/withdrawn — allow a fresh invite.
-    const reopened = await prisma.jobInvite.update({
-      where: { id: existing.id },
-      data:  { status: "PENDING", message: input.message ?? null, amountAud, mockReceiptRef: null, respondedAt: null },
-      include: INCLUDE,
-    });
-    notifyInvited(reopened);
-    return reopened;
-  }
+  if (existing?.status === "PENDING") throw new ConflictError("An invitation is already pending for this person");
 
   // §9.3 — a Provider may send up to 3 concurrent paid invites for one job.
   if (activeRole === "PROVIDER") {
@@ -72,6 +61,18 @@ export async function createInvite(
     if (pendingCount >= 3) {
       throw new ConflictError("You can have at most 3 pending Direct Connect invitations open for one job");
     }
+  }
+
+  if (existing) {
+    if (existing.status === "ACCEPTED") throw new ConflictError("This person has already accepted an invitation to this job");
+    // Previously declined/withdrawn — allow a fresh invite.
+    const reopened = await prisma.jobInvite.update({
+      where: { id: existing.id },
+      data:  { status: "PENDING", message: input.message ?? null, amountAud, mockReceiptRef: null, respondedAt: null },
+      include: INCLUDE,
+    });
+    notifyInvited(reopened);
+    return reopened;
   }
 
   const created = await prisma.jobInvite.create({
@@ -110,7 +111,9 @@ export async function listInvitesForJob(jobId: string, userId: string) {
 
 export async function listMyInvites(userId: string) {
   return prisma.jobInvite.findMany({
-    where:   { invitedUserId: userId },
+    // A pending invite is only actionable while its request is still open; invites to cancelled,
+    // filled or closed requests drop out of the list instead of showing a Connect button that cannot work.
+    where:   { invitedUserId: userId, OR: [{ status: { not: "PENDING" } }, { job: { status: "OPEN" } }] },
     orderBy: { createdAt: "desc" },
     include: INCLUDE,
   });
@@ -129,6 +132,10 @@ export async function respondToInvite(
   if (invite.invitedUserId !== userId) throw new ForbiddenError("This invitation isn't addressed to you");
   if (invite.status !== "PENDING") throw new BadRequestError("This invitation is already " + invite.status.toLowerCase());
 
+  if (input.action === "ACCEPT" && input.acknowledged !== true) {
+    throw new BadRequestError("Please confirm you have reviewed this request and can meet the stated requirements before connecting.");
+  }
+
   if (input.action === "DECLINE") {
     const updated = await prisma.jobInvite.update({
       where: { id: inviteId },
@@ -140,6 +147,14 @@ export async function respondToInvite(
 
   if (invite.job.status !== "OPEN") {
     throw new BadRequestError("This request is no longer open");
+  }
+  const live = await prisma.supportRequest.findUnique({
+    where: { id: invite.jobId },
+    select: { visibilityTarget: true, applicationDeadlineAt: true, isRecurring: true },
+  });
+  if (live?.visibilityTarget?.startsWith("PAUSED:")) throw new BadRequestError("This request is paused — the poster has to resume it first");
+  if (live?.applicationDeadlineAt && !live.isRecurring && live.applicationDeadlineAt < new Date()) {
+    throw new BadRequestError("The response window for this request has closed");
   }
 
   const mockReceiptRef = invite.amountAud != null ? `DEV-${randomUUID().toUpperCase()}` : null;

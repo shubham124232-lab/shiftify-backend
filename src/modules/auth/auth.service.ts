@@ -11,6 +11,7 @@ import {
   expiresInMs,
 } from "../../lib/jwt";
 import * as otpService from "./otp.service";
+import { looksLikePhone, phoneVariants } from "../../lib/phone";
 import {
   ConflictError,
   UnauthorizedError,
@@ -56,7 +57,7 @@ async function issueTokens(
   const sessionId  = randomUUID();
   const expiresAt  = new Date(Date.now() + expiresInMs(env.JWT_REFRESH_EXPIRES_IN));
 
-  const accessToken  = signAccessToken({ sub: user.id, activeRole, roles, status: user.status, name: user.name ?? undefined });
+  const accessToken  = signAccessToken({ sub: user.id, activeRole, roles, status: user.status, name: user.name ?? undefined, sid: sessionId });
   const refreshToken = signRefreshToken({ sub: user.id, jti: sessionId });
 
   await prisma.session.create({
@@ -97,7 +98,7 @@ export async function register(input: {
   if (email && (await prisma.user.findUnique({ where: { email } }))) {
     throw new ConflictError("An account with this email already exists");
   }
-  if (await prisma.user.findUnique({ where: { phone } })) {
+  if (await prisma.user.findFirst({ where: { phone: { in: phoneVariants(phone) } } })) {
     throw new ConflictError("An account with this phone number already exists");
   }
   if (username && (await prisma.user.findUnique({ where: { username } }))) {
@@ -175,7 +176,8 @@ export async function createManagedAccount(input: {
 // Returns true when the identifier string looks like a phone number.
 // OTP is only required when the user explicitly logs in with their mobile number.
 function isPhoneIdentifier(id: string): boolean {
-  return /^\+/.test(id) || /^[\d\s\-()]+$/.test(id.trim());
+  // A number-looking username that is not a valid Australian phone number stays a username.
+  return looksLikePhone(id);
 }
 
 // Login — OTP required only when the identifier is a phone number.
@@ -187,7 +189,7 @@ export async function login(input: {
 }): Promise<LoginPendingResult | AuthResult> {
   const id = input.identifier.trim();
   const row = await prisma.user.findFirst({
-    where: { OR: [{ email: id.toLowerCase() }, { phone: id }, { username: id }] },
+    where: { OR: [{ email: id.toLowerCase() }, { phone: { in: phoneVariants(id) } }, { username: id }] },
     include: ROLE_INCLUDE,
   });
   if (!row || !row.passwordHash) {
@@ -274,6 +276,10 @@ export async function refresh(refreshToken: string): Promise<AuthResult> {
   if (!session) {
     throw new UnauthorizedError("Session not found");
   }
+  if (session.user.status === "SUSPENDED") {
+    await prisma.session.deleteMany({ where: { userId: session.userId } });
+    throw new UnauthorizedError("Account suspended. Contact support.");
+  }
 
   const incomingHash = hashToken(refreshToken);
   const isCurrent  = session.refreshTokenHash === incomingHash;
@@ -299,7 +305,7 @@ export async function refresh(refreshToken: string): Promise<AuthResult> {
 
   const { roles: _r, ...user } = session.user;
 
-  const accessToken  = signAccessToken({ sub: user.id, activeRole, roles, status: user.status, name: user.name ?? undefined });
+  const accessToken  = signAccessToken({ sub: user.id, activeRole, roles, status: user.status, name: user.name ?? undefined, sid: session.id });
   const refreshTokenNew = signRefreshToken({ sub: user.id, jti: session.id });
   const expiresAt = new Date(Date.now() + expiresInMs(env.JWT_REFRESH_EXPIRES_IN));
 
@@ -356,7 +362,7 @@ export async function checkUsernameAvailable(username: string): Promise<boolean>
 export async function switchRole(input: {
   userId: string;
   targetRole: UserRole;
-  refreshToken?: string;
+  sessionId: string;
 }): Promise<{ activeRole: UserRole; roles: UserRole[]; accessToken: string }> {
   const row = await prisma.user.findUnique({
     where: { id: input.userId },
@@ -369,23 +375,20 @@ export async function switchRole(input: {
     throw new ForbiddenError("You do not hold that role");
   }
 
-  if (input.refreshToken) {
-    try {
-      const payload = verifyRefreshToken(input.refreshToken);
-      await prisma.session.updateMany({
-        where: { id: payload.jti, userId: input.userId },
-        data: { activeRole: input.targetRole },
-      });
-    } catch {
-      // No valid refresh session — still return re-scoped access token.
-    }
-  }
+  // Persist the choice on the session so /auth/refresh and reloads keep the role.
+  const updated = await prisma.session.updateMany({
+    where: { id: input.sessionId, userId: input.userId },
+    data:  { activeRole: input.targetRole },
+  });
+  if (updated.count === 0) throw new UnauthorizedError("Session ended");
 
   const accessToken = signAccessToken({
     sub: user.id,
     activeRole: input.targetRole,
     roles,
     status: row.status,
+    name: user.name ?? undefined,
+    sid: input.sessionId,
   });
   return { activeRole: input.targetRole, roles, accessToken };
 }

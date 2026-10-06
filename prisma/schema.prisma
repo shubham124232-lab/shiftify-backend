@@ -2054,6 +2054,13 @@ model ProviderListing {
   featuredExpiresAt     DateTime?
   featuredQueuePosition Int?
 
+  // Pricing V2 §7.2 — a SIL/SDA/Home and Living vacancy is a fixed 30-day paid
+  // Standard package ($199). Null on SERVICE listings and on rows created before
+  // the package existed.
+  standardPaidAt     DateTime?
+  listingExpiresAt   DateTime?
+  packageReceiptRef  String?
+
   @@index([providerUserId, status])
   @@index([listingCategory, status])
   @@index([suburb])
@@ -2122,6 +2129,10 @@ model ProviderTeamMember {
   // Set only if this person later signs up for their own independent Support
   // Worker account — records the fact only, per §4.4 item 25 ("personal
   // marketplace activity remains separate"); does not merge any data.
+  // Set when the Provider removes the member. The row is kept so a member who was
+  // added this billing period still counts toward capacity (delete-and-replace
+  // must not bypass the limit, Pricing V2 §5.3). Null = currently on the team.
+  removedAt                 DateTime?
   claimedByUserId           String?
   claimedByUser             User?          @relation("ProviderTeamMemberClaimedBy", fields: [claimedByUserId], references: [id], onDelete: SetNull)
   createdAt                 DateTime       @default(now())
@@ -2164,6 +2175,7 @@ model PlatinumTileCampaign {
   provider       User     @relation(fields: [providerUserId], references: [id], onDelete: Cascade)
   coverage       String // METRO | STATE | NATIONAL
   centreSuburb   String? // required for METRO's 30km-radius rule
+  marketState    String? // nominated state/territory for STATE coverage (market inventory)
   durationMonths Int // 1 | 3 | 6 | 12
   priceAud       Decimal  @db.Decimal(7, 2)
   startsAt       DateTime
