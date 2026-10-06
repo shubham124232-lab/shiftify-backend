@@ -29,6 +29,7 @@ import providerOrgRoutes            from "./modules/provider-org/provider-org.ro
 import availabilityListingRoutes    from "./modules/availability-listings/availability-listing.routes";
 import professionalSearchRoutes     from "./modules/professional-search/professional-search.routes";
 import directInquiryRoutes          from "./modules/direct-inquiries/direct-inquiry.routes";
+import publicProfileRoutes          from "./modules/public-profiles/public-profile.routes";
 import publicShiftboardRoutes       from "./modules/public-shiftboard/public-shiftboard.routes";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { requireAuth }    from "./middleware/auth.middleware";
@@ -110,6 +111,7 @@ app.use("/provider-org",            providerOrgRoutes);
 app.use("/availability-listings",   availabilityListingRoutes);
 app.use("/professional-search",     professionalSearchRoutes);
 app.use("/direct-inquiries",         directInquiryRoutes);
+app.use("/public-profiles",          publicProfileRoutes);
 
 // ── 404 ─────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

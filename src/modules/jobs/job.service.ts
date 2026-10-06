@@ -55,12 +55,13 @@ const JOB_DETAIL_INCLUDE = {
     include: {
       applicant: {
         select: {
-          id: true, name: true, avatarUrl: true,
+          id: true, name: true, avatarUrl: true, phoneVerified: true,
+          documents: { select: { docType: true, expiryDate: true, status: true } },
           workerProfile: {
             select: { rating: true, totalReviews: true, hourlyRate: true, servicesOffered: true, experienceLevel: true, suburb: true, state: true, travelRadiusKm: true },
           },
           providerProfile: {
-            select: { averageRating: true, totalRatings: true, coreServices: true },
+            select: { averageRating: true, totalRatings: true, coreServices: true, businessName: true },
           },
         },
       },
@@ -1000,9 +1001,21 @@ export async function getJob(jobId: string, userId: string, activeRole: UserRole
   // Coordinator posting for a connected participant: tell the UI which actions the participant has granted
   // so prohibited buttons are not offered (the server still enforces every one of them).
   const viewerPermissions = await resolveCoordinatorViewerPermissions(job!, userId);
+  // Provider doc PR-LV01 — live control centre numbers for the owner of an open request.
+  if (relation === "POSTER") {
+    void prisma.jobApplication.updateMany({ where: { jobId: job!.id, viewedAt: null }, data: { viewedAt: new Date() } })
+      .catch((err) => console.error("[getJob] viewedAt update failed:", err));
+  }
+  const liveStats = relation === "POSTER" && job!.status === "OPEN"
+    ? {
+        eligibleWorkers: await prisma.workerProfile.count({ where: { user: { status: "ACTIVE", accountType: "SELF" } } }),
+        responses: detail.applications.filter((a) => !["WITHDRAWN", "DECLINED"].includes(a.status)).length,
+      }
+    : null;
   return {
     ...detail,
     viewerPermissions,
+    liveStats,
     // Poster-private notes: never shown to the participant, managers or workers.
     internalNote:  relation === "ADMIN" || relation === "POSTER" ? detail.internalNote : null,
     caseReference: relation === "ADMIN" || relation === "POSTER" ? detail.caseReference : null,
@@ -1015,9 +1028,11 @@ export async function getJob(jobId: string, userId: string, activeRole: UserRole
       riskSafetyNotes: null, medicalNotes: null, behaviourNotes: null,
     }),
     // Applicants only ever see their own application; the full list is for the request's owners.
-    applications: seesRequestContext
+    applications: (seesRequestContext
       ? detail.applications
-      : detail.applications.filter((a) => a.applicantUserId === userId),
+      : detail.applications.filter((a) => a.applicantUserId === userId))
+      // Shortlist notes and pass-over reasons are for the poster (and admins) only.
+      .map((a) => (relation === "POSTER" || relation === "ADMIN" ? a : { ...a, ownerNote: null, decisionReason: null })),
     meetAndGreets:  seesSafetyAndHistory ? detail.meetAndGreets  : [],
     changeRequests: seesSafetyAndHistory ? detail.changeRequests : [],
   };
@@ -1477,6 +1492,21 @@ export async function applyToJob(
     );
   }
 
+  // Provider PR-OA03 / Journey 18 — an unregistered Provider is excluded from NDIA-managed work.
+  if (activeRole === "PROVIDER") {
+    const [target, profile] = await Promise.all([
+      prisma.supportRequest.findUnique({ where: { id: jobId }, select: { fundingType: true } }),
+      prisma.providerProfile.findUnique({ where: { userId: applicantId }, select: { ndisRegistered: true } }),
+    ]);
+    if (target?.fundingType === "NDIA_MANAGED" && !profile?.ndisRegistered) {
+      throw new ApiError(
+        403,
+        "NOT_ELIGIBLE",
+        "This request is NDIA-managed, which needs a verified NDIS Registered Provider. Unregistered Providers can respond to plan-managed and self-managed work.",
+      );
+    }
+  }
+
   // Subscription gate (#51/#52) — workers/providers need an active plan for their role.
   if (!(await subscriptionGated(applicantId, activeRole))) {
     throw new ApiError(
@@ -1656,7 +1686,8 @@ export async function listApplications(jobId: string, userId: string) {
     include: {
       applicant: {
         select: {
-          id: true, name: true, avatarUrl: true,
+          id: true, name: true, avatarUrl: true, phoneVerified: true,
+          documents: { select: { docType: true, expiryDate: true, status: true } },
           workerProfile: {
             select: { rating: true, totalReviews: true, hourlyRate: true, servicesOffered: true, experienceLevel: true, suburb: true, state: true, travelRadiusKm: true },
           },
@@ -1736,6 +1767,17 @@ export async function selectApplicant(jobId: string, appId: string, posterId: st
     "JOB_SELECTED",
   );
 
+  // Provider doc PR-LV04 — everyone else is told respectfully that the request was filled, not that they were rejected.
+  void prisma.jobApplication.findMany({ where: { jobId, status: "REQUEST_FILLED" }, select: { applicantUserId: true } })
+    .then((others) => Promise.all(others.map((o) => notify.sendPushNotification(
+      o.applicantUserId,
+      "This request has been filled",
+      `Thank you for responding to "${job!.title}". It has now been filled by someone else — we'll keep showing you suitable requests.`,
+      { jobId },
+      "REQUEST_FILLED",
+    ))))
+    .catch((err) => console.error("[select] filled notices failed:", err));
+
   return prisma.supportRequest.findUnique({ where: { id: jobId }, select: JOB_WRITE_SELECT });
 }
 
@@ -1788,12 +1830,16 @@ export async function shortlistApplicant(jobId: string, appId: string, posterId:
   if (!app || app.jobId !== jobId) throw new NotFoundError("Application not found");
   if (app.status !== "INTERESTED") throw new BadRequestError("This application can no longer be shortlisted.");
 
-  return prisma.jobApplication.update({ where: { id: appId }, data: { status: "SHORTLISTED" } });
+  const shortlisted = await prisma.jobApplication.update({ where: { id: appId }, data: { status: "SHORTLISTED" } });
+  // Provider doc PR-N01 — the responder learns their response was shortlisted.
+  void notify.sendPushNotification(app.applicantUserId, "You were shortlisted", `Your response to "${job!.title}" was shortlisted.`, { jobId, urgency: job!.urgency }, "JOB_SHORTLISTED")
+    .catch((err) => console.error("[shortlist] notify failed:", err));
+  return shortlisted;
 }
 
 // ─── Decline applicant ────────────────────────────────────────────────────────
 
-export async function declineApplicant(jobId: string, appId: string, posterId: string) {
+export async function declineApplicant(jobId: string, appId: string, posterId: string, reason?: string) {
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
   if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can decline applicants");
@@ -1803,7 +1849,18 @@ export async function declineApplicant(jobId: string, appId: string, posterId: s
   if (!app || app.jobId !== jobId) throw new NotFoundError("Application not found");
   if (["SELECTED", "WITHDRAWN"].includes(app.status)) throw new BadRequestError("Cannot decline this application");
 
-  return prisma.jobApplication.update({ where: { id: appId }, data: { status: "DECLINED" } });
+  return prisma.jobApplication.update({ where: { id: appId }, data: { status: "DECLINED", ...(reason ? { decisionReason: reason } : {}) } });
+}
+
+// ─── Poster-private note on a response (Provider doc PR-LV03) ─────────────────
+
+export async function setApplicationNote(jobId: string, appId: string, posterId: string, note: string) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can add notes");
+  const app = await prisma.jobApplication.findUnique({ where: { id: appId } });
+  if (!app || app.jobId !== jobId) throw new NotFoundError("Application not found");
+  return prisma.jobApplication.update({ where: { id: appId }, data: { ownerNote: note.trim() || null } });
 }
 
 // ─── Worker withdraw ──────────────────────────────────────────────────────────
@@ -1816,7 +1873,13 @@ export async function withdrawApplication(jobId: string, applicantId: string) {
   if (app.status === "SELECTED") throw new BadRequestError("Cannot withdraw after being selected");
   if (app.status === "WITHDRAWN") throw new BadRequestError("Already withdrawn");
 
-  return prisma.jobApplication.update({ where: { id: app.id }, data: { status: "WITHDRAWN" } });
+  const withdrawn = await prisma.jobApplication.update({ where: { id: app.id }, data: { status: "WITHDRAWN" } });
+  const wJob = await prisma.supportRequest.findUnique({ where: { id: jobId }, select: { postedByUserId: true, title: true, urgency: true } });
+  if (wJob) {
+    void notify.sendPushNotification(wJob.postedByUserId, "A response was withdrawn", `A responder withdrew from "${wJob.title}".`, { jobId, urgency: wJob.urgency }, "JOB_APPLICATION_WITHDRAWN")
+      .catch((err) => console.error("[withdraw] notify failed:", err));
+  }
+  return withdrawn;
 }
 
 // ─── Assign worker (provider → their team member) ────────────────────────────

@@ -325,6 +325,9 @@ async function providerDashboard(userId: string) {
     confirmedIntakesCount,
     unreadMessages,
     unreadNotifications,
+    replacementNeeded,
+    expiryProfile,
+    expiringListings,
   ] = await Promise.all([
     prisma.jobApplication.findMany({
       where: incoming,
@@ -349,7 +352,29 @@ async function providerDashboard(userId: string) {
     prisma.supportRequest.count({ where: { selectedApplicantUserId: userId, status: { in: ["CONFIRMED", "COMPLETED"] } } }),
     countUnreadMessages(userId),
     prisma.notification.count({ where: { userId, read: false } }),
+    // PD02 "Replacement needed" — own open requests created because a booked shift fell through.
+    prisma.supportRequest.findMany({
+      where: { postedByUserId: userId, status: "OPEN", OR: [{ promotedFromCancellation: true }, { requestPurposeCategory: "REPLACEMENT" }] },
+      select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5,
+    }),
+    prisma.providerProfile.findUnique({
+      where: { userId },
+      select: { publicLiabilityExpiryDate: true, professionalIndemnityExpiryDate: true, workersCompExpiryDate: true },
+    }),
+    prisma.providerListing.findMany({
+      where: { providerUserId: userId, listingCategory: "HOUSING", status: "ACTIVE", listingExpiresAt: { not: null, lte: new Date(now.getTime() + 14 * 86400000) } },
+      select: { id: true, title: true, listingExpiresAt: true },
+    }),
   ]);
+
+  // PR-D03 — insurance (30 days) and Home and Living listing (14 days) expiries needing attention.
+  const soon = new Date(now.getTime() + 30 * 86400000);
+  const expiringSoon: { label: string; date: Date }[] = [];
+  const addIfSoon = (label: string, date: Date | null | undefined) => { if (date && date <= soon) expiringSoon.push({ label, date }); };
+  addIfSoon("Public liability insurance", expiryProfile?.publicLiabilityExpiryDate);
+  addIfSoon("Professional indemnity insurance", expiryProfile?.professionalIndemnityExpiryDate);
+  addIfSoon("Workers compensation insurance", expiryProfile?.workersCompExpiryDate);
+  for (const l of expiringListings) addIfSoon(`Listing: ${l.title}`, l.listingExpiresAt);
 
   return {
     role: "PROVIDER" as const,
@@ -375,6 +400,8 @@ async function providerDashboard(userId: string) {
       job:           a.job,
     })),
     myRequests,
+    replacementNeeded,
+    expiringSoon,
     // The Provider's OWN outgoing expressions of interest on other people's requests.
     pendingExpressions: pendingExpressions.map((a) => ({ applicationId: a.id, job: a.job })),
     activeShifts,

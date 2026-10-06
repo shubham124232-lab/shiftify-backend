@@ -91,3 +91,9 @@ export async function getCapacity(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   success(res, { capacity: await svc.getCapacitySummary(req.user.id) });
 }
+
+// GET /provider-org/inbox
+export async function getInbox(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, await svc.getInbox(req.user.id));
+}

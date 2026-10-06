@@ -189,7 +189,11 @@ export async function createTeamMember(providerUserId: string, input: CreateTeam
     // Re-adding someone previously removed: restore the same row instead of creating a duplicate.
     const restored = await prisma.providerTeamMember.update({
       where: { id: existing.id },
-      data: { removedAt: null, branchId: input.branchId, name: input.name, skills: input.skills ?? [] },
+      data: {
+        removedAt: null, branchId: input.branchId, name: input.name, skills: input.skills ?? [],
+        email: input.email ?? null, relationshipType: input.relationshipType, locations: input.locations ?? [], consentAcknowledgedAt: new Date(),
+        accessLevel: input.accessLevel ?? null, profileVisibility: input.profileVisibility ?? null,
+      },
     });
     const _dev_code = await sendVerificationSms(restored.id, providerUserId);
     return { ...restored, _dev_code };
@@ -202,6 +206,12 @@ export async function createTeamMember(providerUserId: string, input: CreateTeam
       name: input.name,
       mobile: input.mobile,
       skills: input.skills ?? [],
+      email: input.email ?? null,
+      relationshipType: input.relationshipType,
+      locations: input.locations ?? [],
+      accessLevel: input.accessLevel ?? null,
+      profileVisibility: input.profileVisibility ?? null,
+      consentAcknowledgedAt: new Date(),
     },
   });
 
@@ -215,6 +225,7 @@ export async function listTeamMembers(providerUserId: string) {
     orderBy: { createdAt: "asc" },
     select: {
       id: true, name: true, mobile: true, skills: true, inviteStatus: true,
+      email: true, relationshipType: true, locations: true, accessLevel: true, profileVisibility: true,
       mobileVerifiedAt: true, claimedByUserId: true, createdAt: true,
       branch: { select: { id: true, name: true } },
     },
@@ -303,5 +314,39 @@ export async function getCapacitySummary(providerUserId: string) {
     teamMembers:    { used: rosterMembers + managedWorkers, max: caps.maxTeamMembers },
     administrators: { used: administrators, max: caps.maxAdministrators },
     branches:       { used: branches,       max: caps.maxBranches },
+  };
+}
+
+// Unified inbox (PR-M01) — worker responses to the Provider's staffing requests and the
+// Provider's own responses to other people's opportunities, with every status kept so the
+// PR-M02 staffing/opportunity status labels can be shown. Direct enquiries come from
+// /direct-inquiries/received.
+const INBOX_JOB = { id: true, title: true, suburb: true, urgency: true, status: true, scheduledStartAt: true } as const;
+
+export async function getInbox(providerUserId: string) {
+  const [workerResponses, opportunityResponses] = await Promise.all([
+    prisma.jobApplication.findMany({
+      where: { job: { postedByUserId: providerUserId } },
+      include: { job: { select: INBOX_JOB }, applicant: { select: { id: true, name: true } } },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+    }),
+    prisma.jobApplication.findMany({
+      where: { applicantUserId: providerUserId },
+      include: { job: { select: INBOX_JOB } },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+    }),
+  ]);
+  return {
+    workerResponses: workerResponses.map((a) => ({
+      id: a.id, status: a.status, applicantName: a.applicant.name, applicantRole: a.applicantRole,
+      rateResponse: a.rateResponse, availabilityType: a.availabilityType, createdAt: a.createdAt, updatedAt: a.updatedAt, job: a.job,
+      viewedAt: a.viewedAt,
+      clarification: !!((a.applicationData ?? {}) as { clarificationQuestion?: string }).clarificationQuestion,
+    })),
+    opportunityResponses: opportunityResponses.map((a) => ({
+      id: a.id, status: a.status, createdAt: a.createdAt, updatedAt: a.updatedAt, job: a.job, viewedAt: a.viewedAt,
+    })),
   };
 }

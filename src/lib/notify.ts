@@ -123,12 +123,47 @@ async function sendPushNotification(
       if (!pref.pushEnabled || (category && !pref[category])) {
         return {};
       }
+      // Provider doc PR-N02 — quiet hours (Rapid/Urgent exempt), and location/service filters on job alerts.
+      const pp = (pref.providerPrefs ?? null) as {
+        quietHoursEnabled?: boolean; quietStart?: string; quietEnd?: string; urgentExceptions?: boolean;
+        locationFilter?: string[]; serviceFilter?: string[];
+        channelByUrgency?: Record<string, string[]>;
+      } | null;
+      if (pp) {
+        const meta = (data ?? {}) as { urgency?: string; suburb?: string; category?: string };
+        const fast = meta.urgency === "RAPID" || meta.urgency === "URGENT";
+        if (pp.quietHoursEnabled && pp.quietStart && pp.quietEnd && !(fast && pp.urgentExceptions !== false)) {
+          const d = new Date();
+          const mins = d.getHours() * 60 + d.getMinutes();
+          const toMin = (s: string) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3, 5));
+          const s = toMin(pp.quietStart), e = toMin(pp.quietEnd);
+          const inQuiet = s <= e ? mins >= s && mins < e : mins >= s || mins < e;
+          if (inQuiet) return {};
+        }
+        const allowed = meta.urgency ? pp.channelByUrgency?.[meta.urgency] : undefined;
+        if (allowed && !allowed.includes("PUSH")) return {};
+        if (type === "NEW_JOB_NEARBY") {
+          if (pp.locationFilter?.length && meta.suburb && !pp.locationFilter.some((l) => l.toLowerCase() === meta.suburb!.toLowerCase())) return {};
+          if (pp.serviceFilter?.length && meta.category && !pp.serviceFilter.includes(meta.category)) return {};
+        }
+      }
     }
   }
 
   await prisma.notification.create({
     data: { userId, type, title, body, data: data ?? undefined },
   });
+
+  // Provider doc PR-N02 — organisation-wide alerts also reach the assigned administrator, and an unconfirmed
+  // fast request escalates to the backup administrator.
+  const orgPref = await prisma.notificationPreference.findUnique({ where: { userId }, select: { providerPrefs: true } });
+  const orgPp = (orgPref?.providerPrefs ?? null) as { assignedAdminId?: string | null; backupAdminId?: string | null } | null;
+  if (orgPp) {
+    const extra = [orgPp.assignedAdminId, type === "REQUEST_STARTING_UNCONFIRMED" ? orgPp.backupAdminId : null].filter((x): x is string => !!x && x !== userId);
+    for (const adminId of extra) {
+      await prisma.notification.create({ data: { userId: adminId, type, title, body, data: data ?? undefined } });
+    }
+  }
 
   if (devInboxEnabled) console.log(`[notify:push] userId=${userId}  title="${title}"  body="${body}"`);
 

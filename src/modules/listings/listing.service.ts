@@ -10,6 +10,7 @@ import type { UserRole } from "@prisma/client";
 
 
 const LISTING_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+const RESTRICTED_VACANCY_CATEGORIES: string[] = ["SIL", "SDA", "SIL_SDA"];
 
 const LISTING_SELECT = {
   id: true,
@@ -35,6 +36,7 @@ const LISTING_SELECT = {
   suitableFor: true,
   fundingRoutes: true,
   urgency: true,
+  housingDetails: true,
   createdAt: true,
   updatedAt: true,
   isFeatured: true,
@@ -67,12 +69,20 @@ export async function createListing(providerUserId: string, activeRole: UserRole
   // paid Provider Organisation plan; no per-tier cap.
 
   // acknowledgement is a form-only declaration — not persisted.
-  const { acknowledgement: _ack, ...data } = input;
+  const { acknowledgement: _ack, saveAsDraft, ...data } = input;
 
   // Pricing V2 §7.2 — a housing/vacancy listing is the fixed 30-day Standard
   // package; it expires automatically unless renewed. Service listings are not priced.
   const isHousing = data.listingCategory === "HOUSING";
   const now = new Date();
+
+  // Provider doc PR-HL03 — SIL/SDA listings are restricted: an unregistered Provider can save a draft
+  // but cannot publish. A draft carries no package, dates or payment.
+  const restricted = isHousing && RESTRICTED_VACANCY_CATEGORIES.includes(data.vacancyCategory ?? "");
+  const registered = restricted
+    ? !!(await prisma.providerProfile.findUnique({ where: { userId: providerUserId }, select: { ndisRegistered: true } }))?.ndisRegistered
+    : true;
+  const asDraft = isHousing && (!!saveAsDraft || !registered);
 
   const listing = await (prisma as any).providerListing.create({
     data: {
@@ -83,7 +93,8 @@ export async function createListing(providerUserId: string, activeRole: UserRole
       daysAvailable: data.daysAvailable ?? undefined,
       suitableFor:   data.suitableFor ?? undefined,
       fundingRoutes: data.fundingRoutes ?? undefined,
-      ...(isHousing
+      ...(asDraft ? { status: "DRAFT" } : {}),
+      ...(isHousing && !asDraft
         ? {
             standardPaidAt: now,
             listingExpiresAt: new Date(now.getTime() + LISTING_DURATION_MS),
@@ -94,6 +105,7 @@ export async function createListing(providerUserId: string, activeRole: UserRole
     select: LISTING_SELECT,
   });
   await syncProfileCapacity(providerUserId, data.acceptingStatus);
+  if (asDraft) return { ...listing, draft: true, registrationBlocked: !registered };
   return isHousing ? { ...listing, packagePriceAud: STANDARD_LISTING_PRICE_AUD } : listing;
 }
 
@@ -103,10 +115,28 @@ export async function updateListing(providerUserId: string, listingId: string, i
     throw new ApiError(404, "NOT_FOUND", "Listing not found");
   }
 
+  // Publishing a saved Home and Living draft re-runs the registration gate and starts the 30-day package.
+  let publishPackage = {};
+  if (existing.status === "DRAFT" && input.status === "ACTIVE" && existing.listingCategory === "HOUSING") {
+    if (RESTRICTED_VACANCY_CATEGORIES.includes(existing.vacancyCategory ?? "")) {
+      const reg = await prisma.providerProfile.findUnique({ where: { userId: providerUserId }, select: { ndisRegistered: true } });
+      if (!reg?.ndisRegistered) {
+        throw new ApiError(403, "NOT_ELIGIBLE", "SIL and SDA listings need a verified NDIS registration. Your draft is saved; publish it once your registration is verified.");
+      }
+    }
+    const now = new Date();
+    publishPackage = {
+      standardPaidAt: now,
+      listingExpiresAt: new Date(now.getTime() + LISTING_DURATION_MS),
+      packageReceiptRef: `DEV-${randomUUID().toUpperCase()}`,
+    };
+  }
+
   const updated = await (prisma as any).providerListing.update({
     where: { id: listingId },
     data: {
       ...input,
+      ...publishPackage,
       fundingTypes:  input.fundingTypes  ?? undefined,
       serviceCategories: input.serviceCategories ?? undefined,
       daysAvailable: input.daysAvailable ?? undefined,

@@ -47,10 +47,17 @@ export async function getNotificationPreference(userId: string) {
   return pref ?? { userId, ...DEFAULT_PREFERENCE };
 }
 
-export async function updateNotificationPreference(userId: string, data: Partial<typeof DEFAULT_PREFERENCE>) {
+export async function updateNotificationPreference(
+  userId: string,
+  data: Partial<typeof DEFAULT_PREFERENCE> & { providerPrefs?: Record<string, unknown> },
+) {
+  const { providerPrefs, ...flags } = data;
+  // providerPrefs merges into what is stored so a partial update never wipes the other controls.
+  const current = providerPrefs ? (await prisma.notificationPreference.findUnique({ where: { userId }, select: { providerPrefs: true } }))?.providerPrefs : null;
+  const merged = providerPrefs ? { ...((current as Record<string, unknown> | null) ?? {}), ...providerPrefs } : undefined;
   return prisma.notificationPreference.upsert({
     where:  { userId },
-    create: { userId, ...DEFAULT_PREFERENCE, ...data },
-    update: data,
+    create: { userId, ...DEFAULT_PREFERENCE, ...flags, ...(merged ? { providerPrefs: merged as object } : {}) },
+    update: { ...flags, ...(merged ? { providerPrefs: merged as object } : {}) },
   });
 }

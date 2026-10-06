@@ -248,6 +248,10 @@ enum NotificationType {
   JOB_CHANGE_REQUESTED
   JOB_CHANGE_RESPONDED
   DIRECT_INQUIRY_RECEIVED
+  DOCUMENT_EXPIRING
+  REQUEST_STARTING_UNCONFIRMED
+  JOB_APPLICATION_WITHDRAWN
+  REQUEST_FILLED
 }
 
 enum SubscriptionStatus {
@@ -795,6 +799,13 @@ model ProviderProfile {
 
   // Step 12 — Profile & Branding
   businessDescription String?
+  // Provider doc PR-PF01 (additive): languages, accessibility and cultural capabilities, enquiry preference.
+  languages               String[] @default([])
+  accessibilityCapabilities String[] @default([])
+  culturalCapabilities    String[] @default([])
+  enquiryPreference       String?
+  // Provider doc PR-V01 — business address for minimum verification (additive).
+  businessAddress         String?
   logoUrl             String?
   websiteUrl          String?
   socialLinks         Json? // { facebook, instagram, linkedin }
@@ -1128,6 +1139,8 @@ model NotificationPreference {
   messages              Boolean  @default(true)
   connectionsAndInvites Boolean  @default(true)
   marketingTips         Boolean  @default(true)
+  // Provider doc PR-N02 (additive): quiet hours, Rapid/Urgent exception, location/service filters, escalation.
+  providerPrefs         Json?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
@@ -1467,6 +1480,12 @@ model JobApplication {
   introduction     String? // longer proposal text (separate from note)
   applicationData  Json? // suitability confirmations, doc visibility, etc.
 
+  // Provider doc PR-LV03 — poster-private shortlist note and reason for passing over (never shown to the applicant).
+  ownerNote      String?
+  decisionReason String?
+  // Provider doc PR-M02 — set the first time the poster opens the request after the response arrived.
+  viewedAt       DateTime?
+
   @@unique([jobId, applicantUserId])
   @@index([jobId, status])
   @@index([applicantUserId])
@@ -1617,6 +1636,13 @@ model DirectInquiry {
   body                    String
   createdAt               DateTime  @default(now())
   readAt                  DateTime?
+
+  // Provider doc PR-CP02 / PR-M02 (additive): which listing the enquiry is about, its handling status,
+  // and replies (a reply is another row whose parentInquiryId points at the first enquiry).
+  kind            String  @default("DIRECT") // DIRECT | CAPACITY | HOME_LIVING
+  listingId       String?
+  status          String  @default("NEW") // NEW|RESPONDED|FOLLOW_UP|CONVERTED|CLOSED  (HOME_LIVING: NEW|QUALIFIED|INSPECTION|IN_PROGRESS|CLOSED)
+  parentInquiryId String?
 
   @@index([recipientUserId, createdAt])
   @@index([senderUserId, createdAt])
@@ -2047,6 +2073,10 @@ model ProviderListing {
   fundingRoutes   Json? // String[]
   urgency         String? // AVAILABLE_NOW | AVAILABLE_SOON | FUTURE | EXPRESSION_OF_INTEREST
 
+  // Provider doc PR-HL02 — dwelling category, accessibility, vacancy dates, household, roster,
+  // compatibility, costs/approvals and inspection process (additive).
+  housingDetails Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2125,6 +2155,14 @@ model ProviderTeamMember {
   name                      String
   mobile                    String
   skills                    String[]       @default([])
+  // Provider doc PR-W02 invite details (additive).
+  email                     String?
+  relationshipType          String? // EMPLOYEE | CONTRACTOR | OTHER
+  locations                 String[]       @default([])
+  // PR-W02 (additive): what the member may do in the organisation, and who may see their profile.
+  accessLevel               String? // STANDARD | LIMITED
+  profileVisibility         String? // ORGANISATION_ONLY | VISIBLE_TO_PARTICIPANTS
+  consentAcknowledgedAt     DateTime? // Provider confirmed the worker consents to the organisational link
   inviteStatus              String         @default("PENDING") // PENDING | VERIFIED
   mobileVerifiedAt          DateTime?
   // Mobile-verification code state (§4.4) — hashed like VerificationCode, but

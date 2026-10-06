@@ -47,6 +47,7 @@ router.patch ("/:id/applications/:appId/select",      asyncHandler(ctrl.selectAp
 router.post  ("/:id/featured-shift",                  asyncHandler(ctrl.purchaseFeaturedShift));
 router.patch ("/:id/applications/:appId/shortlist",   asyncHandler(ctrl.shortlistApplicant));
 router.patch ("/:id/applications/:appId/decline",     asyncHandler(ctrl.declineApplicant));
+router.patch ("/:id/applications/:appId/note",        asyncHandler(ctrl.setApplicationNote));
 router.patch ("/:id/applications/:appId/withdraw",    asyncHandler(ctrl.withdrawApplication));
 router.patch ("/:id/decline-assignment",              asyncHandler(ctrl.declineAssignment));
 router.patch ("/:id/pause",                           asyncHandler(ctrl.pauseJob));

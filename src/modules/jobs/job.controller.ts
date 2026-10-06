@@ -185,7 +185,16 @@ export async function shortlistApplicant(req: Request, res: Response): Promise<v
 // PATCH /jobs/:id/applications/:appId/decline
 export async function declineApplicant(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
-  const app = await svc.declineApplicant(req.params.id, req.params.appId, req.user.id);
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 500) : undefined;
+  const app = await svc.declineApplicant(req.params.id, req.params.appId, req.user.id, reason || undefined);
+  success(res, { application: app });
+}
+
+// PATCH /jobs/:id/applications/:appId/note — poster-private shortlist note
+export async function setApplicationNote(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const note = typeof req.body?.note === "string" ? req.body.note.slice(0, 1000) : "";
+  const app = await svc.setApplicationNote(req.params.id, req.params.appId, req.user.id, note);
   success(res, { application: app });
 }
 

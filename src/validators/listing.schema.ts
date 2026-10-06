@@ -3,6 +3,19 @@ import { z } from "zod";
 
 export const LISTING_CATEGORIES = ["SERVICE", "HOUSING"] as const;
 
+// Provider doc PR-HL02 — free-form but bounded property/support details.
+const housingDetailsSchema = z.object({
+  dwellingCategory:      z.string().max(120).optional(),
+  accessibilityFeatures: z.array(z.string().max(80)).max(20).optional(),
+  vacancyDate:           z.string().max(40).optional(),
+  roomHousehold:         z.string().max(500).optional(),
+  rosterArrangement:     z.string().max(500).optional(),
+  compatibility:         z.string().max(1000).optional(),
+  costs:                 z.string().max(1000).optional(),
+  requiredApprovals:     z.string().max(500).optional(),
+  inspectionProcess:     z.string().max(1000).optional(),
+}).strict();
+
 export const createListingSchema = z
   .object({
     listingCategory: z.enum(LISTING_CATEGORIES),
@@ -47,8 +60,12 @@ export const createListingSchema = z
       .enum(["AVAILABLE_NOW", "AVAILABLE_SOON", "FUTURE", "EXPRESSION_OF_INTEREST"])
       .optional(),
 
+    housingDetails: housingDetailsSchema.optional(),
+
     // Sent by the Web forms; accepted but not persisted.
     acknowledgement: z.boolean().optional(),
+    // PR-HL03 — save without publishing (also forced for restricted listings by an unregistered Provider).
+    saveAsDraft: z.boolean().optional(),
   })
   .strict()
   .superRefine((val, ctx) => {
@@ -78,6 +95,7 @@ export type ListListingsQuery = z.infer<typeof listListingsQuerySchema>;
 
 export const updateListingSchema = z.object({
   status:          z.enum(["ACTIVE", "PAUSED", "FILLED", "CLOSED"]).optional(),
+  housingDetails:  housingDetailsSchema.optional(),
   title:           z.string().min(5).max(200).optional(),
   description:     z.string().min(10).max(5000).optional(),
   suburb:          z.string().min(2).max(120).optional(),
