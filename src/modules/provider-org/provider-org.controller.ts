@@ -85,3 +85,9 @@ export async function confirmTeamMemberVerification(req: Request, res: Response)
   const teamMember = await svc.confirmTeamMemberVerification(req.user.id, req.params.id, data);
   success(res, { teamMember });
 }
+
+// GET /provider-org/capacity
+export async function getCapacity(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, { capacity: await svc.getCapacitySummary(req.user.id) });
+}

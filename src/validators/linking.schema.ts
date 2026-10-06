@@ -32,7 +32,11 @@ const PARTICIPANT_TYPES = [
   "OTHER",
 ] as const;
 
+// SC-N01–N04 collect no credentials: username/password are optional (kept so
+// existing callers keep working). When omitted the account is created with an
+// internal identifier and no usable password.
 export const createParticipantSchema = managedAccountSchema
+  .partial({ username: true, password: true })
   .extend({
     // SC-N01
     preferredName: z.string().min(1).max(120),

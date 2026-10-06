@@ -223,6 +223,8 @@ export const createReplacementSchema = z.object({
   scheduledEndAt:   z.string().datetime().optional(),
   totalHours:       z.number().positive().optional(),
   budgetPerHour:    z.number().positive().optional(),
+  // SC-X03 "Change requirements" — create as a draft so it can be edited before it goes live.
+  asDraft:          z.boolean().optional(),
 }).strict();
 
 // ─── SC-PT05 "Repeat support" edit — DRAFT-only, before (re)publishing ────────
@@ -239,6 +241,15 @@ export const updateDraftJobSchema = z.object({
   budgetType:          z.string().optional(),
   budgetPerHour:       z.number().min(0).max(9999).optional(),
   totalBudget:         z.number().min(0).max(999999).optional(),
+  // "Edit essential details" (live request screens) — a request can be corrected while it is a draft
+  // or still open with nobody selected yet.
+  description:         z.string().max(5000).optional(),
+  totalHours:          z.number().min(0).max(999).optional(),
+  suburb:              z.string().min(1).max(100).optional(),
+  state:               z.string().min(2).max(3).optional(),
+  postcode:            z.string().max(10).optional(),
+  addressLine:         z.string().max(300).optional(),
+  locationNotes:       z.string().max(1000).optional(),
 }).strict();
 
 // ─── Provider assigns a worker after being selected ──────────────────────────
@@ -292,6 +303,12 @@ export const createChangeRequestSchema = z.object({
 
 export const respondChangeRequestSchema = z.object({
   action: z.enum(["ACCEPT", "REJECT"]),
+}).strict();
+
+// ─── Extend a live request's response window (SC-O14) ────────────────────────
+
+export const extendJobSchema = z.object({
+  hours: z.number().int().min(1).max(720),
 }).strict();
 
 // ─── Close connection (SW doc Window 38) ──────────────────────────────────────
@@ -376,4 +393,5 @@ export type RespondChangeRequestInput   = z.infer<typeof respondChangeRequestSch
 export type NotifyRunningLateInput      = z.infer<typeof notifyRunningLateSchema>;
 export type SaveWorkerNoteInput         = z.infer<typeof saveWorkerNoteSchema>;
 export type BookmarkJobInput            = z.infer<typeof bookmarkJobSchema>;
+export type ExtendJobInput             = z.infer<typeof extendJobSchema>;
 export type CloseConnectionInput        = z.infer<typeof closeConnectionSchema>;

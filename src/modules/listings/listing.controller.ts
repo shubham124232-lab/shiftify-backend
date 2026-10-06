@@ -49,11 +49,11 @@ export async function purchaseFeaturedListing(req: Request, res: Response) {
 
 export async function purchasePlatinumTile(req: Request, res: Response) {
   if (!req.user) throw new UnauthorizedError();
-  const { coverage, durationMonths, centreSuburb } = req.body ?? {};
+  const { coverage, durationMonths, centreSuburb, marketState } = req.body ?? {};
   if (typeof coverage !== "string" || typeof durationMonths !== "number") {
     throw new ValidationError("coverage and durationMonths are required", {});
   }
-  const campaign = await svc.purchasePlatinumTileCampaign(req.user.id, coverage, durationMonths, centreSuburb);
+  const campaign = await svc.purchasePlatinumTileCampaign(req.user.id, coverage, durationMonths, centreSuburb, typeof marketState === "string" ? marketState : undefined);
   return success(res, { campaign }, 201);
 }
 
@@ -61,4 +61,11 @@ export async function listPlatinumTileCampaigns(req: Request, res: Response) {
   if (!req.user) throw new UnauthorizedError();
   const campaigns = await svc.listPlatinumTileCampaigns(req.user.id);
   return success(res, { campaigns });
+}
+
+// GET /provider/listings/:id/featured-preview — queue position + price shown before purchase.
+export async function previewFeaturedListing(req: Request, res: Response) {
+  if (!req.user) throw new UnauthorizedError();
+  const preview = await svc.previewFeaturedListing(req.user.id, req.params.id);
+  return success(res, preview);
 }

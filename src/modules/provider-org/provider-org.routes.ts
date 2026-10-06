@@ -8,6 +8,7 @@ const router = Router();
 
 router.use(requireAuth, requireRole("PROVIDER"));
 
+router.get("/capacity", asyncHandler(ctrl.getCapacity));
 router.post("/branches", asyncHandler(ctrl.createBranch));
 router.get("/branches", asyncHandler(ctrl.listBranches));
 router.delete("/branches/:id", asyncHandler(ctrl.deleteBranch));

@@ -9,7 +9,10 @@ import {
 } from "../../lib/errors";
 import { notify } from "../../lib/notify";
 import { canAccessMarketplace, missingRequiredDocs } from "../../middleware/marketplace.middleware";
-import { subscriptionGated, getActiveBasePlanKey, hasUnconsumedShiftPass, consumeShiftPass } from "../subscriptions/subscription.service";
+import {
+  subscriptionGated, getActiveBasePlanKey, hasUnconsumedShiftPass, consumeShiftPass,
+  introductoryActionsUsed, incrementIntroductoryActions, INTRODUCTORY_ACTION_LIMIT,
+} from "../subscriptions/subscription.service";
 import { computeApplicationScore, EXPERIENCE_LEVEL_RANK } from "./job-scoring";
 import { notifyMatchingSavedSearches } from "../saved-searches/saved-search.service";
 import { assertCoordinatorPermission } from "../coordinator-connections/coordinator-connection.service";
@@ -32,6 +35,7 @@ import type {
   CreateChangeRequestInput,
   RespondChangeRequestInput,
   CloseConnectionInput,
+  ExtendJobInput,
   NotifyRunningLateInput,
   SaveWorkerNoteInput,
   BookmarkJobInput,
@@ -61,7 +65,7 @@ const JOB_DETAIL_INCLUDE = {
         },
       },
     },
-    orderBy: { score: "desc" as const },
+    orderBy: [{ score: "desc" }, { id: "asc" }] as Prisma.JobApplicationOrderByWithRelationInput[],
     take: 10,
   },
   _count: { select: { messages: true, applications: true } },
@@ -160,8 +164,11 @@ function withContactDetails<T extends {
   const mutuallyConfirmed =
     CONTACT_VISIBLE_STATUSES.includes(job.status) && job.workerConfirmedAt !== null;
 
+  // A Provider that was selected and then nominated a team worker is a party in its own right (it
+  // confirmed the assignment), alongside the worker actually delivering — both are released.
+  const isWorkerSide = userId === job.assignedWorkerUserId || userId === job.selectedApplicantUserId;
   const canSeeContact =
-    job.postedByUserId === userId || (mutuallyConfirmed && workerPartyId === userId);
+    job.postedByUserId === userId || (mutuallyConfirmed && isWorkerSide);
 
   // The poster always sees the address they entered; a worker/provider only
   // sees it once both sides have confirmed (suburb/state are shown separately
@@ -201,60 +208,128 @@ function requireJob(job: { status: JobStatus } | null, jobId: string) {
   return job;
 }
 
+// Posting-allowance gate shared by createJob and publishJob. Returns true when
+// the action must be paid for with an unconsumed Shift Pass instead of the
+// introductory allowance.
+async function assertPostingAllowance(userId: string, role: UserRole): Promise<boolean> {
+  if (role !== "COORDINATOR" && role !== "PROVIDER") return false;
+
+  if (role === "COORDINATOR" && !(await subscriptionGated(userId, role))) {
+    throw new ApiError(
+      403,
+      "SUBSCRIPTION_REQUIRED",
+      "An active subscription is required to post jobs. Choose a plan on the Subscription page to continue.",
+    );
+  }
+
+  const planKey = await getActiveBasePlanKey(userId, role);
+  const freeTier = role === "PROVIDER" ? (!planKey || planKey.endsWith("_FREE")) : !!planKey?.endsWith("_FREE");
+  if (!freeTier) return false;
+
+  if ((await introductoryActionsUsed(userId, role)) < INTRODUCTORY_ACTION_LIMIT) return false;
+  if (!(await hasUnconsumedShiftPass(userId, role))) {
+    throw new ApiError(
+      403,
+      "SUBSCRIPTION_LIMIT",
+      "You've used your 10 introductory actions. Subscribe to a plan or buy a Shift Pass to post more.",
+    );
+  }
+  return true;
+}
+
+async function chargePostingAction(userId: string, role: UserRole, jobId: string, useShiftPass: boolean) {
+  if (role !== "COORDINATOR" && role !== "PROVIDER") return;
+  if (useShiftPass) {
+    await consumeShiftPass(userId, role, jobId);
+    return;
+  }
+  const planKey = await getActiveBasePlanKey(userId, role);
+  const freeTier = role === "PROVIDER" ? (!planKey || planKey.endsWith("_FREE")) : !!planKey?.endsWith("_FREE");
+  if (freeTier) await incrementIntroductoryActions(userId, role);
+}
+
 // ─── Create job ───────────────────────────────────────────────────────────────
+
+// Posting-journey timing groups (Rapid now–60 min, Urgent over 60 min–4 h,
+// Last-Minute over 4–48 h, Routine more than 48 h). The forms steer people to the
+// right tier, but the API is shared with Flutter, so each tier's window is enforced
+// here too. A few minutes of slack covers the gap between choosing a time and
+// pressing Post; the lower bounds get a wider slack because a person can legitimately
+// spend a while in the form after picking a start time.
+const TIER_WINDOWS: Record<JobUrgency, { minMinutes: number; maxMinutes: number | null; label: string; earlier: string; later: string }> = {
+  RAPID:       { minMinutes: 0,       maxMinutes: 60,      label: "Rapid",       earlier: "",                    later: "an Urgent, Last-Minute or Routine" },
+  URGENT:      { minMinutes: 60,      maxMinutes: 4 * 60,  label: "Urgent",      earlier: "a Rapid",             later: "a Last-Minute or Routine" },
+  LAST_MINUTE: { minMinutes: 4 * 60,  maxMinutes: 48 * 60, label: "Last-Minute", earlier: "a Rapid or Urgent",   later: "a Routine" },
+  ROUTINE:     { minMinutes: 48 * 60, maxMinutes: null,    label: "Routine",     earlier: "a Rapid, Urgent or Last-Minute", later: "" },
+};
+const TIER_UPPER_SLACK_MINUTES = 10;
+const TIER_LOWER_SLACK_MINUTES = 30;
+
+function describeMinutes(minutes: number): string {
+  return minutes >= 120 ? `${minutes / 60} hours` : `${minutes} minutes`;
+}
+
+// `checkLowerBound` is false when an existing draft is published: time has moved on
+// since it was saved, so a start that is now closer than the tier minimum is fine —
+// only a start that has passed, or is now beyond the tier maximum, is rejected.
+function assertStartMatchesTier(urgency: JobUrgency, scheduledStartAt: Date, checkLowerBound = true): void {
+  const tier = TIER_WINDOWS[urgency];
+  if (!tier) return;
+  const leadMinutes = (scheduledStartAt.getTime() - Date.now()) / 60_000;
+  if (leadMinutes < -TIER_UPPER_SLACK_MINUTES) {
+    throw new BadRequestError("The start time has already passed. Choose a start time from now onwards.");
+  }
+  if (tier.maxMinutes !== null && leadMinutes > tier.maxMinutes + TIER_UPPER_SLACK_MINUTES) {
+    throw new BadRequestError(
+      `${tier.label} support must start within ${describeMinutes(tier.maxMinutes)}. For a later start, post ${tier.later} request instead.`,
+    );
+  }
+  if (checkLowerBound && tier.minMinutes > 0 && leadMinutes < tier.minMinutes - TIER_LOWER_SLACK_MINUTES) {
+    throw new BadRequestError(
+      `${tier.label} support must start more than ${describeMinutes(tier.minMinutes)} from now. For an earlier start, post ${tier.earlier} request instead.`,
+    );
+  }
+}
 
 export async function createJob(
   posterId: string,
   activeRole: UserRole,
   input: CreateJobInput,
 ) {
+  if (activeRole !== "PARTICIPANT" && activeRole !== "COORDINATOR" && activeRole !== "PROVIDER") {
+    throw new ForbiddenError("Only participants, coordinators and providers can post requests");
+  }
+
   const access = await canAccessMarketplace(posterId, activeRole);
+  // PR-R06 — a Provider whose minimum verification is incomplete never loses the request: it is saved
+  // as a draft ("Ready to post — verification required") and published later from the completed review.
+  let asDraft = !!input.asDraft;
   if (!access.canPost) {
-    throw new ForbiddenError(
-      `Complete your profile before posting: ${access.missing.join("; ")}`,
-    );
-  }
-
-  if (activeRole !== "PARTICIPANT" && activeRole !== "COORDINATOR") {
-    throw new ForbiddenError("Only participants and coordinators can post jobs");
-  }
-
-  // Subscription gate (#51/#52) — coordinators need an active plan; participants are free.
-  // Pricing V2 §2/§6 — once a Coordinator's first 10 introductory chargeable
-  // actions (lifetime, no expiry) are used up, a free-tier plan needs either a
-  // paid subscription or an unconsumed Single Shift Pass to post again.
-  let shiftPassToConsume = false;
-  if (activeRole === "COORDINATOR") {
-    if (!(await subscriptionGated(posterId, activeRole))) {
-      throw new ApiError(
-        403,
-        "SUBSCRIPTION_REQUIRED",
-        "An active subscription is required to post jobs. Choose a plan on the Subscription page to continue.",
+    if (activeRole !== "PROVIDER") {
+      throw new ForbiddenError(
+        `Complete your profile before posting: ${access.missing.join("; ")}`,
       );
     }
-    const planKey = await getActiveBasePlanKey(posterId, activeRole);
-    if (planKey?.endsWith("_FREE")) {
-      const coordProfile = await prisma.coordinatorProfile.findUnique({
-        where: { userId: posterId },
-        select: { introductoryActionsUsed: true },
-      });
-      const introUsed = coordProfile?.introductoryActionsUsed ?? 0;
-      if (introUsed >= 10) {
-        if (!(await hasUnconsumedShiftPass(posterId, activeRole))) {
-          throw new ApiError(
-            403,
-            "SUBSCRIPTION_LIMIT",
-            "You've used your 10 introductory job posts. Subscribe to a plan or purchase a Single Shift Pass to post more.",
-          );
-        }
-        shiftPassToConsume = true;
-      }
-    }
+    asDraft = true;
   }
+
+  if (!asDraft) {
+    assertStartMatchesTier((input.urgency ?? "ROUTINE") as JobUrgency, new Date(input.scheduledStartAt));
+  }
+
+  // Pricing V2 §2/§6 — Coordinators and Providers get 10 lifetime introductory
+  // actions (no expiry); once used, a free-tier account needs a paid plan or an
+  // unconsumed Shift Pass. An action is consumed only when a request is
+  // published, so saving a draft is free and never blocked.
+  const shiftPassToConsume = asDraft
+    ? false
+    : await assertPostingAllowance(posterId, activeRole);
 
   let forParticipantUserId: string;
 
-  if (activeRole === "PARTICIPANT" && !input.forParticipantUserId && !input.inlineParticipant) {
+  if ((activeRole === "PARTICIPANT" || activeRole === "PROVIDER") && !input.forParticipantUserId && !input.inlineParticipant) {
+    // A Provider staffing request is raised for the Provider's own operational
+    // need, not for a named participant, so the poster stands in for the column.
     forParticipantUserId = posterId;
   } else {
     if (input.forParticipantUserId) {
@@ -303,7 +378,7 @@ export async function createJob(
     }
   }
 
-  const status: JobStatus = input.asDraft ? "DRAFT" : "OPEN";
+  const status: JobStatus = asDraft ? "DRAFT" : "OPEN";
 
   // No posting-flow UI collects lat/lng today — fall back to a suburb/postcode
   // centroid so the public Live Shiftboard's map/radius search has something
@@ -393,32 +468,31 @@ export async function createJob(
     select: JOB_WRITE_SELECT,
   });
 
-  if (activeRole === "COORDINATOR") {
-    if (shiftPassToConsume) {
-      await consumeShiftPass(posterId, activeRole, created.id);
-    } else {
-      await prisma.coordinatorProfile.updateMany({
-        where: { userId: posterId, introductoryActionsUsed: { lt: 10 } },
-        data:  { introductoryActionsUsed: { increment: 1 } },
-      });
-    }
-  }
+  if (status === "OPEN") await chargePostingAction(posterId, activeRole, created.id, shiftPassToConsume);
 
   return created;
 }
 
 // ─── Publish a draft ─────────────────────────────────────────────────────────
 
-export async function publishJob(jobId: string, posterId: string) {
+export async function publishJob(jobId: string, posterId: string, activeRole?: UserRole) {
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
   if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can publish this job");
   if (job!.status !== "DRAFT") throw new BadRequestError("Only a draft job can be published.");
+  if (activeRole) {
+    const access = await canAccessMarketplace(posterId, activeRole);
+    if (!access.canPost) throw new ForbiddenError(`Verification required before this request can be posted: ${access.missing.join("; ")}`);
+  }
+  assertStartMatchesTier(job!.urgency, job!.scheduledStartAt, false);
+  const shiftPassToConsume = activeRole ? await assertPostingAllowance(posterId, activeRole) : false;
   const published = await prisma.supportRequest.update({
     where: { id: jobId },
     data:  { status: "OPEN" },
     select: JOB_WRITE_SELECT,
   });
+
+  if (activeRole) await chargePostingAction(posterId, activeRole, jobId, shiftPassToConsume);
 
   // Best-effort — a notify bug should never block the publish itself.
   notifyMatchingSavedSearches(job!).catch((err) =>
@@ -563,6 +637,16 @@ export async function listJobs(
 
     default:
       where.status = "OPEN";
+  }
+
+  // Freshness (SW doc Window 17) — a one-off request whose shift has already finished, or whose
+  // response window has closed, is no longer an opportunity on the worker/provider board.
+  if ((activeRole === "SUPPORT_WORKER" || activeRole === "PROVIDER") && where.status === "OPEN") {
+    const now = new Date();
+    where.AND = [
+      { OR: [{ isRecurring: true }, { scheduledEndAt: { gt: now } }] },
+      { OR: [{ applicationDeadlineAt: null }, { applicationDeadlineAt: { gt: now } }] },
+    ];
   }
 
   // ── Visibility override if caller passed it explicitly ───────────────────
@@ -795,6 +879,95 @@ export async function listMyJobs(userId: string, activeRole: UserRole, status?: 
 
 // ─── Get single job ───────────────────────────────────────────────────────────
 
+// How the viewer relates to a job. Drives both whether they may open it and which
+// private fields they get back.
+type JobViewerRelation =
+  | "ADMIN" | "POSTER" | "PARTICIPANT" | "MANAGER"   // full request context (applications, safety, change requests)
+  | "WORKER_PARTY"                                    // applicant / selected / assigned worker or provider
+  | "BROWSE";                                         // not involved — open-board visibility only
+
+const WORKER_BOARD_VISIBILITY: Partial<Record<UserRole, string[]>> = {
+  SUPPORT_WORKER: ["ALL", "VERIFIED", "WORKERS_ONLY"],
+  PROVIDER:       ["ALL", "VERIFIED", "PROVIDERS_ONLY"],
+};
+
+async function resolveJobViewerRelation(
+  job: {
+    status: JobStatus; visibilityTarget: string | null;
+    postedByUserId: string; forParticipantUserId: string | null;
+    selectedApplicantUserId: string | null; assignedWorkerUserId: string | null;
+    applications: { applicantUserId: string }[];
+  },
+  userId: string,
+  activeRole: UserRole,
+): Promise<JobViewerRelation | null> {
+  if (activeRole === "ADMIN") return "ADMIN";
+  if (job.postedByUserId === userId) return "POSTER";
+  if (job.forParticipantUserId === userId) return "PARTICIPANT";
+
+  if (
+    job.selectedApplicantUserId === userId ||
+    job.assignedWorkerUserId === userId ||
+    job.applications.some((a) => a.applicantUserId === userId)
+  ) return "WORKER_PARTY";
+
+  // A Provider oversees jobs assigned to its own team workers.
+  if (activeRole === "PROVIDER" && job.assignedWorkerUserId) {
+    const member = await prisma.user.findFirst({
+      where:  { id: job.assignedWorkerUserId, parentUserId: userId },
+      select: { id: true },
+    });
+    if (member) return "WORKER_PARTY";
+  }
+
+  if (job.forParticipantUserId) {
+    if (activeRole === "COORDINATOR") {
+      const managed = await prisma.user.findFirst({
+        where:  { id: job.forParticipantUserId, parentUserId: userId },
+        select: { id: true },
+      });
+      const connected = managed ? null : await prisma.coordinatorParticipantConnection.findFirst({
+        where:  { coordinatorUserId: userId, participantUserId: job.forParticipantUserId, status: "ACCEPTED", canViewInfo: true },
+        select: { id: true },
+      });
+      if (managed || connected) return "MANAGER";
+    }
+    if (activeRole === "PLAN_MANAGER") {
+      const conn = await prisma.planManagerConnection.findFirst({
+        where:  { planManagerUserId: userId, clientUserId: job.forParticipantUserId, status: "ACCEPTED" },
+        select: { id: true },
+      });
+      if (conn) return "MANAGER";
+    }
+  }
+
+  // Everyone else may only see what the open board shows them (same visibility
+  // gate as listJobs / the Live Dashboard).
+  if (job.status !== "OPEN") return null;
+  const allowed = WORKER_BOARD_VISIBILITY[activeRole];
+  if (allowed && job.visibilityTarget !== null && !allowed.includes(job.visibilityTarget)) return null;
+  return "BROWSE";
+}
+
+async function resolveCoordinatorViewerPermissions(
+  job: { postedByUserId: string; forParticipantUserId: string | null },
+  userId: string,
+): Promise<{ canShortlist: boolean; canMessage: boolean; canConfirmBookings: boolean; canManageReplacements: boolean }> {
+  const all = { canShortlist: true, canMessage: true, canConfirmBookings: true, canManageReplacements: true };
+  const participantId = job.forParticipantUserId;
+  if (!participantId || participantId === userId || job.postedByUserId !== userId) return all;
+  const conn = await prisma.coordinatorParticipantConnection.findUnique({
+    where:  { coordinatorUserId_participantUserId: { coordinatorUserId: userId, participantUserId: participantId } },
+    select: { status: true, canShortlist: true, canMessage: true, canConfirmBookings: true, canManageReplacements: true },
+  });
+  if (!conn) return all;
+  const ok = conn.status === "ACCEPTED";
+  return {
+    canShortlist: ok && conn.canShortlist, canMessage: ok && conn.canMessage,
+    canConfirmBookings: ok && conn.canConfirmBookings, canManageReplacements: ok && conn.canManageReplacements,
+  };
+}
+
 export async function getJob(jobId: string, userId: string, activeRole: UserRole) {
   const job = await prisma.supportRequest.findUnique({
     where:   { id: jobId },
@@ -806,17 +979,8 @@ export async function getJob(jobId: string, userId: string, activeRole: UserRole
     throw new NotFoundError("We couldn't find that job. It may have been removed.");
   }
 
-  if (activeRole === "SUPPORT_WORKER" || activeRole === "PROVIDER") {
-    const hasApp = job!.applications.some((a) => a.applicantUserId === userId);
-    if (
-      job!.status !== "OPEN" &&
-      !hasApp &&
-      job!.selectedApplicantUserId !== userId &&
-      job!.assignedWorkerUserId !== userId
-    ) {
-      throw new ForbiddenError("You don't have access to view this job.");
-    }
-  }
+  const relation = await resolveJobViewerRelation(job!, userId, activeRole);
+  if (!relation) throw new ForbiddenError("You don't have access to view this job.");
 
   const participantContact = job!.forParticipantUserId
     ? await prisma.user.findUnique({
@@ -825,7 +989,38 @@ export async function getJob(jobId: string, userId: string, activeRole: UserRole
       })
     : null;
 
-  return withContactDetails(job!, userId, participantContact);
+  const detail = withContactDetails(job!, userId, participantContact);
+
+  const seesRequestContext = relation === "ADMIN" || relation === "POSTER" || relation === "PARTICIPANT" || relation === "MANAGER";
+  const seesSafetyAndHistory = seesRequestContext || relation === "WORKER_PARTY";
+  // WORKER_PARTY also covers every applicant — only the selected provider/worker (or the team worker
+  // they were assigned) may receive the private care info, never someone who was passed over.
+  const isDeliveryParty = userId === job!.selectedApplicantUserId || userId === job!.assignedWorkerUserId;
+  const canSeePrivateCareInfo = seesRequestContext || (relation === "WORKER_PARTY" && isDeliveryParty && detail.workerConfirmedAt !== null);
+  // Coordinator posting for a connected participant: tell the UI which actions the participant has granted
+  // so prohibited buttons are not offered (the server still enforces every one of them).
+  const viewerPermissions = await resolveCoordinatorViewerPermissions(job!, userId);
+  return {
+    ...detail,
+    viewerPermissions,
+    // Poster-private notes: never shown to the participant, managers or workers.
+    internalNote:  relation === "ADMIN" || relation === "POSTER" ? detail.internalNote : null,
+    caseReference: relation === "ADMIN" || relation === "POSTER" ? detail.caseReference : null,
+    safetyFlags:   seesSafetyAndHistory ? detail.safetyFlags : null,
+    // Emergency contact, escalation route and the free-text care notes are released only
+    // to the request's owners, or to the worker/provider once both sides have confirmed
+    // (same gate as the exact address) — never to someone browsing the open board.
+    ...(canSeePrivateCareInfo ? {} : {
+      emergencyContactName: null, emergencyContactPhone: null, emergencyContactRelationship: null,
+      riskSafetyNotes: null, medicalNotes: null, behaviourNotes: null,
+    }),
+    // Applicants only ever see their own application; the full list is for the request's owners.
+    applications: seesRequestContext
+      ? detail.applications
+      : detail.applications.filter((a) => a.applicantUserId === userId),
+    meetAndGreets:  seesSafetyAndHistory ? detail.meetAndGreets  : [],
+    changeRequests: seesSafetyAndHistory ? detail.changeRequests : [],
+  };
 }
 
 // ─── Cancel ──────────────────────────────────────────────────────────────────
@@ -1022,6 +1217,9 @@ function cloneJobForReplacement(
     serviceDeliveryMode: string | null; scheduledStartAt: Date; scheduledEndAt: Date; totalHours: unknown;
     fundingType: FundingType | null; budgetType: string | null; budgetPerHour: unknown; totalBudget: unknown;
     visibilityTarget: string | null; workerPreferences: unknown;
+    addressLine: string | null; locationNotes: string | null; lat: unknown; lng: unknown;
+    emergencyContactName: string | null; emergencyContactPhone: string | null;
+    emergencyContactRelationship: string | null; riskSafetyNotes: string | null;
   },
   overrides: {
     titlePrefix?: string; urgency: JobUrgency; promotedFromCancellation?: boolean;
@@ -1040,6 +1238,15 @@ function cloneJobForReplacement(
     suburb:                   job.suburb,
     state:                    job.state,
     postcode:                 job.postcode,
+    // Private care details carry over so a repeated/replacement request is safe to confirm.
+    addressLine:              job.addressLine,
+    locationNotes:            job.locationNotes,
+    lat:                      (job.lat as number | null) ?? undefined,
+    lng:                      (job.lng as number | null) ?? undefined,
+    emergencyContactName:     job.emergencyContactName,
+    emergencyContactPhone:    job.emergencyContactPhone,
+    emergencyContactRelationship: job.emergencyContactRelationship,
+    riskSafetyNotes:          job.riskSafetyNotes,
     serviceDeliveryMode:      job.serviceDeliveryMode,
     scheduledStartAt:         overrides.scheduledStartAt ?? job.scheduledStartAt,
     scheduledEndAt:           overrides.scheduledEndAt ?? job.scheduledEndAt,
@@ -1049,7 +1256,7 @@ function cloneJobForReplacement(
     budgetType:               job.budgetType ?? undefined,
     budgetPerHour:            (job.budgetPerHour as number | undefined) ?? undefined,
     totalBudget:              (job.totalBudget as number | undefined) ?? undefined,
-    visibilityTarget:         job.visibilityTarget ?? undefined,
+    visibilityTarget:         job.visibilityTarget?.replace(/^PAUSED:/, "") ?? undefined,
     workerPreferences:        job.workerPreferences ?? undefined,
     promotedFromCancellation: overrides.promotedFromCancellation ?? false,
   };
@@ -1104,17 +1311,24 @@ export async function createReplacementRequest(
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
   if (job!.postedByUserId !== userId) throw new ForbiddenError("Only the poster can create a replacement request");
+  await assertCoordinatorJobPermission(job!, userId, "canManageReplacements");
   if (job!.status !== "CANCELLED") throw new BadRequestError("Only a cancelled job can be replaced");
+
+  // A live replacement uses one action like any other published request;
+  // a draft replacement is free until it is published.
+  const shiftPassToConsume = input.asDraft ? false : await assertPostingAllowance(userId, activeRole);
 
   const data = cloneJobForReplacement(job!, {
     urgency: input.urgency ?? job!.urgency,
     scheduledStartAt: input.scheduledStartAt ? new Date(input.scheduledStartAt) : undefined,
     scheduledEndAt: input.scheduledEndAt ? new Date(input.scheduledEndAt) : undefined,
     totalHours: input.totalHours,
+    ...(input.asDraft ? { status: "DRAFT" as const } : {}),
   });
   if (input.budgetPerHour !== undefined) data.budgetPerHour = input.budgetPerHour;
 
   const created = await prisma.supportRequest.create({ data });
+  if (!input.asDraft) await chargePostingAction(userId, activeRole, created.id, shiftPassToConsume);
 
   void notifyMatchingSavedSearches({
     id:          created.id,
@@ -1132,6 +1346,60 @@ export async function createReplacementRequest(
   );
 
   return created;
+}
+
+// ─── Live-request controls (SC-O14 / SC-L12 / SC-M02) ─────────────────────────
+// Pause hides an OPEN request from the boards and stops new connections without
+// closing it. The previous visibility is kept inside the same column
+// ("PAUSED:<previous>") so Resume restores it exactly and no schema change is needed.
+
+const PAUSED_PREFIX = "PAUSED:";
+
+async function loadOwnedOpenJob(jobId: string, userId: string) {
+  const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
+  requireJob(job, jobId);
+  if (job!.postedByUserId !== userId) throw new ForbiddenError("Only the poster can manage this request");
+  if (job!.status !== "OPEN") throw new BadRequestError("Only an open request can be managed this way");
+  return job!;
+}
+
+export async function pauseJob(jobId: string, userId: string) {
+  const job = await loadOwnedOpenJob(jobId, userId);
+  if (job.visibilityTarget?.startsWith(PAUSED_PREFIX)) throw new BadRequestError("This request is already paused");
+  return prisma.supportRequest.update({
+    where: { id: jobId },
+    data:  { visibilityTarget: `${PAUSED_PREFIX}${job.visibilityTarget ?? "ALL"}` },
+    select: JOB_WRITE_SELECT,
+  });
+}
+
+export async function resumeJob(jobId: string, userId: string) {
+  const job = await loadOwnedOpenJob(jobId, userId);
+  if (!job.visibilityTarget?.startsWith(PAUSED_PREFIX)) throw new BadRequestError("This request isn't paused");
+  return prisma.supportRequest.update({
+    where: { id: jobId },
+    data:  { visibilityTarget: job.visibilityTarget.slice(PAUSED_PREFIX.length) || "ALL" },
+    select: JOB_WRITE_SELECT,
+  });
+}
+
+// Extend the response window — moves the application deadline later.
+export async function extendJob(jobId: string, userId: string, input: ExtendJobInput) {
+  const job = await loadOwnedOpenJob(jobId, userId);
+  const base = job.applicationDeadlineAt && job.applicationDeadlineAt > new Date() ? job.applicationDeadlineAt : new Date();
+  return prisma.supportRequest.update({
+    where: { id: jobId },
+    data:  { applicationDeadlineAt: new Date(base.getTime() + input.hours * 3_600_000) },
+    select: JOB_WRITE_SELECT,
+  });
+}
+
+// Rebroadcast — re-notify matching saved searches about a still-open request.
+export async function rebroadcastJob(jobId: string, userId: string) {
+  const job = await loadOwnedOpenJob(jobId, userId);
+  if (job.visibilityTarget?.startsWith(PAUSED_PREFIX)) throw new BadRequestError("Resume this request before rebroadcasting it");
+  void notifyMatchingSavedSearches(job).catch((err) => console.error("[rebroadcast] notify failed:", err));
+  return { ok: true };
 }
 
 // ─── Repeat previous request (participant portfolio "repeat" action) ──────────
@@ -1160,7 +1428,14 @@ export async function updateDraftJob(
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
   if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the original poster can edit this request");
-  if (job!.status !== "DRAFT") throw new BadRequestError("Only a draft request can be edited this way");
+  const editableOpen = job!.status === "OPEN" && !job!.selectedApplicantUserId;
+  if (job!.status !== "DRAFT" && !editableOpen) {
+    throw new BadRequestError("Only a draft request, or an open request nobody has been selected for yet, can be edited");
+  }
+  if (editableOpen && input.scheduledStartAt) {
+    // The request keeps its timing type: a new start must still fit that type's window.
+    assertStartMatchesTier(job!.urgency, new Date(input.scheduledStartAt), false);
+  }
 
   const { scheduledStartAt, scheduledEndAt, recurrencePattern, ...rest } = input;
   return prisma.supportRequest.update({
@@ -1186,6 +1461,15 @@ export async function applyToJob(
     throw new ForbiddenError("Only workers and providers can apply to jobs");
   }
 
+  // SW v3.0 Connect Window 1 — one explicit acknowledgement is required before connecting.
+  if (input.applicationData?.connectAcknowledgement !== true) {
+    throw new ApiError(
+      400,
+      "ACKNOWLEDGEMENT_REQUIRED",
+      "Please confirm you have reviewed this request and are available and able to meet the stated requirements before connecting.",
+    );
+  }
+
   const access = await canAccessMarketplace(applicantId, activeRole);
   if (!access.canApply) {
     throw new ForbiddenError(
@@ -1202,26 +1486,27 @@ export async function applyToJob(
     );
   }
 
-  // SW journey doc §19 / Pricing V2 §2 — Support Worker Connect is framed as free
-  // and unlimited, with no visible pending-application counter. Pricing V2's
-  // commercial numbers are authoritative over the journey doc's wording (locked
-  // decision, pricing-spec-v2-source-of-truth): 10 lifetime introductory Connect
-  // actions, then a Shiftify Basic subscription or a $9.99 Single Shift Pass —
-  // same mechanism as the Coordinator gate above, not a "pending applications" cap.
+  // Pricing V2 §2/§3 — Support Workers and Providers each get 10 once-only
+  // introductory actions (no expiry). After that, a paid plan or a Shift Pass is
+  // needed for the NEXT chargeable action only. §3.1/§3.3: responding to a direct
+  // invitation or enquiry is not a chargeable action, so an invited applicant never
+  // consumes an allowance slot or a Shift Pass.
+  const invitedToJob = (await prisma.jobInvite.count({
+    where: { jobId, invitedUserId: applicantId, status: { in: ["PENDING", "ACCEPTED"] } },
+  })) > 0;
+
   let shiftPassToConsume = false;
   const applicantPlanKey = await getActiveBasePlanKey(applicantId, activeRole);
-  if (activeRole === "SUPPORT_WORKER" && applicantPlanKey?.endsWith("_FREE")) {
-    const wp = await prisma.workerProfile.findUnique({
-      where: { userId: applicantId },
-      select: { introductoryActionsUsed: true },
-    });
-    const introUsed = wp?.introductoryActionsUsed ?? 0;
-    if (introUsed >= 10) {
+  if (!invitedToJob && applicantPlanKey?.endsWith("_FREE")) {
+    const introUsed = await introductoryActionsUsed(applicantId, activeRole);
+    if (introUsed >= INTRODUCTORY_ACTION_LIMIT) {
       if (!(await hasUnconsumedShiftPass(applicantId, activeRole))) {
         throw new ApiError(
           403,
           "SUBSCRIPTION_LIMIT",
-          "You've used your 10 introductory Connects. Subscribe to a plan or purchase a Single Shift Pass to Connect to more shifts.",
+          activeRole === "PROVIDER"
+            ? "You've used your 10 introductory Provider actions. Choose a subscription or buy a Shift Pass to respond to more opportunities."
+            : "You've used your 10 introductory Connect actions. Choose Shiftify Basic or buy a Shift Pass to Connect to more shifts.",
         );
       }
       shiftPassToConsume = true;
@@ -1231,6 +1516,15 @@ export async function applyToJob(
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
   if (job!.status !== "OPEN") throw new BadRequestError("Job is no longer accepting applications");
+  if (
+    (!job!.isRecurring && job!.scheduledEndAt < new Date()) ||
+    (job!.applicationDeadlineAt && job!.applicationDeadlineAt < new Date())
+  ) {
+    throw new BadRequestError("This request has already finished or its response window has closed.");
+  }
+  if (job!.visibilityTarget?.startsWith(PAUSED_PREFIX)) {
+    throw new BadRequestError("This request is paused and isn't accepting new connections right now");
+  }
 
   // Max applicants cap (spec: allow poster to limit)
   if (job!.maxApplicants) {
@@ -1276,6 +1570,32 @@ export async function applyToJob(
     job!.budgetPerHour != null ? Number(job!.budgetPerHour) : null,
   );
 
+  // Provider journey PR-RP03 — a nominated internal worker/team must be a current,
+  // active member of this Provider organisation with their documents submitted.
+  // Names are re-read from the DB so the poster only ever sees verified nominees.
+  let applicationData = input.applicationData;
+  const rawNominees = applicationData?.nominatedWorkerUserIds;
+  if (activeRole === "PROVIDER" && rawNominees !== undefined) {
+    if (!Array.isArray(rawNominees) || rawNominees.length > 20 || rawNominees.some((v) => typeof v !== "string")) {
+      throw new BadRequestError("Nominated workers must be a list of worker IDs.");
+    }
+    const nomineeIds = [...new Set(rawNominees as string[])];
+    const nominees = await prisma.user.findMany({
+      where:  { id: { in: nomineeIds }, parentUserId: applicantId, status: "ACTIVE", roles: { some: { role: "SUPPORT_WORKER" } } },
+      select: { id: true, name: true },
+    });
+    if (nominees.length !== nomineeIds.length) {
+      throw new ForbiddenError("Every nominated worker must be an active member of your organisation.");
+    }
+    for (const nominee of nominees) {
+      const missingDocs = await missingRequiredDocs(nominee.id, "SUPPORT_WORKER");
+      if (missingDocs.length > 0) {
+        throw new ForbiddenError(`${nominee.name} can't be nominated until their documents are submitted: ${missingDocs.join("; ")}`);
+      }
+    }
+    applicationData = { ...applicationData, nominatedWorkerUserIds: nomineeIds, nominatedWorkers: nominees };
+  }
+
   const applicationPayload = {
     status:           "INTERESTED" as const,
     note:             input.note ?? null,
@@ -1283,7 +1603,7 @@ export async function applyToJob(
     rateResponse:     input.rateResponse ?? null,
     proposedRate:     input.proposedRate ?? null,
     introduction:     input.introduction ?? null,
-    applicationData:  (input.applicationData ?? undefined) as any,
+    applicationData:  (applicationData ?? undefined) as any,
     score,
   };
 
@@ -1303,14 +1623,11 @@ export async function applyToJob(
         },
       });
 
-  if (isNewConnect && activeRole === "SUPPORT_WORKER") {
+  if (isNewConnect && !invitedToJob && applicantPlanKey?.endsWith("_FREE")) {
     if (shiftPassToConsume) {
       await consumeShiftPass(applicantId, activeRole, jobId);
     } else {
-      await prisma.workerProfile.updateMany({
-        where: { userId: applicantId, introductoryActionsUsed: { lt: 10 } },
-        data:  { introductoryActionsUsed: { increment: 1 } },
-      });
+      await incrementIntroductoryActions(applicantId, activeRole);
     }
   }
 
@@ -1341,15 +1658,34 @@ export async function listApplications(jobId: string, userId: string) {
         select: {
           id: true, name: true, avatarUrl: true,
           workerProfile: {
-            select: { experienceLevel: true, servicesOffered: true, rating: true, hourlyRate: true },
+            select: { rating: true, totalReviews: true, hourlyRate: true, servicesOffered: true, experienceLevel: true, suburb: true, state: true, travelRadiusKm: true },
           },
           providerProfile: {
-            select: { businessName: true, coreServices: true },
+            select: { averageRating: true, totalRatings: true, coreServices: true, businessName: true },
           },
         },
       },
     },
   });
+}
+
+// ─── Participant-granted coordinator permissions (SC-C03 / SC-PT04) ──────────
+// A Support Coordinator working on a connected, self-managing participant's request only
+// acts within the permissions that participant granted. A participant the coordinator
+// created and manages has no connection row, so everything stays implicitly allowed.
+async function assertCoordinatorJobPermission(
+  job: { postedByUserId: string; forParticipantUserId: string | null },
+  userId: string,
+  permission: "canShortlist" | "canMessage" | "canConfirmBookings" | "canManageReplacements",
+): Promise<void> {
+  const participantId = job.forParticipantUserId;
+  if (!participantId || participantId === userId || job.postedByUserId !== userId) return;
+  const conn = await prisma.coordinatorParticipantConnection.findUnique({
+    where:  { coordinatorUserId_participantUserId: { coordinatorUserId: userId, participantUserId: participantId } },
+    select: { id: true },
+  });
+  if (!conn) return;
+  await assertCoordinatorPermission(userId, participantId, permission);
 }
 
 // ─── Select applicant ─────────────────────────────────────────────────────────
@@ -1360,10 +1696,14 @@ export async function selectApplicant(jobId: string, appId: string, posterId: st
   });
   requireJob(job, jobId);
   if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can select");
+  await assertCoordinatorJobPermission(job!, posterId, "canConfirmBookings");
   if (job!.status !== "OPEN") throw new BadRequestError("Job is no longer open");
 
   const app = await prisma.jobApplication.findUnique({ where: { id: appId } });
   if (!app || app.jobId !== jobId) throw new NotFoundError("Application not found");
+  if (["DECLINED", "WITHDRAWN"].includes(app.status)) {
+    throw new BadRequestError("This application was declined or withdrawn and can't be selected.");
+  }
 
   await prisma.$transaction([
     // SW doc Window 27 "Request filled" — other applicants weren't personally
@@ -1442,6 +1782,7 @@ export async function shortlistApplicant(jobId: string, appId: string, posterId:
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
   if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can shortlist");
+  await assertCoordinatorJobPermission(job!, posterId, "canShortlist");
 
   const app = await prisma.jobApplication.findUnique({ where: { id: appId } });
   if (!app || app.jobId !== jobId) throw new NotFoundError("Application not found");
@@ -1456,6 +1797,7 @@ export async function declineApplicant(jobId: string, appId: string, posterId: s
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
   if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can decline applicants");
+  await assertCoordinatorJobPermission(job!, posterId, "canShortlist");
 
   const app = await prisma.jobApplication.findUnique({ where: { id: appId } });
   if (!app || app.jobId !== jobId) throw new NotFoundError("Application not found");
@@ -1503,6 +1845,9 @@ export async function assignWorker(
   }
   if (!worker.roles.some((r) => r.role === "SUPPORT_WORKER")) {
     throw new BadRequestError("That user is not a support worker");
+  }
+  if (worker.status !== "ACTIVE") {
+    throw new BadRequestError("That worker's setup isn't finished yet — activate them from the Team page first.");
   }
 
   const missingDocs = await missingRequiredDocs(worker.id, "SUPPORT_WORKER");
@@ -1658,6 +2003,10 @@ export async function proposeMeetAndGreet(jobId: string, userId: string, input: 
     job!.assignedWorkerUserId    === userId ||
     job!.applications.some((a) => a.applicantUserId === userId);
   if (!isParty) throw new ForbiddenError("You don't have access to this job's meet-and-greet.");
+  // SW doc Window 29 — the optional introduction is for Last-Minute or Routine arrangements only.
+  if (job!.urgency !== "LAST_MINUTE" && job!.urgency !== "ROUTINE") {
+    throw new BadRequestError("A meet-and-greet is only available for Last-Minute or Routine requests.");
+  }
 
   const meetAndGreet = await prisma.meetAndGreet.create({
     data: {
@@ -1841,7 +2190,12 @@ export async function listMyConnections(userId: string) {
 export async function closeConnection(jobId: string, posterId: string, input: CloseConnectionInput) {
   const job = await prisma.supportRequest.findUnique({ where: { id: jobId } });
   requireJob(job, jobId);
-  if (job!.postedByUserId !== posterId) throw new ForbiddenError("Only the poster can close this connection");
+  // The poster, or the worker/provider connected to this request (SW v3.0 Window 38),
+  // may record the marketplace outcome.
+  const isConnectedWorker = job!.selectedApplicantUserId === posterId || job!.assignedWorkerUserId === posterId;
+  if (job!.postedByUserId !== posterId && !isConnectedWorker) {
+    throw new ForbiddenError("Only the poster or the connected worker can close this connection");
+  }
 
   return prisma.supportRequest.update({
     where: { id: jobId },
@@ -1925,6 +2279,7 @@ export async function sendMessage(jobId: string, senderId: string, input: SendMe
     job!.assignedWorkerUserId    === senderId ||
     job!.applications.some((a) => a.applicantUserId === senderId);
   if (!isParty) throw new ForbiddenError("You don't have access to this job's messages.");
+  await assertCoordinatorJobPermission(job!, senderId, "canMessage");
 
   // SW doc Window 44 — a party who blocked messages from this sender stops
   // the message before it's created, not just hidden from their own view.
@@ -2129,6 +2484,16 @@ export async function createInvoice(
   if (!pm || !pm.roles.some((r) => r.role === "PLAN_MANAGER")) {
     throw new NotFoundError("Plan manager not found");
   }
+  // The invoice is a record about this request's participant, sent to a plan manager that participant
+  // actually connected to — a sender cannot attach it to an unrelated participant or plan manager.
+  if (job!.forParticipantUserId && input.participantUserId !== job!.forParticipantUserId) {
+    throw new BadRequestError("Participant does not match this request");
+  }
+  const pmConnected = await prisma.planManagerConnection.findFirst({
+    where: { planManagerUserId: input.planManagerUserId, clientUserId: job!.forParticipantUserId ?? input.participantUserId, status: "ACCEPTED" },
+    select: { id: true },
+  });
+  if (!pmConnected) throw new BadRequestError("That plan manager is not connected to this participant");
 
   return prisma.invoice.create({
     data: {

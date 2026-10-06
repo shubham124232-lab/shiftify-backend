@@ -47,6 +47,24 @@ async function clearExpiredAvailableNow(): Promise<void> {
       },
       data: { isAvailableNow: false, availableNowSetAt: null, availableNowUntil: null },
     });
+    // Pricing V2 §3.5 — Available Now is a paid add-on; once it lapses (cancelled and
+    // past its paid-through date) the badge must not stay on.
+    const lapsed = await prisma.workerProfile.updateMany({
+      where: {
+        isAvailableNow: true,
+        user: {
+          subscriptions: {
+            none: {
+              status: "ACTIVE",
+              OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+              plan: { key: { startsWith: "WORKER_AVAILABLE_NOW" } },
+            },
+          },
+        },
+      },
+      data: { isAvailableNow: false, availableNowSetAt: null, availableNowUntil: null },
+    });
+    if (lapsed.count > 0) console.log(`[cron] Cleared "Available Now" for ${lapsed.count} worker(s) without the add-on`);
     if (result.count > 0) {
       console.log(`[cron] Cleared "Available Now" for ${result.count} worker(s)`);
     }
@@ -72,6 +90,21 @@ async function clearExpiredFeaturedShifts(): Promise<void> {
     }
   } catch (err) {
     console.error("[cron] clearExpiredFeaturedShifts error:", err);
+  }
+}
+
+// ─── Standard SIL/SDA listing expiry ───────────────────────────────────────────
+// Pricing V2 §7.3 item 50 — a 30-day package listing expires automatically unless renewed.
+
+async function closeExpiredStandardListings(): Promise<void> {
+  try {
+    const result = await (prisma as any).providerListing.updateMany({
+      where: { status: "ACTIVE", listingExpiresAt: { lte: new Date() } },
+      data:  { status: "CLOSED" },
+    });
+    if (result.count > 0) console.log(`[cron] Closed ${result.count} expired SIL/SDA listing(s)`);
+  } catch (err) {
+    console.error("[cron] closeExpiredStandardListings error:", err);
   }
 }
 
@@ -119,9 +152,11 @@ export function startCronJobs(): void {
   void clearExpiredAvailableNow();
   void clearExpiredFeaturedShifts();
   void clearExpiredFeaturedListings();
+  void closeExpiredStandardListings();
   setInterval(() => void expireGuestWindows(), HOUR_MS);
   setInterval(() => void clearExpiredAvailableNow(), HOUR_MS);
   setInterval(() => void clearExpiredFeaturedShifts(), HOUR_MS);
   setInterval(() => void clearExpiredFeaturedListings(), HOUR_MS);
+  setInterval(() => void closeExpiredStandardListings(), HOUR_MS);
   console.log("[cron] Background jobs started (guest expiry + available-now clear + featured-shift/listing expiry: every 1h)");
 }

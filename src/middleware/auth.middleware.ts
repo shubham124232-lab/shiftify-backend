@@ -21,6 +21,8 @@ declare module "express-serve-static-core" {
     // Read from the access-token claim (set at login / switch-role).
     activeRole?: UserRole;
     roles?: UserRole[];
+    // Session (refresh-token row) this access token belongs to.
+    sessionId?: string;
   }
 }
 
@@ -37,14 +39,26 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     } catch {
       throw new UnauthorizedError("Invalid or expired token");
     }
-    const user = await prisma.user.findUnique({
-      where:  { id: payload.sub },
-      select: { id: true, status: true, adminTier: true, accountType: true },
-    });
+    // Tokens minted before session binding existed carry no sid — force a refresh.
+    if (!payload.sid) throw new UnauthorizedError("Invalid or expired token");
+    const [user, session] = await Promise.all([
+      prisma.user.findUnique({
+        where:  { id: payload.sub },
+        select: { id: true, status: true, adminTier: true, accountType: true },
+      }),
+      prisma.session.findFirst({
+        where:  { id: payload.sid, userId: payload.sub, expiresAt: { gt: new Date() } },
+        select: { id: true },
+      }),
+    ]);
     if (!user) throw new UnauthorizedError("User no longer exists");
+    // Logged-out / revoked / expired session invalidates its access tokens too.
+    if (!session) throw new UnauthorizedError("Session ended");
+    if (user.status === "SUSPENDED") throw new UnauthorizedError("Account suspended. Contact support.");
     req.user      = user;
     req.activeRole = payload.activeRole as UserRole;
     req.roles      = (payload.roles ?? []) as UserRole[];
+    req.sessionId  = session.id;
     next();
   } catch (err) {
     next(err);

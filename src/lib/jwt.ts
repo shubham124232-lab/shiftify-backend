@@ -8,6 +8,7 @@ export interface AccessTokenPayload {
   roles: string[]; // every role the account holds (for the client switcher)
   status: string;
   name?: string; // display name — cached so first render shows correct greeting
+  sid?: string; // session id (Session.id) — lets requireAuth reject tokens after logout
 }
 
 export interface RefreshTokenPayload {
@@ -22,7 +23,10 @@ export function signAccessToken(payload: AccessTokenPayload): string {
 }
 
 export function verifyAccessToken(token: string): AccessTokenPayload {
-  return jwt.verify(token, env.JWT_ACCESS_SECRET) as AccessTokenPayload;
+  const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET) as AccessTokenPayload & { scope?: string };
+  // Purpose-scoped tokens (e.g. login-pending) share the signing secret but must never authenticate.
+  if (decoded.scope !== undefined) throw new Error("Invalid token scope");
+  return decoded;
 }
 
 export function signRefreshToken(payload: RefreshTokenPayload): string {

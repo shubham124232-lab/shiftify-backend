@@ -37,6 +37,7 @@ export async function confirmVerification(req: Request, res: Response): Promise<
     activeRole: req.activeRole ?? req.user.status,
     roles:      req.roles ?? [],
     status:     req.user.status,
+    sid:        req.sessionId,
   });
   success(res, {
     verified:      true,

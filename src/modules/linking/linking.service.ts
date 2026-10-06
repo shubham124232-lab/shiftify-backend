@@ -6,6 +6,7 @@
 //   • Starts as PENDING (Admin can bulk-approve; avoids bypassing review).
 //   • Holds exactly one role (SUPPORT_WORKER or PARTICIPANT).
 
+import { randomBytes } from "crypto";
 import { prisma } from "../../lib/prisma";
 import { hashPassword } from "../../lib/hash";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError, BadRequestError } from "../../lib/errors";
@@ -17,6 +18,8 @@ import type { WorkerProfileInput } from "../../validators/profile-worker.schema"
 import type { ParticipantProfileInput } from "../../validators/profile-participant.schema";
 import type { UploadDocumentInput } from "../../validators/document.schema";
 import type { UserRole, UserStatus } from "@prisma/client";
+
+const INTERNAL_USERNAME_PREFIX = "managed-";
 
 export interface ManagedAccountResult {
   id: string;
@@ -177,8 +180,8 @@ export async function activateWorker(input: {
 // participant's profile at creation time.
 export async function createParticipant(input: {
   parentUserId: string;
-  username: string;
-  password: string;
+  username?: string;
+  password?: string;
   name: string;
   preferredName: string;
   ageGroup: string;
@@ -191,10 +194,13 @@ export async function createParticipant(input: {
   authorisingPersonRelationship?: string;
   authorisingPersonNote?: string;
 }): Promise<ManagedAccountResult> {
+  // No credentials supplied (SC-N01–N04 collect none): use an internal identifier
+  // and an unguessable password nobody is told, so no usable login exists yet.
+  const suffix = randomBytes(6).toString("hex");
   const result = await createManagedAccount({
     parentUserId: input.parentUserId,
-    username: input.username,
-    password: input.password,
+    username: input.username ?? `${INTERNAL_USERNAME_PREFIX}${suffix}`,
+    password: input.password ?? randomBytes(24).toString("base64url"),
     name: input.name,
     role: "PARTICIPANT",
   });
@@ -236,7 +242,9 @@ export async function sendParticipantInvitation(input: {
   ]);
   if (!user) throw new NotFoundError("Managed account not found");
 
-  const body = `You've been added to Shiftify. Log in with username "${user.username}" and the password you were given.`;
+  const body = user.username?.startsWith(INTERNAL_USERNAME_PREFIX)
+    ? "You've been added to Shiftify by your Support Coordinator, who will arrange access with you."
+    : `You've been added to Shiftify. Log in with username "${user.username}" and the password you were given.`;
 
   if (input.method === "EMAIL") {
     if (!profile?.contactEmail) throw new BadRequestError("No contact email is on file for this participant.");

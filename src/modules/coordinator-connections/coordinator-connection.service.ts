@@ -35,12 +35,26 @@ export async function createConnection(
   if (!["COORDINATOR", "PARTICIPANT"].includes(activeRole)) {
     throw new ForbiddenError("Only coordinators and participants can send connection requests");
   }
-  if (userId === input.targetUserId) {
+
+  // SC-C02 — resolve the target from an id, or from the participant's email / mobile.
+  let targetUserId = input.targetUserId;
+  if (!targetUserId) {
+    const mobileDigits = input.mobile?.replace(/[^\d+]/g, "");
+    const found = await prisma.user.findFirst({
+      where: input.email
+        ? { email: input.email.trim().toLowerCase() }
+        : { phone: { in: [mobileDigits!, mobileDigits!.replace(/^0/, "+61"), `+${mobileDigits!.replace(/^\+/, "")}`] } },
+      select: { id: true },
+    });
+    if (!found) throw new NotFoundError("Participant not found");
+    targetUserId = found.id;
+  }
+  if (userId === targetUserId) {
     throw new BadRequestError("You can't connect with yourself");
   }
 
   const target = await prisma.user.findUnique({
-    where:   { id: input.targetUserId },
+    where:   { id: targetUserId },
     include: { roles: true },
   });
   const expectedTargetRole = activeRole === "COORDINATOR" ? "PARTICIPANT" : "COORDINATOR";
@@ -49,8 +63,10 @@ export async function createConnection(
   }
 
   const initiator: CoordinatorInitiator = activeRole as CoordinatorInitiator;
-  const coordinatorUserId = activeRole === "COORDINATOR" ? userId : input.targetUserId;
-  const participantUserId = activeRole === "COORDINATOR" ? input.targetUserId : userId;
+  // SC-C03 — permissions the Coordinator asked for; applied when the participant accepts.
+  const requestedAtCreate = activeRole === "COORDINATOR" && input.permissions ? input.permissions : undefined;
+  const coordinatorUserId = activeRole === "COORDINATOR" ? userId : targetUserId;
+  const participantUserId = activeRole === "COORDINATOR" ? targetUserId : userId;
 
   const existing = await prisma.coordinatorParticipantConnection.findUnique({
     where: { coordinatorUserId_participantUserId: { coordinatorUserId, participantUserId } },
@@ -61,7 +77,7 @@ export async function createConnection(
     // Previously declined — allow a fresh request by resetting to PENDING.
     const reopened = await prisma.coordinatorParticipantConnection.update({
       where: { id: existing.id },
-      data:  { status: "PENDING", initiatedBy: initiator, message: input.message },
+      data:  { status: "PENDING", initiatedBy: initiator, message: input.message, requestedPermissions: requestedAtCreate },
       include: INCLUDE,
     });
     notifyNewRequest(reopened, activeRole);
@@ -74,6 +90,7 @@ export async function createConnection(
       participantUserId,
       initiatedBy: initiator,
       message:     input.message,
+      requestedPermissions: requestedAtCreate,
       status:      "PENDING",
     },
     include: INCLUDE,
@@ -158,9 +175,26 @@ export async function respondToConnection(
   if (conn.status !== "PENDING") throw new BadRequestError("Request is already " + conn.status.toLowerCase());
 
   const newStatus = input.action === "ACCEPT" ? "ACCEPTED" : "DECLINED";
+  // A PENDING connection can only carry requestedPermissions from SC-C03 (the
+  // additional-permission flow only runs on accepted connections), so grant
+  // exactly what was asked for.
+  const asked = input.action === "ACCEPT" && conn.requestedPermissions && !conn.permissionRequestPending
+    ? (conn.requestedPermissions as Record<string, boolean>)
+    : null;
   const updated = await prisma.coordinatorParticipantConnection.update({
     where: { id: connectionId },
-    data:  { status: newStatus },
+    data:  asked
+      ? {
+          status: newStatus,
+          canViewInfo:           asked.canViewInfo === true,
+          canPostRequests:       asked.canPostRequests === true,
+          canShortlist:          asked.canShortlist === true,
+          canMessage:            asked.canMessage === true,
+          canConfirmBookings:    asked.canConfirmBookings === true,
+          canManageReplacements: asked.canManageReplacements === true,
+          requestedPermissions:  Prisma.DbNull,
+        }
+      : { status: newStatus },
     include: INCLUDE,
   });
 

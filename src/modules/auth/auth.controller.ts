@@ -144,8 +144,8 @@ export async function checkUsername(req: Request, res: Response): Promise<void> 
 
 // POST /auth/switch-role — change the active role; returns a re-scoped access token.
 export async function switchRole(req: Request, res: Response): Promise<void> {
-  if (!req.user) throw new UnauthorizedError();
+  if (!req.user || !req.sessionId) throw new UnauthorizedError();
   const { role } = switchRoleSchema.parse(req.body);
-  const r = await authService.switchRole({ userId: req.user.id, targetRole: role });
+  const r = await authService.switchRole({ userId: req.user.id, targetRole: role, sessionId: req.sessionId });
   success(res, { accessToken: r.accessToken, activeRole: r.activeRole, roles: r.roles });
 }

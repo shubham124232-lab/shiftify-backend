@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma";
 import { NotFoundError, ConflictError } from "../../lib/errors";
 import type { UpdateProfileInput } from "../../validators/profile.schema";
 import type { User, UserRole } from "@prisma/client";
+import { phoneVariants } from "../../lib/phone";
 
 // ─── Shared include ───────────────────────────────────────────────────────────
 
@@ -440,7 +441,7 @@ export async function updateProfile(userId: string, input: UpdateProfileInput) {
     if (existing && existing.id !== userId) throw new ConflictError("That email is already in use");
   }
   if (scalar.phone) {
-    const existing = await prisma.user.findUnique({ where: { phone: scalar.phone } });
+    const existing = await prisma.user.findFirst({ where: { phone: { in: phoneVariants(scalar.phone) } } });
     if (existing && existing.id !== userId) throw new ConflictError("That phone number is already in use");
   }
   if (scalar.username) {
