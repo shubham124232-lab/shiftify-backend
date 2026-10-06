@@ -33,6 +33,14 @@ async function requireCaps(providerUserId: string) {
   return caps;
 }
 
+// Managed worker login accounts (created at /linking/workers) are also Internal
+// Workforce, so they share the Team Member allowance with invited roster entries.
+function countManagedWorkers(providerUserId: string) {
+  return prisma.user.count({
+    where: { parentUserId: providerUserId, accountType: "MANAGED", roles: { some: { role: "SUPPORT_WORKER" } } },
+  });
+}
+
 // ─── Branches ───────────────────────────────────────────────────────────────
 
 // "PROVIDER_ORG_STARTER_ANNUAL" -> "Starter" for user-facing capacity messages.
@@ -162,10 +170,13 @@ export async function createTeamMember(providerUserId: string, input: CreateTeam
   // or swapping people out, cannot be used to exceed the plan limit.
   const alreadyCounted = !!existing?.removedAt && existing.removedAt >= caps.periodStart;
   if (caps.maxTeamMembers != null && !alreadyCounted) {
-    const count = await prisma.providerTeamMember.count({
-      where: { providerUserId, OR: [{ removedAt: null }, { removedAt: { gte: caps.periodStart } }] },
-    });
-    if (count >= caps.maxTeamMembers) {
+    const [rosterCount, managedCount] = await Promise.all([
+      prisma.providerTeamMember.count({
+        where: { providerUserId, OR: [{ removedAt: null }, { removedAt: { gte: caps.periodStart } }] },
+      }),
+      countManagedWorkers(providerUserId),
+    ]);
+    if (rosterCount + managedCount >= caps.maxTeamMembers) {
       throw new ApiError(
         403,
         "SUBSCRIPTION_LIMIT",
@@ -279,16 +290,17 @@ export async function confirmTeamMemberVerification(
 export async function getCapacitySummary(providerUserId: string) {
   const caps = await getActiveProviderOrgCaps(providerUserId);
   if (!caps) return null;
-  const [teamMembers, administrators, branches] = await Promise.all([
+  const [rosterMembers, managedWorkers, administrators, branches] = await Promise.all([
     prisma.providerTeamMember.count({
       where: { providerUserId, OR: [{ removedAt: null }, { removedAt: { gte: caps.periodStart } }] },
     }),
+    countManagedWorkers(providerUserId),
     prisma.providerAdministrator.count({ where: { providerUserId } }),
     prisma.providerBranch.count({ where: { providerUserId } }),
   ]);
   return {
     planLabel: planLabel(caps.planKey),
-    teamMembers:    { used: teamMembers,    max: caps.maxTeamMembers },
+    teamMembers:    { used: rosterMembers + managedWorkers, max: caps.maxTeamMembers },
     administrators: { used: administrators, max: caps.maxAdministrators },
     branches:       { used: branches,       max: caps.maxBranches },
   };

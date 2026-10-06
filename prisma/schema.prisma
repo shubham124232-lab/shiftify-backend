@@ -2032,6 +2032,12 @@ model ProviderListing {
   serviceMode     String? // IN_PERSON | REMOTE | BOTH
   fundingTypes    Json? // String[]
 
+  // Provider doc PR-CP01 — general service capacity (additive).
+  acceptingStatus     String? // YES | LIMITED | NO — accepting new Participants
+  serviceCategories   Json? // String[] — every service with current capacity
+  daysAvailable       Json? // String[] — MON..SUN
+  responseExpectation String? // e.g. SAME_DAY | WITHIN_48_HOURS | WITHIN_A_WEEK
+
   // HOUSING vacancies (sil-vacancy form)
   vacancyCategory String? // SIL | SDA | SIL_SDA | RESPITE | MEDIUM_TERM | SHORT_TERM | OTHER
   propertyType    String?

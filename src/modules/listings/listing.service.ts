@@ -24,6 +24,10 @@ const LISTING_SELECT = {
   serviceCategory: true,
   serviceMode: true,
   fundingTypes: true,
+  acceptingStatus: true,
+  serviceCategories: true,
+  daysAvailable: true,
+  responseExpectation: true,
   vacancyCategory: true,
   propertyType: true,
   vacancyCount: true,
@@ -39,6 +43,16 @@ const LISTING_SELECT = {
   standardPaidAt: true,
   listingExpiresAt: true,
 } as const;
+
+// PR-CP01 — the headline answer (accepting new Participants) also feeds the Provider profile.
+const CAPACITY_BY_ACCEPTING = { YES: "OPEN", LIMITED: "LIMITED", NO: "FULL" } as const;
+async function syncProfileCapacity(providerUserId: string, accepting: "YES" | "LIMITED" | "NO" | undefined): Promise<void> {
+  if (!accepting) return;
+  await prisma.providerProfile.updateMany({
+    where: { userId: providerUserId },
+    data: { currentCapacityStatus: CAPACITY_BY_ACCEPTING[accepting] },
+  });
+}
 
 export async function createListing(providerUserId: string, activeRole: UserRole, input: CreateListingInput) {
   if (!(await subscriptionGated(providerUserId, activeRole))) {
@@ -65,6 +79,8 @@ export async function createListing(providerUserId: string, activeRole: UserRole
       providerUserId,
       ...data,
       fundingTypes:  data.fundingTypes ?? undefined,
+      serviceCategories: data.serviceCategories ?? undefined,
+      daysAvailable: data.daysAvailable ?? undefined,
       suitableFor:   data.suitableFor ?? undefined,
       fundingRoutes: data.fundingRoutes ?? undefined,
       ...(isHousing
@@ -77,6 +93,7 @@ export async function createListing(providerUserId: string, activeRole: UserRole
     },
     select: LISTING_SELECT,
   });
+  await syncProfileCapacity(providerUserId, data.acceptingStatus);
   return isHousing ? { ...listing, packagePriceAud: STANDARD_LISTING_PRICE_AUD } : listing;
 }
 
@@ -91,11 +108,14 @@ export async function updateListing(providerUserId: string, listingId: string, i
     data: {
       ...input,
       fundingTypes:  input.fundingTypes  ?? undefined,
+      serviceCategories: input.serviceCategories ?? undefined,
+      daysAvailable: input.daysAvailable ?? undefined,
       suitableFor:   input.suitableFor   ?? undefined,
       fundingRoutes: input.fundingRoutes ?? undefined,
     },
     select: LISTING_SELECT,
   });
+  await syncProfileCapacity(providerUserId, input.acceptingStatus);
 
   // Pricing V2 §7.3 item 46 — a Featured listing filled/withdrawn/closed drops
   // out of the queue, and the next one moves up automatically.

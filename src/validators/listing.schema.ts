@@ -28,6 +28,12 @@ export const createListingSchema = z
     serviceMode:     z.enum(["IN_PERSON", "REMOTE", "BOTH"]).optional(),
     fundingTypes:    z.array(z.string().max(60)).max(10).optional(),
 
+    // Provider doc PR-CP01 general service capacity
+    acceptingStatus:     z.enum(["YES", "LIMITED", "NO"]).optional(),
+    serviceCategories:   z.array(z.string().max(120)).max(30).optional(),
+    daysAvailable:       z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).max(7).optional(),
+    responseExpectation: z.enum(["SAME_DAY", "WITHIN_48_HOURS", "WITHIN_A_WEEK"]).optional(),
+
     // HOUSING vacancies (sil-vacancy form)
     vacancyCategory: z
       .enum(["SIL", "SDA", "SIL_SDA", "RESPITE", "MEDIUM_TERM", "SHORT_TERM", "OTHER"])
@@ -91,6 +97,10 @@ export const updateListingSchema = z.object({
   serviceCategory: z.string().max(120).optional(),
   serviceMode:     z.enum(["IN_PERSON", "REMOTE", "BOTH"]).optional(),
   fundingTypes:    z.array(z.string().max(60)).max(10).optional(),
+  acceptingStatus:     z.enum(["YES", "LIMITED", "NO"]).optional(),
+  serviceCategories:   z.array(z.string().max(120)).max(30).optional(),
+  daysAvailable:       z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).max(7).optional(),
+  responseExpectation: z.enum(["SAME_DAY", "WITHIN_48_HOURS", "WITHIN_A_WEEK"]).optional(),
   vacancyCategory: z
     .enum(["SIL", "SDA", "SIL_SDA", "RESPITE", "MEDIUM_TERM", "SHORT_TERM", "OTHER"])
     .optional(),
