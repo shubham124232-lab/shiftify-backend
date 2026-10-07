@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { UnauthorizedError } from "../../lib/errors";
+import { BadRequestError, UnauthorizedError } from "../../lib/errors";
 import { success } from "../../utils/response";
 import { parse } from "../../utils/validate";
 import * as svc from "./provider-org.service";
@@ -9,6 +9,13 @@ import {
   createTeamMemberSchema,
   confirmTeamMemberVerificationSchema,
 } from "../../validators/provider-org.schema";
+
+export async function requestToJoin(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const abn = String((req.body as { abn?: string })?.abn ?? "");
+  if (!/^\d{11}$/.test(abn.replace(/\s/g, ""))) throw new BadRequestError("Enter the 11-digit ABN.");
+  success(res, await svc.requestToJoin(req.user.id, abn));
+}
 
 // ─── Branches ───────────────────────────────────────────────────────────────
 

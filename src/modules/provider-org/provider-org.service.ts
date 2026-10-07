@@ -350,3 +350,20 @@ export async function getInbox(providerUserId: string) {
     })),
   };
 }
+
+// PR-MR02 — joining an existing Provider organisation needs that organisation's approval: the owner is notified and
+// adds the person as an administrator (or declines by ignoring). No access is granted by the request itself.
+export async function requestToJoin(requesterId: string, abn: string) {
+  const clean = abn.replace(/\s/g, "");
+  const owner = await prisma.providerProfile.findUnique({ where: { abn: clean }, select: { userId: true, businessName: true } });
+  if (!owner) throw new NotFoundError("No Provider is registered with that ABN.");
+  if (owner.userId === requesterId) throw new BadRequestError("That is your own organisation.");
+  const me = await prisma.user.findUnique({ where: { id: requesterId }, select: { name: true, email: true } });
+  const dup = await prisma.notification.findFirst({ where: { userId: owner.userId, type: "PROVIDER_JOIN_REQUEST", data: { path: ["requesterId"], equals: requesterId } }, select: { id: true } });
+  if (!dup) {
+    await notify.sendPushNotification(owner.userId, "Request to join your organisation",
+      `${me?.name ?? "Someone"} (${me?.email ?? "no email"}) asked to join ${owner.businessName ?? "your organisation"}. If you know them, add them as an Administrator on My Organisation.`,
+      { requesterId, email: me?.email ?? null }, "PROVIDER_JOIN_REQUEST");
+  }
+  return { requested: true };
+}

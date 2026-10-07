@@ -8,6 +8,7 @@ const router = Router();
 
 router.use(requireAuth, requireRole("PROVIDER"));
 
+router.post("/join-request", asyncHandler(ctrl.requestToJoin));
 router.get("/capacity", asyncHandler(ctrl.getCapacity));
 router.get("/inbox", asyncHandler(ctrl.getInbox));
 router.post("/branches", asyncHandler(ctrl.createBranch));
