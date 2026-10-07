@@ -65,6 +65,8 @@ enum DocumentType {
   CPR
   MANUAL_HANDLING
   INFECTION_CONTROL
+  MEDICATION_COMPETENCY
+  PHOTO_ID
   DRIVERS_LICENCE
   VEHICLE_INSURANCE
   PUBLIC_LIABILITY_INSURANCE
@@ -252,6 +254,9 @@ enum NotificationType {
   REQUEST_STARTING_UNCONFIRMED
   JOB_APPLICATION_WITHDRAWN
   REQUEST_FILLED
+  JOB_APPLICATION_VIEWED
+  REQUEST_SCHEDULE_RESULT
+  PROVIDER_JOIN_REQUEST
 }
 
 enum SubscriptionStatus {
@@ -567,6 +572,18 @@ model WorkerProfile {
   rateDisplayMode   String? // PUBLIC | AFTER_CONNECT | HIDDEN
   contactPreference String? // ALLOW_MESSAGES | INVITATIONS_ONLY
 
+  // SW doc Window 14 — who may find this profile and how much location is shown, enforced
+  // in the worker browse and professional search before a Connect exists.
+  visibleTo       String? // ALL | PARTICIPANTS | COORDINATORS | PROVIDERS | PAUSED (null = ALL)
+  locationDisplay String? // SUBURB | GENERAL_AREA (null = SUBURB)
+
+  // SW doc Window 10 — provider-employed details (organisation name, invite or connection code).
+  employmentDetails Json? // { organisationName, inviteCode }
+
+  // SW doc Windows 11-13 — standing preferences with no column of their own:
+  // { transportParticipants, meetAndGreetModes[], minimumShift, shiftBoundaries[], maxShiftHours, supportComfort[] }
+  workPreferences Json?
+
   // SW doc Window 9 — lets the worker choose whether their compliance/document
   // status is visible to a participant before a Connect exists.
   documentsVisibleToParticipants Boolean @default(false)
@@ -606,6 +623,8 @@ model WorkerProfile {
   // SW doc Window 22 — optional user-chosen expiry ("Available until: Select
   // time"). When null, the cron falls back to the fixed 24h window above.
   availableNowUntil        DateTime?
+  // SW doc Windows 22-23 — { requestTypes, areaMode, suburb, servicesMode, services, overnight, transportParticipants, maxDistanceKm, alertsOn, paused }
+  availableNowSettings     Json?
   seekingPlanManager       Boolean   @default(false)
 
   // Capacity — mirrors CoordinatorProfile/ProviderProfile's currentCapacityStatus pattern
@@ -1162,6 +1181,7 @@ enum AvailabilityListingStatus {
   ACTIVE
   PAUSED
   EXPIRED
+  ARCHIVED
 }
 
 // SW doc Windows 24-26 — a worker's "I'm generally available" post, distinct
@@ -1237,6 +1257,8 @@ model Document {
 
 model SupportRequest {
   id String @id @default(uuid())
+
+  clientRequestId String?
 
   postedByUserId String
   postedBy       User   @relation("PostedBy", fields: [postedByUserId], references: [id])
@@ -1341,6 +1363,8 @@ model SupportRequest {
   workerConfirmedAt    DateTime?
   startedAt            DateTime?
   completedAt          DateTime?
+  // SW doc Windows 38-41 — { actualStart, actualEnd, breakMinutes, servicesDelivered, extras, activities, outcome, handover, incident, submittedAt, paidAt }
+  completionRecord     Json?
   confirmedAt          DateTime?
   cancelledAt          DateTime?
   cancelledByUserId    String?
@@ -1409,6 +1433,9 @@ model SupportRequest {
   @@index([postedByUserId, status])
   @@index([assignedWorkerUserId, status])
   @@index([selectedApplicantUserId, status])
+  // Phase 2 — one live request per posting attempt: a retry or double click with the same
+  // clientRequestId returns the request that already exists instead of creating a duplicate.
+  @@unique([postedByUserId, clientRequestId])
 }
 
 // Supports multiple workers on one job, without touching SupportRequest's
@@ -1445,6 +1472,7 @@ model Review {
   reliabilityRating   Int?
   communicationRating Int?
   qualityRating       Int?
+  organisationRating  Int?
   privateConcern      String?
   createdAt           DateTime       @default(now())
 

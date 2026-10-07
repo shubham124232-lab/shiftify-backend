@@ -357,7 +357,7 @@ const API = [
   {m:"POST",p:"/jobs/:id/invoice",a:"auth",d:"Creates an invoice record (record-only — no in-app payment; see project memory).",rq:{planManagerUserId:"uuid",participantUserId:"uuid",hours:"optional",note:"optional"},rs:{invoice:"{...}"}},
   {m:"POST",p:"/jobs/:id/reviews",a:"auth",d:"Creates a post-job review.",rq:{rating:"1-5",comment:"optional",reliabilityRating:"1-5 optional",communicationRating:"1-5 optional",qualityRating:"1-5 optional",privateConcern:"optional, never shown to reviewee"},rs:{review:"{...}"}},
   {m:"GET",p:"/jobs/:id/reviews",a:"auth",d:"Lists reviews for a job.",rq:null,rs:{reviews:"[...]"}},
-  {m:"POST",p:"/jobs/:id/incidents",a:"auth",d:"Pilot safety gate — creates an incident report. isDraft:true saves in-progress.",rq:{category:"SAFETY|NO_SHOW|MISCONDUCT|OTHER",description:"optional, max 2000",evidenceUrls:"up to 10 URLs, optional",isDraft:"boolean, default false"},rs:{incident:"{...}"}},
+  {m:"POST",p:"/jobs/:id/incidents",a:"auth",d:"Pilot safety gate — creates an incident report. isDraft:true saves in-progress.",rq:{category:"SAFETY|NO_SHOW|MISCONDUCT|MISLEADING_REQUEST|HARASSMENT|PRIVACY|PAYMENT_DISPUTE|INAPPROPRIATE_CONTENT|OTHER",description:"optional, max 2000",evidenceUrls:"up to 10 URLs, optional",isDraft:"boolean, default false"},rs:{incident:"{...}"}},
   {m:"GET",p:"/jobs/:id/incidents/draft",a:"auth",d:"Resumes an in-progress draft incident report for this job, if any.",rq:null,rs:{incident:"{...} | null"}},
   {m:"PATCH",p:"/jobs/:id/incidents/:incidentId",a:"auth",d:"Completes a draft and/or attaches evidence. finalize:true transitions DRAFT to OPEN.",rq:{category:"optional",description:"optional",evidenceUrls:"optional",finalize:"boolean, default false"},rs:{incident:"{...}"}},
 ]},

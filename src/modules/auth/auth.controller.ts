@@ -131,6 +131,14 @@ export async function addRole(req: Request, res: Response): Promise<void> {
   success(res, { roles }, 201);
 }
 
+// DELETE /auth/roles/:role — drop a role from the current account.
+export async function removeRole(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const { role } = addRoleSchema.parse({ role: req.params.role });
+  const roles = await authService.removeRole(req.user.id, role, req.activeRole as never);
+  success(res, { roles });
+}
+
 // GET /auth/check-username?username=<value>
 export async function checkUsername(req: Request, res: Response): Promise<void> {
   const username = (req.query.username as string | undefined)?.trim();

@@ -21,6 +21,7 @@ const avatarUpload = multer({
 });
 
 router.get("/presign",            requireAuth, asyncHandler(ctrl.presign));
+router.post("/listing-photo",     requireAuth, avatarUpload.single("photo"), asyncHandler(ctrl.uploadListingPhoto));
 router.post("/avatar",            requireAuth, avatarUpload.single("avatar"), asyncHandler(ctrl.uploadAvatar));
 router.post("/register-document", requireAuth, asyncHandler(ctrl.registerDocument));
 router.post("/document/presign",  requireAuth, asyncHandler(ctrl.documentPresign));

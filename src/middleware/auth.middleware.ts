@@ -54,7 +54,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     if (!user) throw new UnauthorizedError("User no longer exists");
     // Logged-out / revoked / expired session invalidates its access tokens too.
     if (!session) throw new UnauthorizedError("Session ended");
-    if (user.status === "SUSPENDED") throw new UnauthorizedError("Account suspended. Contact support.");
+    if (user.status === "SUSPENDED") throw new UnauthorizedError("Your account is suspended. Your records and confirmed arrangements are kept. To ask for a review, contact Shiftify support.");
     req.user      = user;
     req.activeRole = payload.activeRole as UserRole;
     req.roles      = (payload.roles ?? []) as UserRole[];

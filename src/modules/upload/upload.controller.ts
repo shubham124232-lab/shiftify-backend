@@ -100,6 +100,18 @@ export async function uploadAvatar(req: Request, res: Response): Promise<void> {
   success(res, { avatarUrl });
 }
 
+// POST /upload/listing-photo — a Home and Living listing photo (returns the URL; the listing stores it in housingDetails).
+export async function uploadListingPhoto(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const file = req.file;
+  if (!file) throw new BadRequestError("No file provided");
+  if (!(AVATAR_CONTENT_TYPES as readonly string[]).includes(file.mimetype)) {
+    throw new BadRequestError("Photos must be a " + AVATAR_LABELS + " image.");
+  }
+  const saved = await saveFile({ buffer: file.buffer, originalName: file.originalname, mimeType: file.mimetype, userId: req.user.id, category: "listing-photos" });
+  success(res, { url: buildFileUrl(saved.filePath) });
+}
+
 // POST /upload/register-document
 export async function registerDocument(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
@@ -144,6 +156,7 @@ const ROLE_DOC_ALLOWLIST: Record<string, DocumentType[]> = {
     "POLICE_CHECK", "NDIS_SCREENING", "WWCC", "FIRST_AID", "CPR",
     "MANUAL_HANDLING", "DRIVERS_LICENCE", "PUBLIC_LIABILITY_INSURANCE",
     "PERSONAL_ACCIDENT_INSURANCE", "QUALIFICATION_CERTIFICATE",
+    "INFECTION_CONTROL", "MEDICATION_COMPETENCY", "PHOTO_ID",
   ],
   COORDINATOR: [
     "POLICE_CHECK", "WWCC", "NDIS_SCREENING", "PROFESSIONAL_INDEMNITY",

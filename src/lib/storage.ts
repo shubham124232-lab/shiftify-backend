@@ -21,7 +21,7 @@ export interface UploadInput {
   originalName: string;
   mimeType: string;
   userId: string;
-  category: "compliance" | "avatars";
+  category: "compliance" | "avatars" | "listing-photos";
 }
 
 export interface PresignResult {
@@ -73,7 +73,7 @@ export async function saveFile(input: UploadInput): Promise<SavedFile> {
 
 // Keys are always <category>/<userId>/<random><ext> (see buildFileKey). Anything
 // else — traversal segments, absolute paths, other prefixes — is rejected.
-const STORAGE_KEY_RE = /^(compliance|avatars|incident-evidence)\/([A-Za-z0-9-]+)\/[A-Za-z0-9._-]+$/;
+const STORAGE_KEY_RE = /^(compliance|avatars|incident-evidence|listing-photos)\/([A-Za-z0-9-]+)\/[A-Za-z0-9._-]+$/;
 
 export function isSafeStorageKey(key: string): boolean {
   return STORAGE_KEY_RE.test(key) && !key.includes("..");
@@ -383,7 +383,7 @@ export function generateGetPresignedUrl(opts: {
 export function buildFileKey(opts: {
   originalName: string;
   userId: string;
-  category: "compliance" | "avatars" | "incident-evidence";
+  category: "compliance" | "avatars" | "incident-evidence" | "listing-photos";
 }): string {
   const safeExt = path.extname(opts.originalName).toLowerCase().replace(/[^a-z0-9.]/g, "");
   const rand    = crypto.randomBytes(12).toString("hex");
