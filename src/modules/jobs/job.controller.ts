@@ -17,6 +17,8 @@ import {
   proposeMeetAndGreetSchema,
   respondMeetAndGreetSchema,
   createChangeRequestSchema,
+  completeJobSchema,
+  workerPaymentStatusSchema,
   respondChangeRequestSchema,
   closeConnectionSchema,
   extendJobSchema,
@@ -135,8 +137,23 @@ export async function startJob(req: Request, res: Response): Promise<void> {
 // PATCH /jobs/:id/complete
 export async function completeJob(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
-  const job = await svc.completeJob(req.params.id, req.user.id);
+  const data = parse(completeJobSchema, req.body ?? {});
+  const job = await svc.completeJob(req.params.id, req.user.id, data);
   success(res, { job });
+}
+
+// PATCH /jobs/:id/worker-payment — the worker's own "paid / not paid" record (Window 41)
+export async function setWorkerPaymentStatus(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(workerPaymentStatusSchema, req.body);
+  const job = await svc.setWorkerPaymentStatus(req.params.id, req.user.id, data.paid);
+  success(res, { job });
+}
+
+// GET /jobs/earnings/mine — completed support with the payment-status buckets (Window 41)
+export async function listMyEarnings(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, await svc.listMyEarnings(req.user.id));
 }
 
 // PATCH /jobs/:id/confirm
