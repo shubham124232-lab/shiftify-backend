@@ -14,6 +14,7 @@ const housingDetailsSchema = z.object({
   costs:                 z.string().max(1000).optional(),
   requiredApprovals:     z.string().max(500).optional(),
   inspectionProcess:     z.string().max(1000).optional(),
+  photoUrls:             z.array(z.string().url().max(500)).max(6).optional(),
 }).strict();
 
 export const createListingSchema = z

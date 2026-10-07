@@ -13,5 +13,6 @@ router.get  ("/received",  asyncHandler(ctrl.listReceived));
 router.patch("/:id/read",  asyncHandler(ctrl.markRead));
 router.patch("/:id/status", asyncHandler(ctrl.updateStatus));
 router.post ("/:id/reply",  asyncHandler(ctrl.reply));
+router.post ("/:id/report", asyncHandler(ctrl.report));
 
 export default router;

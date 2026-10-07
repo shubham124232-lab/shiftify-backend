@@ -36,6 +36,12 @@ export async function getMyActiveSubscriptions(req: Request, res: Response): Pro
   success(res, { subscriptions });
 }
 
+// GET /subscriptions/me/history — plan, pass and promotion history (PR-OM01)
+export async function getBillingHistory(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, { history: await svc.getBillingHistory(req.user.id) });
+}
+
 // POST /subscriptions/shift-pass — Pricing V2 §6 Single Shift Pass purchase
 export async function purchaseShiftPass(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();

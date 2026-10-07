@@ -132,3 +132,18 @@ export async function markInquiryRead(inquiryId: string, userId: string) {
     data: { readAt: new Date() },
   });
 }
+
+// PR-M03 — report a message thread to Shiftify administrators (no job needed). The reporter must be a party.
+export async function reportInquiry(inquiryId: string, userId: string, reason: string) {
+  const inq = await prisma.directInquiry.findUnique({ where: { id: inquiryId }, select: { id: true, senderUserId: true, recipientUserId: true, parentInquiryId: true } });
+  if (!inq) throw new NotFoundError("Message not found");
+  if (inq.senderUserId !== userId && inq.recipientUserId !== userId) throw new ForbiddenError("You are not part of this conversation.");
+  const reportedUserId = inq.senderUserId === userId ? inq.recipientUserId : inq.senderUserId;
+  const admins = await prisma.user.findMany({ where: { roles: { some: { role: "ADMIN" } } }, select: { id: true } });
+  for (const a of admins) {
+    await notify.sendPushNotification(a.id, "Conversation reported",
+      `A user reported a conversation: ${reason.slice(0, 300)}`,
+      { inquiryId: inq.parentInquiryId ?? inq.id, reporterUserId: userId, reportedUserId }, "INCIDENT_REPORTED");
+  }
+  return { reported: true, notifiedAdmins: admins.length };
+}

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { asyncHandler } from "../../utils/async-handler";
 import { requireAuth } from "../../middleware/auth.middleware";
-import { activateSubscription, listPlans, getMySubscription, getMyActiveSubscriptions, purchaseShiftPass, cancelSubscription, getIntroductoryAllowance, activateAddOn } from "./subscription.controller";
+import { activateSubscription, listPlans, getMySubscription, getMyActiveSubscriptions, purchaseShiftPass, cancelSubscription, getIntroductoryAllowance, activateAddOn, getBillingHistory } from "./subscription.controller";
 
 const router = Router();
 
@@ -15,6 +15,7 @@ router.get ("/me/all",     requireAuth, asyncHandler(getMyActiveSubscriptions));
 router.post("/shift-pass", requireAuth, asyncHandler(purchaseShiftPass));
 router.post("/add-on",    requireAuth, asyncHandler(activateAddOn));
 router.post("/cancel",     requireAuth, asyncHandler(cancelSubscription));
+router.get ("/me/history", requireAuth, asyncHandler(getBillingHistory));
 router.get ("/me/allowance", requireAuth, asyncHandler(getIntroductoryAllowance));
 
 export default router;

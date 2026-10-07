@@ -3,6 +3,9 @@
 
 import { prisma } from "./prisma";
 import { notify } from "./notify";
+import type { Prisma, UserRole } from "@prisma/client";
+import { publishJob } from "../modules/jobs/job.service";
+import { hasActiveAddOn } from "../modules/subscriptions/subscription.service";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -26,6 +29,32 @@ async function expireGuestWindows(): Promise<void> {
     }
   } catch (err) {
     console.error("[cron] expireGuestWindows error:", err);
+  }
+}
+
+// ─── "Available Now" scheduled start (SW doc Window 22 "Available from") ─────────
+async function startScheduledAvailableNow(): Promise<void> {
+  try {
+    const now = new Date();
+    const pending = await prisma.workerProfile.findMany({
+      where: { isAvailableNow: false, availableNowSettings: { path: ["scheduledPending"], equals: true } },
+      select: { userId: true, availableNowSettings: true, availableNowUntil: true },
+    });
+    for (const w of pending) {
+      const st = w.availableNowSettings as { startsAt?: string | null; paused?: boolean } & Record<string, unknown>;
+      if (!st.startsAt || new Date(st.startsAt) > now) continue;
+      const settings = { ...st, scheduledPending: false } as Prisma.InputJsonObject;
+      const stillWanted = !st.paused && (!w.availableNowUntil || w.availableNowUntil > now)
+        && await hasActiveAddOn(w.userId, "SUPPORT_WORKER", "WORKER_AVAILABLE_NOW");
+      await prisma.workerProfile.update({
+        where: { userId: w.userId },
+        data: stillWanted
+          ? { isAvailableNow: true, availableNowSetAt: now, availableNowSettings: settings }
+          : { availableNowSettings: settings },
+      });
+    }
+  } catch (err) {
+    console.error("[cron] startScheduledAvailableNow error:", err);
   }
 }
 
@@ -232,12 +261,69 @@ async function remindUnconfirmedFastRequests(): Promise<void> {
   }
 }
 
+// ─── Scheduled publish (PR-C01) ──────────────────────────────────────────────────
+// A draft saved with a scheduled publish time (responsePreferences.scheduledPublishAtMs) goes live at that time.
+// The schedule is cleared first so a failed attempt never retries in a loop; the poster is told either way.
+
+async function publishScheduledRequests(): Promise<void> {
+  try {
+    const due = await prisma.supportRequest.findMany({
+      where: { status: "DRAFT", responsePreferences: { path: ["scheduledPublishAtMs"], lte: Date.now() } },
+      select: { id: true, title: true, postedByUserId: true, responsePreferences: true },
+      take: 20,
+    });
+    for (const j of due) {
+      const prefs = (j.responsePreferences ?? {}) as Record<string, unknown>;
+      const role = (typeof prefs.scheduledPublishRole === "string" ? prefs.scheduledPublishRole : "PROVIDER") as UserRole;
+      const { scheduledPublishAtMs: _at, scheduledPublishRole: _role, ...rest } = prefs;
+      await prisma.supportRequest.update({ where: { id: j.id }, data: { responsePreferences: rest as Prisma.InputJsonValue } });
+      try {
+        await publishJob(j.id, j.postedByUserId, role);
+        await notify.sendPushNotification(j.postedByUserId, "Scheduled request is live", `"${j.title}" was published as scheduled.`, { jobId: j.id }, "REQUEST_SCHEDULE_RESULT");
+      } catch (e) {
+        const why = e instanceof Error ? e.message : "it could not be published";
+        await notify.sendPushNotification(j.postedByUserId, "Scheduled request not published", `"${j.title}" stays a draft: ${why}`, { jobId: j.id }, "REQUEST_SCHEDULE_RESULT");
+      }
+    }
+  } catch (err) {
+    console.error("[cron] publishScheduledRequests error:", err);
+  }
+}
+
+// ─── Unfilled urgent requests (Provider exceptions: no Rapid match) ─────────────────
+// An OPEN Rapid/Urgent/Last-Minute request whose start passed 30+ minutes ago with nobody selected is closed
+// (no reliability penalty) so it stops showing as live, and the poster is told how to try again.
+
+async function closeUnfilledFastRequests(): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - 30 * 60 * 1000);
+    const stale = await prisma.supportRequest.findMany({
+      where: { status: "OPEN", urgency: { in: ["RAPID", "URGENT", "LAST_MINUTE"] }, scheduledStartAt: { lt: cutoff } },
+      select: { id: true, title: true, postedByUserId: true },
+      take: 50,
+    });
+    for (const j of stale) {
+      await prisma.$transaction([
+        prisma.supportRequest.update({ where: { id: j.id }, data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: "Expired — the start time passed with no confirmed worker." } }),
+        prisma.jobApplication.updateMany({ where: { jobId: j.id, status: { in: ["INTERESTED", "SHORTLISTED"] } }, data: { status: "REQUEST_FILLED" } }),
+      ]);
+      await notify.sendPushNotification(j.postedByUserId, "Request closed — no one confirmed",
+        `"${j.title}" reached its start time without a confirmed worker, so it was closed. Open it and use "Duplicate as new request" to try again with a wider radius or a new time. Shiftify is not an emergency service.`,
+        { jobId: j.id }, "JOB_CANCELLED");
+    }
+  } catch (err) {
+    console.error("[cron] closeUnfilledFastRequests error:", err);
+  }
+}
+
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 
 export function startCronJobs(): void {
   // Run immediately on startup then every hour
   void expireGuestWindows();
   void clearExpiredAvailableNow();
+  void startScheduledAvailableNow();
+  setInterval(() => void startScheduledAvailableNow(), 5 * 60 * 1000);
   void clearExpiredFeaturedShifts();
   void clearExpiredFeaturedListings();
   void closeExpiredStandardListings();
@@ -250,5 +336,8 @@ export function startCronJobs(): void {
   void remindUnconfirmedFastRequests();
   setInterval(() => void remindProviderExpiries(), 6 * HOUR_MS);
   setInterval(() => void remindUnconfirmedFastRequests(), 10 * 60 * 1000);
+  setInterval(() => void publishScheduledRequests(), 60 * 1000);
+  void closeUnfilledFastRequests();
+  setInterval(() => void closeUnfilledFastRequests(), 10 * 60 * 1000);
   console.log("[cron] Background jobs started (guest expiry + available-now clear + featured-shift/listing expiry: every 1h)");
 }

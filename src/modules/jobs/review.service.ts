@@ -57,6 +57,7 @@ export async function createReview(jobId: string, raterUserId: string, input: Cr
       reliabilityRating:   input.reliabilityRating   ?? null,
       communicationRating: input.communicationRating ?? null,
       qualityRating:       input.qualityRating        ?? null,
+      organisationRating:  input.organisationRating   ?? null,
       privateConcern:      input.privateConcern       ?? null,
     },
   });

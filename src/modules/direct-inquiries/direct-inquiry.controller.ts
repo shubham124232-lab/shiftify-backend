@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { UnauthorizedError } from "../../lib/errors";
+import { BadRequestError, UnauthorizedError } from "../../lib/errors";
 import { success } from "../../utils/response";
 import { parse } from "../../utils/validate";
 import * as svc from "./direct-inquiry.service";
@@ -33,6 +33,14 @@ export async function updateStatus(req: Request, res: Response): Promise<void> {
   const { status } = parse(updateInquiryStatusSchema, req.body);
   const inquiry = await svc.updateInquiryStatus(req.params.id, req.user.id, status);
   success(res, { inquiry });
+}
+
+// POST /direct-inquiries/:id/report
+export async function report(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const reason = String((req.body as { reason?: string })?.reason ?? "").trim();
+  if (reason.length < 3) throw new BadRequestError("Tell us briefly what is wrong.");
+  success(res, await svc.reportInquiry(req.params.id, req.user.id, reason));
 }
 
 // POST /direct-inquiries/:id/reply

@@ -9,7 +9,7 @@ import type { CreateJobInviteInput, RespondJobInviteInput } from "../../validato
 const INCLUDE = {
   invitedUser: { select: { id: true, name: true, avatarUrl: true } },
   invitedBy:   { select: { id: true, name: true } },
-  job:         { select: { id: true, title: true, status: true, postedByUserId: true } },
+  job:         { select: { id: true, title: true, status: true, postedByUserId: true, urgency: true, category: true, suburb: true, state: true, scheduledStartAt: true, totalHours: true, budgetPerHour: true, isRecurring: true, applicationDeadlineAt: true } },
 } as const;
 
 // Pricing V2 §9.4 — a Provider's Direct Connect invite is a paid $9.99 charge,
