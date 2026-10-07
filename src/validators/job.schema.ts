@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { phoneOptional } from "./shared";
+import { paginationSchema } from "./pagination.schema";
 
 // ─── Enums (mirror Prisma) ────────────────────────────────────────────────────
 
-const JobCategoryEnum = z.enum([
+export const JobCategoryEnum = z.enum([
   "PERSONAL_CARE","COMMUNITY_ACCESS","DOMESTIC_ASSISTANCE","TRANSPORT",
   "SOCIAL_RECREATIONAL","NURSING_COMPLEX_CARE","THERAPY_ASSISTANCE",
   "OVERNIGHT_SUPPORT","BEHAVIOUR_SUPPORT","HIGH_INTENSITY","SIL_SUPPORT",
@@ -10,16 +12,16 @@ const JobCategoryEnum = z.enum([
   "SHOPPING_ERRANDS","APPOINTMENT_SUPPORT","OTHER",
 ]);
 
-const ShiftTypeEnum = z.enum([
+export const ShiftTypeEnum = z.enum([
   "STANDARD","SHORT_VISIT","LONG_SHIFT","ACTIVE_OVERNIGHT","SLEEPOVER",
   "TWENTY_FOUR_HOUR","DROP_IN","APPOINTMENT","TRANSPORT_ONLY","SPLIT",
 ]);
 
-const FundingTypeEnum = z.enum([
+export const FundingTypeEnum = z.enum([
   "SELF_MANAGED","PLAN_MANAGED","NDIA_MANAGED","PRIVATE","MIXED","DISCUSS",
 ]);
 
-const UrgencyEnum = z.enum(["EMERGENCY","SAME_DAY","SCHEDULED"]);
+export const UrgencyEnum = z.enum(["RAPID","URGENT","LAST_MINUTE","ROUTINE"]);
 
 // ─── Create / draft ───────────────────────────────────────────────────────────
 
@@ -34,9 +36,17 @@ export const createJobSchema = z.object({
   durationType:           z.string().max(40).optional(),
   // SELF | NOMINEE | FAMILY | COORDINATOR | GUARDIAN
   participantPostedAs:    z.string().max(40).optional(),
+  // Task checkboxes selected from the master service catalogue (participant posting spec).
+  // Rapid/Urgent/Last-Minute send a flat string array (single category). Routine
+  // (O-03/O-04) allows more than one category, so it sends a richer object keyed
+  // by category — both shapes land in the same Json? column unchanged.
+  selectedTasks:          z.union([
+    z.array(z.string().max(120)).max(50),
+    z.record(z.unknown()),
+  ]).optional(),
 
   // ── Step 2: Schedule ────────────────────────────────────────────────────
-  urgency:                UrgencyEnum.default("SCHEDULED"),
+  urgency:                UrgencyEnum.default("ROUTINE"),
   shiftType:              ShiftTypeEnum.optional(),
   // EXACT | FLEXIBLE_SLIGHT | FLEXIBLE_MORNING | FLEXIBLE_AFTERNOON | FLEXIBLE_EVENING | FLEXIBLE_ANYTIME | DISCUSS
   timeFlexibility:        z.string().max(40).optional(),
@@ -68,6 +78,10 @@ export const createJobSchema = z.object({
   totalBudget:            z.number().min(0).max(999999).optional(),
   // INCLUDED | ADDITIONAL | DISCUSS | NOT_REQUIRED
   travelReimbursement:    z.string().max(40).optional(),
+  planManagerName:        z.string().max(120).optional(),
+  // Last-Minute "how would you like updates" / Routine "how should professionals respond" (participant posting spec).
+  contactPreferences:     z.record(z.unknown()).optional(),
+  responsePreferences:    z.record(z.unknown()).optional(),
 
   // ── Step 7: Visibility & matching ────────────────────────────────────────
   // ALL | VERIFIED | PROVIDERS_ONLY | WORKERS_ONLY | INVITE_ONLY
@@ -84,6 +98,18 @@ export const createJobSchema = z.object({
   // NEW_SUPPORT | REPLACEMENT | URGENT_INTERIM | HOSPITAL_DISCHARGE | SIL_SDA | etc.
   requestPurposeCategory: z.string().max(80).optional(),
 
+  // ── Step 4: Participant support needs (safety-critical) ───────────────────
+  riskSafetyNotes:        z.string().max(2000).optional(),
+  medicalNotes:           z.string().max(2000).optional(),
+  behaviourNotes:         z.string().max(2000).optional(),
+  // Structured safety checklist selections (participant posting spec).
+  safetyFlags:            z.record(z.unknown()).optional(),
+  // Per-job emergency contact override — falls back to the participant profile's
+  // own emergency contact if left blank.
+  emergencyContactName:         z.string().max(120).optional(),
+  emergencyContactPhone:        phoneOptional,
+  emergencyContactRelationship: z.string().max(80).optional(),
+
   // ── Submit mode ──────────────────────────────────────────────────────────
   asDraft:                z.boolean().default(false),
 
@@ -94,13 +120,13 @@ export const createJobSchema = z.object({
     phone:  z.string().min(8).max(30).optional(),
     suburb: z.string().min(2).max(100).optional(),
   }).optional(),
-});
+}).strict();
 
 // ─── Publish a draft ─────────────────────────────────────────────────────────
 
 export const publishJobSchema = z.object({
   jobId: z.string().uuid(),
-});
+}).strict();
 
 // ─── Filters (load board) ─────────────────────────────────────────────────────
 
@@ -127,11 +153,35 @@ export const jobFiltersSchema = z.object({
   postedWithinHours: z.coerce.number().int().min(1).max(720).optional(),
   // Poster role type filter
   postedByRole:     z.enum(["PARTICIPANT","COORDINATOR","PLAN_MANAGER"]).optional(),
+  // SW doc Windows 16-17 — Saved tab / hidden-jobs handling
+  savedOnly:        z.coerce.boolean().optional(),
+  includeHidden:    z.coerce.boolean().optional(),
   // Pagination
-  page:             z.coerce.number().int().min(1).default(1),
-  limit:            z.coerce.number().int().min(1).max(100).default(20),
+  ...paginationSchema.shape,
   // Sort
   sortBy:           z.enum(["newest","urgency","startDate","bestMatch"]).default("urgency"),
+});
+
+// ─── Live Dashboard (universal cross-role board) ──────────────────────────────
+// Same shape as jobFiltersSchema minus Worker-bookmark concepts (savedOnly/
+// includeHidden) and client-settable status/visibilityTarget — this board only
+// ever shows OPEN jobs, and the Workers-only/Providers-only gate is applied
+// server-side based on the viewer's own role, not a client-chosen value.
+
+export const liveDashboardFiltersSchema = z.object({
+  suburb:            z.string().optional(),
+  state:             z.string().optional(),
+  category:          JobCategoryEnum.optional(),
+  urgency:           UrgencyEnum.optional(),
+  shiftType:         ShiftTypeEnum.optional(),
+  fundingType:       FundingTypeEnum.optional(),
+  isRecurring:       z.coerce.boolean().optional(),
+  startFrom:         z.string().datetime({ offset: true }).optional(),
+  startTo:           z.string().datetime({ offset: true }).optional(),
+  postedWithinHours: z.coerce.number().int().min(1).max(720).optional(),
+  postedByRole:      z.enum(["PARTICIPANT","COORDINATOR","PLAN_MANAGER"]).optional(),
+  ...paginationSchema.shape,
+  sortBy:            z.enum(["newest","urgency","startDate","bestMatch"]).default("urgency"),
 });
 
 // ─── Application (structured proposal) ───────────────────────────────────────
@@ -154,25 +204,160 @@ export const applyJobSchema = z.object({
 
   // Structured confirmations blob (suitability checkboxes, docs visibility, etc.)
   applicationData:    z.record(z.unknown()).optional(),
-});
+}).strict();
 
 // ─── Cancel ──────────────────────────────────────────────────────────────────
+// SW doc Window 35 — structured cancellation reason + replacement-notify choice.
 
 export const cancelJobSchema = z.object({
-  reason: z.string().max(500).optional(),
-});
+  reason:             z.string().max(500).optional(),
+  reasonCategory:     z.enum(["ILLNESS", "EMERGENCY", "TRANSPORT", "SCHEDULING_CONFLICT", "UNSAFE_OR_UNSUITABLE", "OTHER"]).optional(),
+  notifyReplacements: z.boolean().optional(),
+}).strict();
+
+// ─── Manual "Find Replacement" for a cancelled job (SC-04-05) ─────────────────
+
+export const createReplacementSchema = z.object({
+  urgency:          z.enum(["RAPID", "URGENT", "LAST_MINUTE", "ROUTINE"]).optional(),
+  scheduledStartAt: z.string().datetime().optional(),
+  scheduledEndAt:   z.string().datetime().optional(),
+  totalHours:       z.number().positive().optional(),
+  budgetPerHour:    z.number().positive().optional(),
+  // SC-X03 "Change requirements" — create as a draft so it can be edited before it goes live.
+  asDraft:          z.boolean().optional(),
+}).strict();
+
+// ─── SC-PT05 "Repeat support" edit — DRAFT-only, before (re)publishing ────────
+
+export const updateDraftJobSchema = z.object({
+  scheduledStartAt:   z.string().datetime({ offset: true }).optional(),
+  scheduledEndAt:      z.string().datetime({ offset: true }).optional(),
+  category:            JobCategoryEnum.optional(),
+  subcategory:         z.string().max(100).optional(),
+  selectedTasks:       z.array(z.string()).optional(),
+  isRecurring:         z.boolean().optional(),
+  recurrencePattern:   z.record(z.unknown()).optional(),
+  fundingType:         FundingTypeEnum.optional(),
+  budgetType:          z.string().optional(),
+  budgetPerHour:       z.number().min(0).max(9999).optional(),
+  totalBudget:         z.number().min(0).max(999999).optional(),
+  // "Edit essential details" (live request screens) — a request can be corrected while it is a draft
+  // or still open with nobody selected yet.
+  description:         z.string().max(5000).optional(),
+  totalHours:          z.number().min(0).max(999).optional(),
+  suburb:              z.string().min(1).max(100).optional(),
+  state:               z.string().min(2).max(3).optional(),
+  postcode:            z.string().max(10).optional(),
+  addressLine:         z.string().max(300).optional(),
+  locationNotes:       z.string().max(1000).optional(),
+}).strict();
 
 // ─── Provider assigns a worker after being selected ──────────────────────────
 
 export const assignWorkerSchema = z.object({
   workerUserId: z.string().uuid(),
-});
+}).strict();
 
 // ─── Messaging ───────────────────────────────────────────────────────────────
 
 export const sendMessageSchema = z.object({
   body: z.string().min(1).max(5000),
-});
+}).strict();
+
+export const archiveThreadSchema = z.object({
+  archived: z.boolean(),
+}).strict();
+
+// ─── Multi-worker roster (additive to the single assignedWorkerUserId flow) ──
+
+export const createAssignmentSchema = z.object({
+  workerUserId: z.string().uuid(),
+}).strict();
+
+export const updateAssignmentStatusSchema = z.object({
+  status: z.enum(["COMPLETED", "CANCELLED"]),
+}).strict();
+
+// ─── Meet-and-greet (SW doc Window 29) ────────────────────────────────────────
+
+export const proposeMeetAndGreetSchema = z.object({
+  type:          z.enum(["PHONE", "VIDEO", "IN_PERSON"]),
+  proposedTimes: z.array(z.string().datetime({ offset: true })).min(1).max(3),
+  location:      z.string().max(300).optional(),
+  cost:          z.enum(["FREE", "AGREED_RATE", "DISCUSS"]),
+  topics:        z.array(z.enum(["SUPPORT_NEEDS", "SCHEDULE", "RATE", "COMPATIBILITY", "QUESTIONS"])).optional(),
+}).strict();
+
+export const respondMeetAndGreetSchema = z.object({
+  action:        z.enum(["CONFIRM", "DECLINE"]),
+  confirmedTime: z.string().datetime({ offset: true }).optional(),
+}).strict();
+
+// ─── Worker requests a change (SW doc Window 34) ──────────────────────────────
+
+export const createChangeRequestSchema = z.object({
+  changeType:  z.enum(["TIME", "DURATION", "DATE", "RECURRENCE", "RATE", "OTHER"]),
+  reason:      z.string().max(500).optional(),
+  alternative: z.record(z.unknown()),
+}).strict();
+
+export const respondChangeRequestSchema = z.object({
+  action: z.enum(["ACCEPT", "REJECT"]),
+}).strict();
+
+// ─── Extend a live request's response window (SC-O14) ────────────────────────
+
+export const extendJobSchema = z.object({
+  hours: z.number().int().min(1).max(720),
+}).strict();
+
+// ─── Close connection (SW doc Window 38) ──────────────────────────────────────
+
+export const closeConnectionSchema = z.object({
+  outcome:        z.enum(["FILLED_CONFIRMED", "CANCELLED", "NOT_PROCEEDING", "UNFILLED"]),
+  reasonCategory: z.string().max(100).optional(),
+  feedback:       z.string().max(1000).optional(),
+}).strict();
+
+// ─── Running late / private note (SW doc Window 33) ───────────────────────────
+
+export const notifyRunningLateSchema = z.object({
+  minutesLate: z.number().int().min(1).max(240),
+}).strict();
+
+export const saveWorkerNoteSchema = z.object({
+  note: z.string().max(2000),
+}).strict();
+
+// ─── Save / hide (SW doc Windows 16-17) ────────────────────────────────────────
+
+export const bookmarkJobSchema = z.object({
+  saved:  z.boolean().optional(),
+  hidden: z.boolean().optional(),
+}).strict();
+
+// ─── Reviews ─────────────────────────────────────────────────────────────────
+
+export const createReviewSchema = z.object({
+  rating:  z.number().int().min(1).max(5),
+  comment: z.string().max(1000).optional(),
+  // SW doc Windows 39/45 — sub-category ratings + a private concern kept
+  // separate from the public comment (never shown to the reviewee).
+  reliabilityRating:   z.number().int().min(1).max(5).optional(),
+  communicationRating: z.number().int().min(1).max(5).optional(),
+  qualityRating:       z.number().int().min(1).max(5).optional(),
+  privateConcern:      z.string().max(1000).optional(),
+}).strict();
+
+// ─── Window 45 "Respond or report where allowed" ──────────────────────────────
+
+export const respondToReviewSchema = z.object({
+  response: z.string().min(1).max(1000),
+}).strict();
+
+export const reportReviewSchema = z.object({
+  reason: z.string().min(1).max(500),
+}).strict();
 
 // ─── Invoice ─────────────────────────────────────────────────────────────────
 
@@ -181,14 +366,32 @@ export const createInvoiceSchema = z.object({
   participantUserId: z.string().uuid(),
   hours:             z.number().positive().max(500).optional(),
   note:              z.string().max(1000).optional(),
-});
+}).strict();
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type CreateJobInput      = z.infer<typeof createJobSchema>;
 export type JobFiltersInput     = z.infer<typeof jobFiltersSchema>;
+export type LiveDashboardFiltersInput = z.infer<typeof liveDashboardFiltersSchema>;
 export type ApplyJobInput       = z.infer<typeof applyJobSchema>;
 export type CancelJobInput      = z.infer<typeof cancelJobSchema>;
+export type CreateReplacementInput = z.infer<typeof createReplacementSchema>;
+export type UpdateDraftJobInput = z.infer<typeof updateDraftJobSchema>;
 export type AssignWorkerInput   = z.infer<typeof assignWorkerSchema>;
 export type SendMessageInput    = z.infer<typeof sendMessageSchema>;
+export type ArchiveThreadInput  = z.infer<typeof archiveThreadSchema>;
 export type CreateInvoiceInput  = z.infer<typeof createInvoiceSchema>;
+export type CreateReviewInput   = z.infer<typeof createReviewSchema>;
+export type RespondToReviewInput = z.infer<typeof respondToReviewSchema>;
+export type ReportReviewInput    = z.infer<typeof reportReviewSchema>;
+export type CreateAssignmentInput       = z.infer<typeof createAssignmentSchema>;
+export type UpdateAssignmentStatusInput = z.infer<typeof updateAssignmentStatusSchema>;
+export type ProposeMeetAndGreetInput    = z.infer<typeof proposeMeetAndGreetSchema>;
+export type RespondMeetAndGreetInput    = z.infer<typeof respondMeetAndGreetSchema>;
+export type CreateChangeRequestInput    = z.infer<typeof createChangeRequestSchema>;
+export type RespondChangeRequestInput   = z.infer<typeof respondChangeRequestSchema>;
+export type NotifyRunningLateInput      = z.infer<typeof notifyRunningLateSchema>;
+export type SaveWorkerNoteInput         = z.infer<typeof saveWorkerNoteSchema>;
+export type BookmarkJobInput            = z.infer<typeof bookmarkJobSchema>;
+export type ExtendJobInput             = z.infer<typeof extendJobSchema>;
+export type CloseConnectionInput        = z.infer<typeof closeConnectionSchema>;

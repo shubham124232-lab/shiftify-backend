@@ -2,13 +2,15 @@
 // (req.activeRole), not on a stored column — so role-switching takes effect.
 import type { Request, Response, NextFunction } from "express";
 import { ForbiddenError, UnauthorizedError } from "../lib/errors";
+import { ROLE_LABELS } from "../config/constants";
 import type { UserRole } from "@prisma/client";
 
 export function requireRole(...allowed: UserRole[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     if (!req.user) return next(new UnauthorizedError());
     if (!req.activeRole || !allowed.includes(req.activeRole)) {
-      return next(new ForbiddenError(`This action requires one of: ${allowed.join(", ")}`));
+      const labels = allowed.map((r) => ROLE_LABELS[r] ?? r).join(", ");
+      return next(new ForbiddenError(`This action requires one of these roles: ${labels}`));
     }
     next();
   };

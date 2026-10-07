@@ -3,6 +3,19 @@ import { z } from "zod";
 
 export const LISTING_CATEGORIES = ["SERVICE", "HOUSING"] as const;
 
+// Provider doc PR-HL02 — free-form but bounded property/support details.
+const housingDetailsSchema = z.object({
+  dwellingCategory:      z.string().max(120).optional(),
+  accessibilityFeatures: z.array(z.string().max(80)).max(20).optional(),
+  vacancyDate:           z.string().max(40).optional(),
+  roomHousehold:         z.string().max(500).optional(),
+  rosterArrangement:     z.string().max(500).optional(),
+  compatibility:         z.string().max(1000).optional(),
+  costs:                 z.string().max(1000).optional(),
+  requiredApprovals:     z.string().max(500).optional(),
+  inspectionProcess:     z.string().max(1000).optional(),
+}).strict();
+
 export const createListingSchema = z
   .object({
     listingCategory: z.enum(LISTING_CATEGORIES),
@@ -28,6 +41,12 @@ export const createListingSchema = z
     serviceMode:     z.enum(["IN_PERSON", "REMOTE", "BOTH"]).optional(),
     fundingTypes:    z.array(z.string().max(60)).max(10).optional(),
 
+    // Provider doc PR-CP01 general service capacity
+    acceptingStatus:     z.enum(["YES", "LIMITED", "NO"]).optional(),
+    serviceCategories:   z.array(z.string().max(120)).max(30).optional(),
+    daysAvailable:       z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).max(7).optional(),
+    responseExpectation: z.enum(["SAME_DAY", "WITHIN_48_HOURS", "WITHIN_A_WEEK"]).optional(),
+
     // HOUSING vacancies (sil-vacancy form)
     vacancyCategory: z
       .enum(["SIL", "SDA", "SIL_SDA", "RESPITE", "MEDIUM_TERM", "SHORT_TERM", "OTHER"])
@@ -41,9 +60,14 @@ export const createListingSchema = z
       .enum(["AVAILABLE_NOW", "AVAILABLE_SOON", "FUTURE", "EXPRESSION_OF_INTEREST"])
       .optional(),
 
+    housingDetails: housingDetailsSchema.optional(),
+
     // Sent by the Web forms; accepted but not persisted.
     acknowledgement: z.boolean().optional(),
+    // PR-HL03 — save without publishing (also forced for restricted listings by an unregistered Provider).
+    saveAsDraft: z.boolean().optional(),
   })
+  .strict()
   .superRefine((val, ctx) => {
     if (val.listingCategory === "SERVICE") {
       if (!val.listingType) {
@@ -66,3 +90,46 @@ export const listListingsQuerySchema = z.object({
 });
 
 export type ListListingsQuery = z.infer<typeof listListingsQuerySchema>;
+
+// ─── Update (edit fields / pause / close / reactivate) ────────────────────────
+
+export const updateListingSchema = z.object({
+  status:          z.enum(["ACTIVE", "PAUSED", "FILLED", "CLOSED"]).optional(),
+  housingDetails:  housingDetailsSchema.optional(),
+  title:           z.string().min(5).max(200).optional(),
+  description:     z.string().min(10).max(5000).optional(),
+  suburb:          z.string().min(2).max(120).optional(),
+  state:           z.string().max(10).optional(),
+  postcode:        z.string().max(10).optional(),
+  listingType: z
+    .enum([
+      "IMMEDIATE_INTAKE",
+      "RECURRING_CAPACITY",
+      "ONE_TIME_SLOT",
+      "SHORT_TERM",
+      "URGENT_FILL",
+      "WAITLIST_OPENING",
+      "ONGOING_REFERRALS",
+    ])
+    .optional(),
+  serviceCategory: z.string().max(120).optional(),
+  serviceMode:     z.enum(["IN_PERSON", "REMOTE", "BOTH"]).optional(),
+  fundingTypes:    z.array(z.string().max(60)).max(10).optional(),
+  acceptingStatus:     z.enum(["YES", "LIMITED", "NO"]).optional(),
+  serviceCategories:   z.array(z.string().max(120)).max(30).optional(),
+  daysAvailable:       z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).max(7).optional(),
+  responseExpectation: z.enum(["SAME_DAY", "WITHIN_48_HOURS", "WITHIN_A_WEEK"]).optional(),
+  vacancyCategory: z
+    .enum(["SIL", "SDA", "SIL_SDA", "RESPITE", "MEDIUM_TERM", "SHORT_TERM", "OTHER"])
+    .optional(),
+  propertyType: z.string().max(120).optional(),
+  vacancyCount: z.number().int().min(1).max(50).optional(),
+  supportModel: z.string().max(120).optional(),
+  suitableFor:  z.array(z.string().max(80)).max(15).optional(),
+  fundingRoutes: z.array(z.string().max(60)).max(10).optional(),
+  urgency: z
+    .enum(["AVAILABLE_NOW", "AVAILABLE_SOON", "FUTURE", "EXPRESSION_OF_INTEREST"])
+    .optional(),
+}).strict();
+
+export type UpdateListingInput = z.infer<typeof updateListingSchema>;

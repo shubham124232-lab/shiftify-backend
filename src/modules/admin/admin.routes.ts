@@ -13,6 +13,7 @@ router.get("/db-snapshot", requireSuperAdmin, asyncHandler(ctrl.getDbSnapshot));
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
 router.get("/stats", asyncHandler(ctrl.getStats));
+router.get("/flags", asyncHandler(ctrl.getFlags));
 
 // ── User management ───────────────────────────────────────────────────────────
 router.get("/users",              asyncHandler(ctrl.listUsers));
@@ -22,11 +23,14 @@ router.post("/users/:id/notify",  asyncHandler(ctrl.notifyUser));
 
 // ── Verification queue — SUSPENDED users only ─────────────────────────────────
 router.get("/verification-queue",  asyncHandler(ctrl.getSuspendedQueue));
-router.patch("/users/:id/verify",  asyncHandler(ctrl.verifyUser));
 
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 router.get("/jobs",              asyncHandler(ctrl.listJobs));
 router.patch("/jobs/:id/cancel", asyncHandler(ctrl.cancelJob));
+
+// ── Provider listings (service + SIL/SDA) moderation ─────────────────────────
+router.get("/listings",              asyncHandler(ctrl.listListings));
+router.patch("/listings/:id/status", asyncHandler(ctrl.updateListingStatus));
 
 // ── Documents ─────────────────────────────────────────────────────────────────
 router.get("/documents/:id/view",    asyncHandler(ctrl.viewDocument));

@@ -7,7 +7,7 @@ import { updateProfileSchema } from "../../validators/profile.schema";
 import * as profileService from "../profiles/profile.service";
 import * as documentService from "../documents/document.service";
 import { uploadDocumentSchema } from "../../validators/document.schema";
-import { hashPassword } from "../../lib/hash";
+import { hashPassword, assertPasswordStrength } from "../../lib/hash";
 import { prisma } from "../../lib/prisma";
 import { workerProfileSchema, availabilitySlotsSchema } from "../../validators/profile-worker.schema";
 import { participantProfileSchema } from "../../validators/profile-participant.schema";
@@ -77,11 +77,16 @@ export async function resetChildPassword(req: Request, res: Response): Promise<v
     throw new ForbiddenError("Password reset via parent is only available for managed accounts");
   }
   const { password } = req.body as { password?: string };
-  if (!password || password.length < 8) {
-    throw new ValidationError("Password must be at least 8 characters", []);
+  if (!password) {
+    throw new ValidationError("Password is required", []);
   }
+  assertPasswordStrength(password);
   const passwordHash = await hashPassword(password);
-  await prisma.user.update({ where: { id: req.params.id }, data: { passwordHash } });
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: req.params.id }, data: { passwordHash } }),
+    // Same as the OTP reset flow: end the child's existing sessions.
+    prisma.session.deleteMany({ where: { userId: req.params.id } }),
+  ]);
   success(res, { ok: true });
 }
 

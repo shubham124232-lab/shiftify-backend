@@ -11,6 +11,17 @@ export type UserRoleSignup = (typeof USER_ROLES)[number];
 
 export const ALL_USER_ROLES = [...USER_ROLES, "ADMIN"] as const;
 
+// Human-readable labels for roles — used anywhere a role name is shown to a user
+// (e.g. error messages), so people never see raw enum tokens like "PLAN_MANAGER".
+export const ROLE_LABELS: Record<string, string> = {
+  PARTICIPANT:    "Participant",
+  SUPPORT_WORKER: "Support Worker",
+  PROVIDER:       "Provider",
+  COORDINATOR:    "Support Coordinator",
+  PLAN_MANAGER:   "Plan Manager",
+  ADMIN:          "Admin",
+};
+
 export const USER_STATUSES = ["PENDING", "ACTIVE", "APPROVED", "REJECTED", "SUSPENDED"] as const;
 
 export const ADMIN_TIERS = ["SUPER_ADMIN", "REVIEWER"] as const;
@@ -36,7 +47,7 @@ export const JOB_CATEGORIES = [
   "OTHER",
 ] as const;
 
-export const JOB_URGENCY = ["EMERGENCY", "SAME_DAY", "SCHEDULED"] as const;
+export const JOB_URGENCY = ["RAPID", "URGENT", "LAST_MINUTE", "ROUTINE"] as const;
 
 export const JOB_STATUSES = [
   "DRAFT",
@@ -54,6 +65,7 @@ export const APPLICATION_STATUSES = [
   "SELECTED",
   "DECLINED",
   "WITHDRAWN",
+  "REQUEST_FILLED",
 ] as const;
 
 // File upload allowlist
@@ -71,7 +83,3 @@ export const GUEST_REMINDER_DAYS = [8, 13, 14] as const; // days since signup
 
 // Reminder for the dashboard banner — show countdown from day 0
 export const GUEST_TOTAL_DAYS = GUEST_WINDOW_DAYS;
-
-// Free-tier cap: users on a *_FREE plan may hold at most this many
-// pending applications (workers/providers) or open job posts (coordinators).
-export const FREE_TIER_LIMIT = 5;

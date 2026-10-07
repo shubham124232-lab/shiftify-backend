@@ -5,6 +5,7 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import { REQUIRED_DOCS_BY_ROLE } from "../src/middleware/marketplace.middleware";
 
 const prisma = new PrismaClient();
 
@@ -36,6 +37,110 @@ async function main() {
   });
   console.log(`  ✓ admin: ${admin.email}`);
 
+  console.log("[seed] Seeding subscription plans...");
+
+  const plans = [
+  // Pricing V2 (20 Aug 2026) §2/§3 — names, prices and inclusions follow V2 exactly.
+  { key: "WORKER_FREE",          role: "SUPPORT_WORKER" as const, name: "Worker — Free",            amountAud: 0,     isAddOn: false, features: ["Profile, visibility and shift browsing", "10 once-only introductory Connect actions (no expiry)", "Receive invitations and message existing connections"] },
+  { key: "WORKER_BASIC",         role: "SUPPORT_WORKER" as const, name: "Shiftify Basic",           amountAud: 49.99, isAddOn: false, features: ["Unlimited eligible Connect actions", "Messaging and general availability", "Eligible invitation responses", "Direct Connect access"] },
+  { key: "WORKER_BASIC_ANNUAL",  role: "SUPPORT_WORKER" as const, name: "Shiftify Basic (Annual)",  amountAud: 389.92, isAddOn: false, features: ["Unlimited eligible Connect actions", "Messaging and general availability", "Eligible invitation responses", "Direct Connect access", "Billed annually — 35% discount"] },
+  { key: "WORKER_AVAILABLE_NOW", role: "SUPPORT_WORKER" as const, name: "Available Now add-on",     amountAud: 24.99, isAddOn: true,  features: ["Available Now status", "Increased urgent visibility", "Relevant Rapid, Urgent, Last-Minute and replacement alerts", "Requires Shiftify Basic"] },
+  { key: "COORDINATOR_FREE",     role: "COORDINATOR"    as const, name: "Coordinator — Free",       amountAud: 0,     isAddOn: false, features: ["Professional profile and platform visibility", "10 once-only introductory actions (no expiry)", "Receive participant enquiries"] },
+  { key: "COORDINATOR_BASIC",    role: "COORDINATOR"    as const, name: "Shiftify Pro",             amountAud: 49.99, isAddOn: false, features: ["Unlimited support-request posts", "Multiple-participant workspace", "Request and response management", "Messaging and core business tools"] },
+  // Annual billing for the same Pro tier — 35% off the $49.99/mo x 12 rate (V2 §3.6).
+  { key: "COORDINATOR_BASIC_ANNUAL", role: "COORDINATOR" as const, name: "Shiftify Pro (Annual)", amountAud: 389.92, isAddOn: false, features: ["Unlimited support-request posts", "Multiple-participant workspace", "Request and response management", "Messaging and core business tools", "Billed annually — 35% discount"] },
+  { key: "COORDINATOR_GROWTH",   role: "COORDINATOR"    as const, name: "Growth add-on",            amountAud: 29.99, isAddOn: true,  features: ["Direct Invite", "Expanded professional network access", "Enhanced profile visibility", "Requires Shiftify Pro"] },
+  { key: "COORDINATOR_GROWTH_ANNUAL", role: "COORDINATOR" as const, name: "Growth add-on (Annual)", amountAud: 233.92, isAddOn: true, features: ["Direct Invite", "Expanded professional network access", "Enhanced profile visibility", "Requires Shiftify Pro", "Billed annually — 35% discount"] },
+  { key: "COORDINATOR_SPEED",    role: "COORDINATOR"    as const, name: "Speed add-on",             amountAud: 19.99, isAddOn: true,  features: ["Available Now worker filter", "Fast replacement tools", "Priority urgent workflow", "Requires Shiftify Pro"] },
+  { key: "COORDINATOR_SPEED_ANNUAL", role: "COORDINATOR" as const, name: "Speed add-on (Annual)", amountAud: 155.92, isAddOn: true, features: ["Available Now worker filter", "Fast replacement tools", "Priority urgent workflow", "Requires Shiftify Pro", "Billed annually — 35% discount"] },
+  // Provider free tier — V2 §2: 10 once-only introductory Provider actions, then a
+  // paid plan or a $19.99 Shift Pass. Same `_FREE` key convention as the SW/SC rows.
+  { key: "PROVIDER_FREE",        role: "PROVIDER"       as const, name: "Provider — Free",          amountAud: 0,     isAddOn: false, features: ["10 once-only introductory Provider actions (no expiry)", "Provider profile, notifications and history"] },
+  // Legacy per-listing Provider plans — superseded by PROVIDER_ORG_* below
+  // (Pricing V2 §5 has exactly 4 Provider plans, none of them listing-count
+  // based). Kept as inactive rows, not deleted, so old UserSubscription FK
+  // rows still resolve; `active: false` keeps them out of listPlans()/activateAccount().
+  { key: "PROVIDER_BASIC",       role: "PROVIDER"       as const, name: "Provider — Basic",         amountAud: 99.99, isAddOn: false, active: false, features: ["Up to 20 active job listings", "Verified badge on profile", "Basic analytics dashboard", "Standard support"] },
+  { key: "PROVIDER_GROWTH",      role: "PROVIDER"       as const, name: "Provider — Growth",        amountAud: 39.99, isAddOn: true,  active: false, features: ["Up to 40 active job listings", "Priority in search results", "Advanced analytics dashboard", "Priority support"] },
+  { key: "PROVIDER_SPEED",       role: "PROVIDER"       as const, name: "Provider — Speed",         amountAud: 29.99, isAddOn: true,  active: false, features: ["Up to 10 active job listings", "Fast onboarding tools", "Standard support"] },
+  { key: "PLAN_MANAGER_BASIC",   role: "PLAN_MANAGER"   as const, name: "Plan Manager — Basic",     amountAud: 19.99, isAddOn: false, features: ["Manage up to 50 participant plans", "Budget tracking & reporting", "Claim submission tools", "Priority support"] },
+  // Provider organisation tiers (Pricing V2 §4/§5) — Branch/Administrator/Team
+  // Member capacity. These are now the ONLY active Provider base plans.
+  { key: "PROVIDER_ORG_STARTER", role: "PROVIDER" as const, name: "Starter", amountAud: 99.99,  isAddOn: false, features: ["2 Administrators", "10 Team Members", "2 Branches"], maxAdministrators: 2,  maxTeamMembers: 10,  maxBranches: 2 },
+  { key: "PROVIDER_ORG_TEAM",    role: "PROVIDER" as const, name: "Team",    amountAud: 199.99, isAddOn: false, features: ["5 Administrators", "25 Team Members", "5 Branches"], maxAdministrators: 5,  maxTeamMembers: 25,  maxBranches: 5 },
+  { key: "PROVIDER_ORG_GROWTH",  role: "PROVIDER" as const, name: "Growth",  amountAud: 499.99, isAddOn: false, features: ["7 Administrators", "50 Team Members", "7 Branches"], maxAdministrators: 7,  maxTeamMembers: 50,  maxBranches: 7 },
+  { key: "PROVIDER_ORG_SCALE",   role: "PROVIDER" as const, name: "Scale",   amountAud: 799.99, isAddOn: false, features: ["10 Administrators", "100 Team Members", "10 Branches"], maxAdministrators: 10, maxTeamMembers: 100, maxBranches: 10 },
+  // Annual Provider pricing — 35% off twelve monthly payments (V2 §5.1).
+  { key: "PROVIDER_ORG_STARTER_ANNUAL", role: "PROVIDER" as const, name: "Starter (Annual)", amountAud: 779.92,  isAddOn: false, features: ["2 Administrators", "10 Team Members", "2 Branches", "Billed annually — 35% discount"], maxAdministrators: 2,  maxTeamMembers: 10,  maxBranches: 2 },
+  { key: "PROVIDER_ORG_TEAM_ANNUAL",    role: "PROVIDER" as const, name: "Team (Annual)",    amountAud: 1559.92, isAddOn: false, features: ["5 Administrators", "25 Team Members", "5 Branches", "Billed annually — 35% discount"], maxAdministrators: 5,  maxTeamMembers: 25,  maxBranches: 5 },
+  { key: "PROVIDER_ORG_GROWTH_ANNUAL",  role: "PROVIDER" as const, name: "Growth (Annual)",  amountAud: 3899.92, isAddOn: false, features: ["7 Administrators", "50 Team Members", "7 Branches", "Billed annually — 35% discount"], maxAdministrators: 7,  maxTeamMembers: 50,  maxBranches: 7 },
+  { key: "PROVIDER_ORG_SCALE_ANNUAL",   role: "PROVIDER" as const, name: "Scale (Annual)",   amountAud: 6239.92, isAddOn: false, features: ["10 Administrators", "100 Team Members", "10 Branches", "Billed annually — 35% discount"], maxAdministrators: 10, maxTeamMembers: 100, maxBranches: 10 },
+];
+
+  const planRows: Record<string, { id: string }> = {};
+  for (const plan of plans) {
+    const caps = {
+      maxAdministrators: (plan as any).maxAdministrators ?? null,
+      maxTeamMembers:    (plan as any).maxTeamMembers ?? null,
+      maxBranches:       (plan as any).maxBranches ?? null,
+    };
+    const active = (plan as any).active ?? true;
+    const row = await (prisma as any).plan.upsert({
+      where:  { key: plan.key },
+      update: { name: plan.name, amountAud: plan.amountAud, active, features: plan.features, isAddOn: plan.isAddOn, ...caps },
+      create: { ...plan, active, ...caps },
+    });
+    planRows[plan.key] = row;
+    console.log(`  ✓ plan: ${plan.key} (AUD ${plan.amountAud})`);
+  }
+
+  // Gives a user an ACTIVE subscription on the given plan key — idempotent
+  // (skips if an active subscription for that plan already exists).
+  async function activateSubscription(userId: string, planKey: string) {
+    const existing = await (prisma as any).userSubscription.findFirst({
+      where: { userId, planId: planRows[planKey].id, status: "ACTIVE" },
+    });
+    if (existing) return;
+    await (prisma as any).userSubscription.create({
+      data: {
+        userId,
+        planId: planRows[planKey].id,
+        status: "ACTIVE",
+        mockReceiptRef: `SEED-${planKey}`,
+      },
+    });
+  }
+
+  // Uploads a placeholder copy of every document type REQUIRED_DOCS_BY_ROLE
+  // requires for `role` — without this, seeded accounts fail the submission
+  // gate in canAccessMarketplace() the moment they try to post/apply. Idempotent
+  // (skips a docType that's already on file for this user).
+  async function seedRequiredDocs(userId: string, role: keyof typeof REQUIRED_DOCS_BY_ROLE) {
+    const required = REQUIRED_DOCS_BY_ROLE[role];
+    if (!required || required.length === 0) return;
+
+    const existing = await prisma.document.findMany({
+      where:  { userId, docType: { in: required } },
+      select: { docType: true },
+    });
+    const have = new Set(existing.map((d) => d.docType));
+
+    for (const docType of required) {
+      if (have.has(docType)) continue;
+      await prisma.document.create({
+        data: {
+          userId,
+          docType,
+          filePath:  `seed/${userId}/${docType.toLowerCase()}.pdf`,
+          fileName:  `${docType.toLowerCase()}.pdf`,
+          mimeType:  "application/pdf",
+          sizeBytes: 1024,
+          status:    "UPLOADED",
+        },
+      });
+    }
+  }
+
   console.log("[seed] Creating test users...");
 
   // PARTICIPANT — also holds a SUPPORT_WORKER role to demo multi-role switching.
@@ -50,6 +155,7 @@ async function main() {
       accountType: "SELF",
       status: "ACTIVE",
       emailVerified: true,
+      phoneVerified: true,
       defaultSuburb: "Footscray",
       defaultState: "VIC",
       defaultPostcode: "3011",
@@ -70,6 +176,24 @@ async function main() {
           riskSafetyNotes: "Falls risk — please assist with transfers.",
         },
       },
+      // Alice also holds SUPPORT_WORKER — without this, switching to that hat
+      // hits the same "missing requirements" wall she just got fixed for.
+      workerProfile: {
+        create: {
+          gender: "Female",
+          suburb: "Footscray",
+          state: "VIC",
+          postcode: "3011",
+          rightToWork: "CITIZEN",
+          workType: "CONTRACTOR",
+          servicesOffered: ["PERSONAL_CARE", "COMMUNITY_ACCESS"],
+          experienceLevel: "SOME_EXPERIENCE",
+          availabilityType: "CASUAL",
+          travelRadiusKm: 15,
+          hasVehicle: true,
+          bio: "Support worker profile (multi-role demo).",
+        },
+      },
       addresses: {
         create: {
           street: "12 Barkly Street",
@@ -81,6 +205,8 @@ async function main() {
     },
   });
   console.log(`  ✓ participant: ${participant.email}`);
+  await activateSubscription(participant.id, "WORKER_FREE"); // covers her SUPPORT_WORKER hat
+  await seedRequiredDocs(participant.id, "SUPPORT_WORKER"); // covers her SUPPORT_WORKER hat
 
   // SUPPORT_WORKER (solo, self-registered)
   const worker = await prisma.user.upsert({
@@ -94,6 +220,7 @@ async function main() {
       accountType: "SELF",
       status: "ACTIVE",
       emailVerified: true,
+      phoneVerified: true,
       defaultSuburb: "Sunshine",
       defaultState: "VIC",
       defaultPostcode: "3020",
@@ -125,6 +252,8 @@ async function main() {
     },
   });
   console.log(`  ✓ worker: ${worker.email}`);
+  await activateSubscription(worker.id, "WORKER_FREE"); // needed to apply to jobs
+  await seedRequiredDocs(worker.id, "SUPPORT_WORKER");
 
   // PROVIDER
   const provider = await prisma.user.upsert({
@@ -138,6 +267,7 @@ async function main() {
       accountType: "SELF",
       status: "ACTIVE",
       emailVerified: true,
+      phoneVerified: true,
       defaultSuburb: "Melbourne",
       defaultState: "VIC",
       defaultPostcode: "3000",
@@ -174,6 +304,8 @@ async function main() {
     },
   });
   console.log(`  ✓ provider: ${provider.email}`);
+  await activateSubscription(provider.id, "PROVIDER_ORG_STARTER"); // no free tier — gated without this
+  await seedRequiredDocs(provider.id, "PROVIDER");
 
   // Provider's worker — a MANAGED account: logs in by username, no email/phone, parent-owned.
   const providerWorker = await prisma.user.upsert({
@@ -214,6 +346,8 @@ async function main() {
     },
   });
   console.log(`  ✓ provider-worker (managed): ${providerWorker.username}`);
+  await activateSubscription(providerWorker.id, "WORKER_FREE"); // needed to apply to jobs
+  await seedRequiredDocs(providerWorker.id, "SUPPORT_WORKER");
 
   // COORDINATOR
   const coordinator = await prisma.user.upsert({
@@ -227,6 +361,7 @@ async function main() {
       accountType: "SELF",
       status: "ACTIVE",
       emailVerified: true,
+      phoneVerified: true,
       defaultSuburb: "Brunswick",
       defaultState: "VIC",
       defaultPostcode: "3056",
@@ -242,7 +377,6 @@ async function main() {
           serviceMode: "BOTH",
           currentCapacityStatus: "Accepting New Participants",
           maxParticipantLoad: 25,
-          participantTypesAccepted: ["Plan-managed", "Self-managed"],
           billingMethodPreference: "Through plan manager",
           bio: "Independent support coordinator covering inner-north Melbourne.",
         },
@@ -258,6 +392,8 @@ async function main() {
     },
   });
   console.log(`  ✓ coordinator: ${coordinator.email}`);
+  await activateSubscription(coordinator.id, "COORDINATOR_FREE"); // job posting is gated on this
+  await seedRequiredDocs(coordinator.id, "COORDINATOR");
 
   // PLAN_MANAGER
   const planMgr = await prisma.user.upsert({
@@ -271,6 +407,7 @@ async function main() {
       accountType: "SELF",
       status: "ACTIVE",
       emailVerified: true,
+      phoneVerified: true,
       defaultSuburb: "Richmond",
       defaultState: "VIC",
       defaultPostcode: "3121",
@@ -294,34 +431,8 @@ async function main() {
     },
   });
   console.log(`  ✓ plan manager: ${planMgr.email}`);
-
-  // ─── Subscription Plans ──────────────────────────────────────────────────────
-  // Seeded once. Re-running is idempotent (upsert on key).
-
-  console.log("[seed] Seeding subscription plans...");
-
-  const plans = [
-  { key: "WORKER_FREE",          role: "SUPPORT_WORKER" as const, name: "Worker — Free",            amountAud: 0,     isAddOn: false, features: ["Basic profile listing", "Apply to open shifts", "Standard support"] },
-  { key: "WORKER_BASIC",         role: "SUPPORT_WORKER" as const, name: "Worker — Basic",           amountAud: 49.99, isAddOn: false, features: ["Priority profile placement", "Unlimited shift applications", "Priority support"] },
-  { key: "WORKER_AVAILABLE_NOW", role: "SUPPORT_WORKER" as const, name: "Worker — Available Now",   amountAud: 24.99, isAddOn: true,  features: ["\"Available Now\" badge on profile", "Boosted visibility in urgent searches"] },
-  { key: "COORDINATOR_FREE",     role: "COORDINATOR"    as const, name: "Coordinator — Free",       amountAud: 0,     isAddOn: false, features: ["Basic profile listing", "Standard support"] },
-  { key: "COORDINATOR_BASIC",    role: "COORDINATOR"    as const, name: "Coordinator — Basic",      amountAud: 49.99, isAddOn: false, features: ["Priority profile placement", "Priority support"] },
-  { key: "COORDINATOR_GROWTH",   role: "COORDINATOR"    as const, name: "Coordinator — Growth",     amountAud: 29.99, isAddOn: true,  features: ["Advanced analytics dashboard", "Lead generation tools"] },
-  { key: "COORDINATOR_SPEED",    role: "COORDINATOR"    as const, name: "Coordinator — Speed",      amountAud: 19.99, isAddOn: true,  features: ["Faster client matching", "Priority placement boost"] },
-  { key: "PROVIDER_BASIC",       role: "PROVIDER"       as const, name: "Provider — Basic",         amountAud: 99.99, isAddOn: false, features: ["Up to 20 active job listings", "Verified badge on profile", "Basic analytics dashboard", "Standard support"] },
-  { key: "PROVIDER_GROWTH",      role: "PROVIDER"       as const, name: "Provider — Growth",        amountAud: 39.99, isAddOn: true,  features: ["Up to 40 active job listings", "Priority in search results", "Advanced analytics dashboard", "Priority support"] },
-  { key: "PROVIDER_SPEED",       role: "PROVIDER"       as const, name: "Provider — Speed",         amountAud: 29.99, isAddOn: true,  features: ["Up to 10 active job listings", "Fast onboarding tools", "Standard support"] },
-  { key: "PLAN_MANAGER_BASIC",   role: "PLAN_MANAGER"   as const, name: "Plan Manager — Basic",     amountAud: 19.99, isAddOn: false, features: ["Manage up to 50 participant plans", "Budget tracking & reporting", "Claim submission tools", "Priority support"] },
-];
-
-  for (const plan of plans) {
-    await (prisma as any).plan.upsert({
-      where:  { key: plan.key },
-      update: { name: plan.name, amountAud: plan.amountAud, active: true, features: plan.features, isAddOn: plan.isAddOn },
-      create: { ...plan },
-    });
-    console.log(`  ✓ plan: ${plan.key} (AUD ${plan.amountAud})`);
-  }
+  await activateSubscription(planMgr.id, "PLAN_MANAGER_BASIC"); // no free tier — gated without this
+  await seedRequiredDocs(planMgr.id, "PLAN_MANAGER");
 
   console.log("");
   console.log("[seed] Done. Login credentials (dev only):");

@@ -71,6 +71,6 @@ export async function deleteDocument(userId: string, documentId: string) {
   if (!doc) throw new NotFoundError("Document not found");
   if (doc.userId !== userId) throw new ForbiddenError("Not your document");
 
-  await deleteFile(doc.filePath);
+  await deleteFile(doc.filePath, userId).catch(() => null);
   await prisma.document.delete({ where: { id: documentId } });
 }

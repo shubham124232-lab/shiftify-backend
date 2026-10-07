@@ -20,3 +20,18 @@ export function blockManagedSelfService(req: Request, _res: Response, next: Next
   }
   next();
 }
+
+// Pricing V2 §4.4 — a Provider-managed Team Member sees only their personal offers,
+// assignments, calendar and assignment messages; the Provider-wide Live Shift Board
+// (marketplace browsing) is not part of that access.
+export function blockManagedMarketplaceBrowse(req: Request, _res: Response, next: NextFunction): void {
+  if (!req.user) {
+    next(new UnauthorizedError());
+    return;
+  }
+  if (req.user.accountType === "MANAGED" && req.activeRole === "SUPPORT_WORKER") {
+    next(new ForbiddenError("Your account shows only the assignments your organisation gives you — the live shift board is managed by your organisation."));
+    return;
+  }
+  next();
+}

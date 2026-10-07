@@ -11,7 +11,9 @@ const providerProfileBaseSchema = z.object({
   profileStep:                       z.number().int().min(0).max(20).optional(),
   // Business identity
   businessName:                      z.string().max(120).optional(),
+  abnConfirmed:                      z.boolean().optional(),
   legalEntityName:                   z.string().max(120).optional(),
+  businessAddress:                   z.string().max(300).optional(),
   abn:                               z.string().max(20).optional(),
   businessStructure:                 z.enum(["SOLE_TRADER", "PARTNERSHIP", "COMPANY", "TRUST", "NOT_FOR_PROFIT", "GOVERNMENT"]).optional(),
   ndisRegistered:                    z.boolean().optional(),
@@ -54,6 +56,7 @@ const providerProfileBaseSchema = z.object({
   sdaDetails:                        z.record(z.unknown()).optional(),
   // Service areas
   serviceAreas:                      z.array(z.string()).optional(),
+  stateCoverage:                     z.array(z.string()).optional(),
   multipleLocations:                 z.array(z.string()).optional(),
   serviceMode:                       z.enum(["IN_PERSON", "REMOTE", "BOTH"]).optional(),
   // Workforce
@@ -74,6 +77,10 @@ const providerProfileBaseSchema = z.object({
   businessDescription:               z.string().max(2000).optional(),
   websiteUrl:                        z.string().url().optional().or(z.literal("")),
   logoUrl:                           z.string().url().optional().or(z.literal("")),
+  languages:                         z.array(z.string().max(60)).max(20).optional(),
+  accessibilityCapabilities:         z.array(z.string().max(80)).max(20).optional(),
+  culturalCapabilities:              z.array(z.string().max(80)).max(20).optional(),
+  enquiryPreference:                 z.enum(["IN_APP", "EMAIL", "PHONE"]).optional(),
   socialLinks:                       socialLinksSchema.optional(),
   seekingPlanManager:                z.boolean().optional(),
   canPostRequests:                   z.boolean().optional(),
@@ -89,7 +96,7 @@ const providerProfileBaseSchema = z.object({
   complianceDeclaration:             z.boolean().optional(),
 });
 
-export const providerProfileSchema = providerProfileBaseSchema.superRefine((data, ctx) => {
+export const providerProfileSchema = providerProfileBaseSchema.strict().superRefine((data, ctx) => {
   if (data.ndisRegistered && !data.ndisProviderNumber) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ndisProviderNumber"], message: "NDIS provider number is required for NDIS-registered providers" });
   }

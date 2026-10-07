@@ -1,18 +1,19 @@
 import type { Request, Response } from "express";
 import { success } from "../../utils/response";
 import { ValidationError, UnauthorizedError } from "../../lib/errors";
-import { createListingSchema, listListingsQuerySchema } from "../../validators/listing.schema";
+import { createListingSchema, listListingsQuerySchema, updateListingSchema } from "../../validators/listing.schema";
 import * as svc from "./listing.service";
 
 export async function createListing(req: Request, res: Response) {
   if (!req.user) throw new UnauthorizedError();
+  if (!req.activeRole) throw new UnauthorizedError("No active role");
 
   const parsed = createListingSchema.safeParse(req.body);
   if (!parsed.success) {
     throw new ValidationError("Invalid listing payload", parsed.error.flatten().fieldErrors);
   }
 
-  const listing = await svc.createListing(req.user.id, parsed.data);
+  const listing = await svc.createListing(req.user.id, req.activeRole, parsed.data);
   return success(res, { listing }, 201);
 }
 
@@ -26,4 +27,45 @@ export async function listMyListings(req: Request, res: Response) {
 
   const listings = await svc.listMyListings(req.user.id, parsed.data);
   return success(res, { listings });
+}
+
+export async function updateListing(req: Request, res: Response) {
+  if (!req.user) throw new UnauthorizedError();
+
+  const parsed = updateListingSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid listing payload", parsed.error.flatten().fieldErrors);
+  }
+
+  const listing = await svc.updateListing(req.user.id, req.params.id, parsed.data);
+  return success(res, { listing });
+}
+
+export async function purchaseFeaturedListing(req: Request, res: Response) {
+  if (!req.user) throw new UnauthorizedError();
+  const result = await svc.purchaseFeaturedListing(req.user.id, req.params.id);
+  return success(res, result, 201);
+}
+
+export async function purchasePlatinumTile(req: Request, res: Response) {
+  if (!req.user) throw new UnauthorizedError();
+  const { coverage, durationMonths, centreSuburb, marketState } = req.body ?? {};
+  if (typeof coverage !== "string" || typeof durationMonths !== "number") {
+    throw new ValidationError("coverage and durationMonths are required", {});
+  }
+  const campaign = await svc.purchasePlatinumTileCampaign(req.user.id, coverage, durationMonths, centreSuburb, typeof marketState === "string" ? marketState : undefined);
+  return success(res, { campaign }, 201);
+}
+
+export async function listPlatinumTileCampaigns(req: Request, res: Response) {
+  if (!req.user) throw new UnauthorizedError();
+  const campaigns = await svc.listPlatinumTileCampaigns(req.user.id);
+  return success(res, { campaigns });
+}
+
+// GET /provider/listings/:id/featured-preview — queue position + price shown before purchase.
+export async function previewFeaturedListing(req: Request, res: Response) {
+  if (!req.user) throw new UnauthorizedError();
+  const preview = await svc.previewFeaturedListing(req.user.id, req.params.id);
+  return success(res, preview);
 }

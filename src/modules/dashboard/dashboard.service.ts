@@ -23,6 +23,54 @@ export async function getSummary(userId: string, activeRole: UserRole) {
   }
 }
 
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+// "Upcoming" = an assigned shift that has not started yet, or one already underway.
+// (A shift moves ASSIGNED → IN_PROGRESS when it starts, so an IN_PROGRESS shift can
+// never have a start time in the future — filtering both by start >= now hid them all.)
+function upcomingWhere(now: Date) {
+  return {
+    OR: [
+      { status: "ASSIGNED" as const, scheduledStartAt: { gte: now } },
+      { status: "IN_PROGRESS" as const },
+    ],
+  };
+}
+
+// Same "party to the job" rule the messages endpoints enforce (getMessages).
+function messagePartyWhere(userId: string) {
+  return {
+    OR: [
+      { postedByUserId: userId },
+      { forParticipantUserId: userId },
+      { selectedApplicantUserId: userId },
+      { assignedWorkerUserId: userId },
+      { applications: { some: { applicantUserId: userId } } },
+    ],
+  };
+}
+
+// Real unread job-message count (messages from other people newer than the
+// reader's lastReadAt for that thread, archived threads excluded) — not notifications.
+export async function countUnreadMessages(userId: string): Promise<number> {
+  const states = await prisma.jobMessageThreadState.findMany({
+    where:  { userId },
+    select: { jobId: true, lastReadAt: true, archived: true },
+  });
+  const archivedIds = states.filter((s) => s.archived).map((s) => s.jobId);
+  const readStates  = states.filter((s) => !s.archived && s.lastReadAt);
+  return prisma.jobMessage.count({
+    where: {
+      senderUserId: { not: userId },
+      job: { AND: [messagePartyWhere(userId), { id: { notIn: archivedIds } }] },
+      OR: [
+        { jobId: { notIn: [...archivedIds, ...readStates.map((s) => s.jobId)] } },
+        ...readStates.map((s) => ({ jobId: s.jobId, createdAt: { gt: s.lastReadAt as Date } })),
+      ],
+    },
+  });
+}
+
 // ── Support Worker ────────────────────────────────────────────────────────────
 
 async function workerDashboard(userId: string) {
@@ -33,19 +81,31 @@ async function workerDashboard(userId: string) {
 
   const workerFilter = [{ selectedApplicantUserId: userId }, { assignedWorkerUserId: userId }];
 
+  // Open jobs this worker could be matched to: visible to workers, not their own
+  // posts (multi-role accounts), and not ones they have hidden.
+  const matchedWhere = {
+    status: "OPEN" as const,
+    postedByUserId: { not: userId },
+    OR: [{ visibilityTarget: "ALL" }, { visibilityTarget: "VERIFIED" }, { visibilityTarget: "WORKERS_ONLY" }, { visibilityTarget: null }],
+    bookmarks: { none: { workerUserId: userId, hidden: true } },
+  };
+
   const [
     upcomingShifts,
     allApplications,
     matchedJobs,
+    matchedJobCount,
     completedThisWeek,
     savedJobs,
+    unreadMessages,
     unreadNotifications,
     upcomingShiftCount,
     activeApplicationCount,
     confirmedShifts,
+    availableNowRow,
   ] = await Promise.all([
     prisma.supportRequest.findMany({
-      where: { OR: workerFilter, status: { in: ["ASSIGNED", "IN_PROGRESS"] }, scheduledStartAt: { gte: now } },
+      where: { AND: [{ OR: workerFilter }, upcomingWhere(now)] },
       select: { ...JOB_SUMMARY, budgetPerHour: true, isRecurring: true },
       orderBy: { scheduledStartAt: "asc" },
       take: 5,
@@ -54,51 +114,48 @@ async function workerDashboard(userId: string) {
       where: { applicantUserId: userId, status: { not: "WITHDRAWN" } },
       include: {
         job: {
-          select: { ...JOB_SUMMARY, budgetPerHour: true, isRecurring: true, shiftType: true, _count: { select: { applications: true } } },
+          select: { ...JOB_SUMMARY, budgetPerHour: true, isRecurring: true, shiftType: true, workerConfirmedAt: true, _count: { select: { applications: true } } },
         },
       },
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
     prisma.supportRequest.findMany({
-      where: {
-        status: "OPEN",
-        OR: [{ visibilityTarget: "ALL" }, { visibilityTarget: "VERIFIED" }, { visibilityTarget: "WORKERS_ONLY" }, { visibilityTarget: null }],
-      },
+      where: matchedWhere,
       select: { ...JOB_SUMMARY, budgetPerHour: true, isRecurring: true, shiftType: true, durationType: true, serviceDeliveryMode: true, hideParticipantName: true, postedByUserId: true, _count: { select: { applications: true } } },
       orderBy: [{ urgency: "asc" }, { createdAt: "desc" }],
       take: 20,
     }),
-    prisma.supportRequest.findMany({
+    prisma.supportRequest.count({ where: matchedWhere }),
+    prisma.supportRequest.aggregate({
       where: { OR: workerFilter, status: { in: ["COMPLETED", "CONFIRMED"] }, scheduledStartAt: { gte: weekStart } },
-      select: { totalHours: true },
+      _sum: { totalHours: true },
     }),
-    prisma.jobApplication.count({ where: { applicantUserId: userId, status: "INTERESTED" } }),
+    // Bookmarked ("Saved") jobs — the same JobBookmark rows the Saved tab reads.
+    prisma.jobBookmark.count({ where: { workerUserId: userId, saved: true } }),
+    countUnreadMessages(userId),
     prisma.notification.count({ where: { userId, read: false } }),
-    prisma.supportRequest.count({
-      where: { OR: workerFilter, status: { in: ["ASSIGNED", "IN_PROGRESS"] }, scheduledStartAt: { gte: now } },
-    }),
+    prisma.supportRequest.count({ where: { AND: [{ OR: workerFilter }, upcomingWhere(now)] } }),
     prisma.jobApplication.count({
-      where: { applicantUserId: userId, NOT: { status: { in: ["WITHDRAWN", "DECLINED"] } } },
+      where: { applicantUserId: userId, NOT: { status: { in: ["WITHDRAWN", "DECLINED", "REQUEST_FILLED"] } } },
     }),
     prisma.supportRequest.count({ where: { OR: workerFilter, status: { in: ["CONFIRMED", "COMPLETED"] } } }),
+    prisma.workerProfile.findUnique({ where: { userId }, select: { isAvailableNow: true, availableNowUntil: true } }),
   ]);
 
-  const hoursThisWeek = completedThisWeek.reduce(
-    (sum, s) => sum + (typeof s.totalHours === "number" ? s.totalHours : 0),
-    0,
-  );
+  // totalHours is a Prisma Decimal — Number() converts it (typeof === "number" never held).
+  const hoursThisWeek = Number(completedThisWeek._sum.totalHours ?? 0);
 
   return {
     role: "SUPPORT_WORKER" as const,
     stats: {
       upcomingShifts:     upcomingShiftCount,
       activeApplications: activeApplicationCount,
-      matchedJobs:        matchedJobs.length,
+      matchedJobs:        matchedJobCount,
       hoursThisWeek:      Math.round(hoursThisWeek * 10) / 10,
       completedShifts:    confirmedShifts,
       savedJobs,
-      unreadMessages:     unreadNotifications,
+      unreadMessages,
     },
     upcomingShifts,
     allApplications: allApplications.map((a) => ({
@@ -113,10 +170,17 @@ async function workerDashboard(userId: string) {
     pendingApplications: allApplications
       .filter((a) => a.status === "INTERESTED")
       .map((a) => ({ applicationId: a.id, status: a.status, job: a.job })),
+    // Only live decisions: shortlisted on a still-open request, or selected and waiting for this worker to accept.
     shortlistedApplications: allApplications
-      .filter((a) => ["SHORTLISTED", "SELECTED"].includes(a.status))
+      .filter((a) =>
+        (a.status === "SHORTLISTED" && a.job.status === "OPEN")
+        || (a.status === "SELECTED" && a.job.status === "ASSIGNED" && !a.job.workerConfirmedAt))
       .map((a) => ({ applicationId: a.id, status: a.status, job: a.job })),
     matchedJobs,
+    availableNow: {
+      isAvailableNow:    availableNowRow?.isAvailableNow ?? false,
+      availableNowUntil: availableNowRow?.availableNowUntil ?? null,
+    },
     unreadNotifications,
   };
 }
@@ -126,28 +190,34 @@ async function workerDashboard(userId: string) {
 async function participantDashboard(userId: string) {
   const now = new Date();
   const pOR = [{ forParticipantUserId: userId }, { postedByUserId: userId }];
+  const upcoming = { AND: [{ OR: pOR }, upcomingWhere(now)] };
 
   const [
     openJobs,
+    openCount,
     upcomingShifts,
+    upcomingCount,
     awaitingConfirmation,
+    awaitingCount,
     draftCount,
     recurringCount,
     urgentCount,
     confirmedCount,
+    unreadMessages,
     unreadNotifications,
     applicationsReceived,
   ] = await Promise.all([
     prisma.supportRequest.findMany({ where: { OR: pOR, status: "OPEN" }, select: JOB_SUMMARY, orderBy: { createdAt: "desc" }, take: 5 }),
-    prisma.supportRequest.findMany({
-      where: { OR: pOR, status: { in: ["ASSIGNED", "IN_PROGRESS", "CONFIRMED"] }, scheduledStartAt: { gte: now } },
-      select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5,
-    }),
+    prisma.supportRequest.count({ where: { OR: pOR, status: "OPEN" } }),
+    prisma.supportRequest.findMany({ where: upcoming, select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
+    prisma.supportRequest.count({ where: upcoming }),
     prisma.supportRequest.findMany({ where: { OR: pOR, status: "COMPLETED" }, select: JOB_SUMMARY, orderBy: { completedAt: "desc" }, take: 5 }),
+    prisma.supportRequest.count({ where: { OR: pOR, status: "COMPLETED" } }),
     prisma.supportRequest.count({ where: { OR: pOR, status: "DRAFT" } }),
     prisma.supportRequest.count({ where: { OR: pOR, isRecurring: true, status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] } } }),
-    prisma.supportRequest.count({ where: { OR: pOR, urgency: "EMERGENCY", status: "OPEN" } }),
+    prisma.supportRequest.count({ where: { OR: pOR, urgency: "RAPID", status: "OPEN" } }),
     prisma.supportRequest.count({ where: { OR: pOR, status: "CONFIRMED" } }),
+    countUnreadMessages(userId),
     prisma.notification.count({ where: { userId, read: false } }),
     prisma.jobApplication.count({
       where: {
@@ -160,13 +230,14 @@ async function participantDashboard(userId: string) {
   return {
     role: "PARTICIPANT" as const,
     stats: {
-      activeRequests:       openJobs.length,
+      activeRequests:       openCount,
       applicationsReceived: applicationsReceived,
       confirmedSupports:    confirmedCount,
-      upcomingBookings:     upcomingShifts.length,
+      upcomingBookings:     upcomingCount,
+      awaitingConfirmation: awaitingCount,
       urgentRequests:       urgentCount,
       draftRequests:        draftCount,
-      unreadMessages:       unreadNotifications,
+      unreadMessages,
       recurringSupports:    recurringCount,
     },
     openJobs,
@@ -180,31 +251,40 @@ async function participantDashboard(userId: string) {
 
 async function coordinatorDashboard(userId: string) {
   const now = new Date();
-  const [openJobs, upcomingShifts, awaitingConfirmation, managedParticipantCount, unreadNotifications] = await Promise.all([
-    prisma.supportRequest.findMany({ where: { postedByUserId: userId, status: "OPEN" }, select: JOB_SUMMARY, orderBy: { createdAt: "desc" }, take: 5 }),
-    prisma.supportRequest.findMany({ where: { postedByUserId: userId, status: "IN_PROGRESS", scheduledStartAt: { gte: now } }, select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
-    prisma.supportRequest.findMany({ where: { postedByUserId: userId, status: "COMPLETED" }, select: JOB_SUMMARY, orderBy: { completedAt: "desc" }, take: 5 }),
+  const mine = { postedByUserId: userId };
+  const upcoming = { AND: [mine, upcomingWhere(now)] };
+  const [
+    openJobs, openCount, upcomingShifts, upcomingCount, awaitingConfirmation, awaitingCount,
+    managedParticipantCount, unreadMessages, unreadNotifications,
+  ] = await Promise.all([
+    prisma.supportRequest.findMany({ where: { ...mine, status: "OPEN" }, select: JOB_SUMMARY, orderBy: { createdAt: "desc" }, take: 5 }),
+    prisma.supportRequest.count({ where: { ...mine, status: "OPEN" } }),
+    prisma.supportRequest.findMany({ where: upcoming, select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
+    prisma.supportRequest.count({ where: upcoming }),
+    prisma.supportRequest.findMany({ where: { ...mine, status: "COMPLETED" }, select: JOB_SUMMARY, orderBy: { completedAt: "desc" }, take: 5 }),
+    prisma.supportRequest.count({ where: { ...mine, status: "COMPLETED" } }),
     prisma.user.count({ where: { parentUserId: userId, accountType: "MANAGED", roles: { some: { role: "PARTICIPANT" } } } }),
+    countUnreadMessages(userId),
     prisma.notification.count({ where: { userId, read: false } }),
   ]);
 
   const [draftCount, urgentCount, unfilledCount] = await Promise.all([
     prisma.supportRequest.count({ where: { postedByUserId: userId, status: "DRAFT" } }),
-    prisma.supportRequest.count({ where: { postedByUserId: userId, urgency: "EMERGENCY", status: "OPEN" } }),
+    prisma.supportRequest.count({ where: { postedByUserId: userId, urgency: "RAPID", status: "OPEN" } }),
     prisma.supportRequest.count({ where: { postedByUserId: userId, status: "OPEN", applications: { none: {} } } }),
   ]);
 
   return {
     role: "COORDINATOR" as const,
     stats: {
-      activeRequests:       openJobs.length,
+      activeRequests:       openCount,
       draftRequests:        draftCount,
       urgentRequests:       urgentCount,
       unfilledRequests:     unfilledCount,
-      upcomingShifts:       upcomingShifts.length,
-      awaitingConfirmation: awaitingConfirmation.length,
+      upcomingShifts:       upcomingCount,
+      awaitingConfirmation: awaitingCount,
       managedParticipants:  managedParticipantCount,
-      unreadMessages:       unreadNotifications,
+      unreadMessages,
     },
     openJobs,
     upcomingShifts,
@@ -215,36 +295,114 @@ async function coordinatorDashboard(userId: string) {
 }
 
 // ── Provider ──────────────────────────────────────────────────────────────────
+// A Provider is two things at once, and the dashboard keeps them apart:
+//   • poster   — staffing requests it posted (postedByUserId) and the responses to them
+//   • supplier — opportunities it responded to / was selected for (applicantUserId / selectedApplicantUserId)
 
 async function providerDashboard(userId: string) {
+  const now = new Date();
+  // Responses *received* on the Provider's own requests (not withdrawn/declined).
+  const incoming = {
+    job: { postedByUserId: userId },
+    status: { notIn: ["WITHDRAWN", "DECLINED", "REQUEST_FILLED"] as ("WITHDRAWN" | "DECLINED" | "REQUEST_FILLED")[] },
+  };
+  const awaitingAllocation = { selectedApplicantUserId: userId, status: "ASSIGNED" as const, assignedWorkerUserId: null };
+  const active = { AND: [{ selectedApplicantUserId: userId }, upcomingWhere(now)] };
+
   const [
+    workerResponses,
+    workerResponseCount,
+    newResponseCount,
+    shortlistedCount,
+    myRequests,
+    openRequestCount,
+    requestsWithResponses,
     pendingExpressions,
+    outgoingPendingCount,
     activeShifts,
     unassignedAccepted,
-    unreadNotifications,
-    shortlistedCount,
+    unassignedCount,
     confirmedIntakesCount,
-    allApplicationsCount,
+    unreadMessages,
+    unreadNotifications,
+    replacementNeeded,
+    expiryProfile,
+    expiringListings,
   ] = await Promise.all([
+    prisma.jobApplication.findMany({
+      where: incoming,
+      include: {
+        job: { select: JOB_SUMMARY },
+        applicant: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+    prisma.jobApplication.count({ where: incoming }),
+    prisma.jobApplication.count({ where: { job: { postedByUserId: userId }, status: "INTERESTED" } }),
+    prisma.jobApplication.count({ where: { job: { postedByUserId: userId }, status: "SHORTLISTED" } }),
+    prisma.supportRequest.findMany({ where: { postedByUserId: userId, status: "OPEN" }, select: JOB_SUMMARY, orderBy: { createdAt: "desc" }, take: 5 }),
+    prisma.supportRequest.count({ where: { postedByUserId: userId, status: "OPEN" } }),
+    prisma.supportRequest.count({ where: { postedByUserId: userId, applications: { some: { status: incoming.status } } } }),
     prisma.jobApplication.findMany({ where: { applicantUserId: userId, status: "INTERESTED" }, include: { job: { select: JOB_SUMMARY } }, orderBy: { createdAt: "desc" }, take: 5 }),
-    prisma.supportRequest.findMany({ where: { selectedApplicantUserId: userId, status: { in: ["ASSIGNED", "IN_PROGRESS"] } }, select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
-    prisma.supportRequest.findMany({ where: { selectedApplicantUserId: userId, status: "ASSIGNED", assignedWorkerUserId: null }, select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
-    prisma.notification.count({ where: { userId, read: false } }),
-    prisma.jobApplication.count({ where: { applicantUserId: userId, status: "SHORTLISTED" } }),
+    prisma.jobApplication.count({ where: { applicantUserId: userId, status: "INTERESTED" } }),
+    prisma.supportRequest.findMany({ where: active, select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
+    prisma.supportRequest.findMany({ where: awaitingAllocation, select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
+    prisma.supportRequest.count({ where: awaitingAllocation }),
     prisma.supportRequest.count({ where: { selectedApplicantUserId: userId, status: { in: ["CONFIRMED", "COMPLETED"] } } }),
-    prisma.jobApplication.count({ where: { applicantUserId: userId } }),
+    countUnreadMessages(userId),
+    prisma.notification.count({ where: { userId, read: false } }),
+    // PD02 "Replacement needed" — own open requests created because a booked shift fell through.
+    prisma.supportRequest.findMany({
+      where: { postedByUserId: userId, status: "OPEN", OR: [{ promotedFromCancellation: true }, { requestPurposeCategory: "REPLACEMENT" }] },
+      select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5,
+    }),
+    prisma.providerProfile.findUnique({
+      where: { userId },
+      select: { publicLiabilityExpiryDate: true, professionalIndemnityExpiryDate: true, workersCompExpiryDate: true },
+    }),
+    prisma.providerListing.findMany({
+      where: { providerUserId: userId, listingCategory: "HOUSING", status: "ACTIVE", listingExpiresAt: { not: null, lte: new Date(now.getTime() + 14 * 86400000) } },
+      select: { id: true, title: true, listingExpiresAt: true },
+    }),
   ]);
+
+  // PR-D03 — insurance (30 days) and Home and Living listing (14 days) expiries needing attention.
+  const soon = new Date(now.getTime() + 30 * 86400000);
+  const expiringSoon: { label: string; date: Date }[] = [];
+  const addIfSoon = (label: string, date: Date | null | undefined) => { if (date && date <= soon) expiringSoon.push({ label, date }); };
+  addIfSoon("Public liability insurance", expiryProfile?.publicLiabilityExpiryDate);
+  addIfSoon("Professional indemnity insurance", expiryProfile?.professionalIndemnityExpiryDate);
+  addIfSoon("Workers compensation insurance", expiryProfile?.workersCompExpiryDate);
+  for (const l of expiringListings) addIfSoon(`Listing: ${l.title}`, l.listingExpiresAt);
 
   return {
     role: "PROVIDER" as const,
     stats: {
-      newEnquiries:          pendingExpressions.length,
+      // Incoming responses on the Provider's own requests.
+      newEnquiries:          newResponseCount,
       shortlistedCount,
-      matchedRequests:       allApplicationsCount,
+      // Own requests that have received at least one response.
+      matchedRequests:       requestsWithResponses,
       confirmedIntakes:      confirmedIntakesCount,
-      unfilledWorkforceGaps: unassignedAccepted.length,
-      unreadMessages:        unreadNotifications,
+      unfilledWorkforceGaps: unassignedCount,
+      unreadMessages,
+      // Additive fields.
+      openRequests:          openRequestCount,
+      responsesReceived:     workerResponseCount,
+      outgoingPendingApplications: outgoingPendingCount,
     },
+    // Responses to the Provider's own requests (what the "Worker responses" card shows).
+    workerResponses: workerResponses.map((a) => ({
+      applicationId: a.id,
+      status:        a.status,
+      applicantName: a.applicant.name,
+      job:           a.job,
+    })),
+    myRequests,
+    replacementNeeded,
+    expiringSoon,
+    // The Provider's OWN outgoing expressions of interest on other people's requests.
     pendingExpressions: pendingExpressions.map((a) => ({ applicationId: a.id, job: a.job })),
     activeShifts,
     unassignedAccepted,
@@ -255,7 +413,7 @@ async function providerDashboard(userId: string) {
 // ── Plan Manager ──────────────────────────────────────────────────────────────
 
 async function planManagerDashboard(userId: string) {
-  const [recentInvoices, connectionCounts, unreadNotifications] = await Promise.all([
+  const [recentInvoices, connectionCounts, unreadMessages, unreadNotifications] = await Promise.all([
     prisma.invoice.findMany({
       where: { planManagerUserId: userId },
       orderBy: { sentAt: "desc" },
@@ -267,6 +425,7 @@ async function planManagerDashboard(userId: string) {
       },
     }),
     prisma.planManagerConnection.groupBy({ by: ["status"], where: { planManagerUserId: userId }, _count: { _all: true } }),
+    countUnreadMessages(userId),
     prisma.notification.count({ where: { userId, read: false } }),
   ]);
 
@@ -289,7 +448,7 @@ async function planManagerDashboard(userId: string) {
     const idFilter = { in: clientIds };
     const refs = await Promise.all([
       prisma.supportRequest.count({ where: { forParticipantUserId: idFilter, status: "OPEN" } }),
-      prisma.supportRequest.count({ where: { forParticipantUserId: idFilter, urgency: "EMERGENCY", status: "OPEN" } }),
+      prisma.supportRequest.count({ where: { forParticipantUserId: idFilter, urgency: "RAPID", status: "OPEN" } }),
       prisma.supportRequest.count({ where: { forParticipantUserId: idFilter, status: "OPEN", applications: { none: {} } } }),
     ]);
     openReferrals = refs[0];
@@ -305,7 +464,7 @@ async function planManagerDashboard(userId: string) {
       urgentReferrals,
       unfilledReferrals,
       recentInvoiceCount: recentInvoices.length,
-      unreadMessages:     unreadNotifications,
+      unreadMessages,
     },
     recentInvoices,
     connectionCounts: {
@@ -332,7 +491,7 @@ async function adminDashboard() {
     prisma.user.count(),
     prisma.supportRequest.count({ where: { status: "OPEN" } }),
     prisma.supportRequest.count({ where: { status: { in: activeStatuses } } }),
-    prisma.supportRequest.count({ where: { status: "OPEN", urgency: "EMERGENCY" } }),
+    prisma.supportRequest.count({ where: { status: "OPEN", urgency: "RAPID" } }),
     prisma.supportRequest.count({ where: { status: "CONFIRMED", confirmedAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } } }),
     prisma.invoice.count(),
   ]);

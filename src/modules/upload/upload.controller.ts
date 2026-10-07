@@ -2,18 +2,30 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { success } from "../../utils/response";
 import { UnauthorizedError, ValidationError, BadRequestError, NotFoundError, ForbiddenError } from "../../lib/errors";
-import { generatePresignedUrl, buildFileKey, buildFileUrl, saveFile, deleteFile } from "../../lib/storage";
+import { generatePresignedUrl, buildFileKey, buildFileUrl, saveFile, deleteFile, isOwnedStorageKey } from "../../lib/storage";
 import { prisma } from "../../lib/prisma";
 import { updateProfile } from "../users/user.service";
+import { ROLE_LABELS } from "../../config/constants";
 import type { DocumentType, UserRole } from "@prisma/client";
 
 const AVATAR_CONTENT_TYPES = ["image/jpeg", "image/png", "image/heic", "image/webp"] as const;
+const AVATAR_LABELS = AVATAR_CONTENT_TYPES.map((t) => t.split("/")[1].toUpperCase()).join(", ");
+
+// Incident evidence (photos/documents attached to a "Report a concern" filing) —
+// generic presign, no Document row is created (unlike compliance docs).
+const INCIDENT_EVIDENCE_CONTENT_TYPES = ["image/jpeg", "image/png", "image/heic", "image/webp", "application/pdf"] as const;
+const INCIDENT_EVIDENCE_LABELS = INCIDENT_EVIDENCE_CONTENT_TYPES.map((t) => t.split("/")[1].toUpperCase()).join(", ");
 
 const presignQuerySchema = z.object({
   fileName:    z.string().min(1).max(255),
   contentType: z.string().min(1).max(120),
-  category:    z.enum(["compliance", "avatars"]).default("compliance"),
+  category:    z.enum(["compliance", "avatars", "incident-evidence"]).default("compliance"),
 });
+
+// Document date fields arrive as plain <input type="date"> values (YYYY-MM-DD),
+// not full ISO datetimes — matches the date convention used everywhere else
+// in the codebase (e.g. profile-coordinator.schema.ts's optDate).
+const docDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional();
 
 const registerDocSchema = z.object({
   fileKey:         z.string().min(1).max(500),
@@ -22,8 +34,8 @@ const registerDocSchema = z.object({
   sizeBytes:       z.number().int().positive(),
   docType:         z.string().min(1),
   referenceNumber: z.string().max(80).optional(),
-  issueDate:       z.string().datetime({ offset: true }).optional(),
-  expiryDate:      z.string().datetime({ offset: true }).optional(),
+  issueDate:       docDate,
+  expiryDate:      docDate,
 });
 
 // GET /upload/presign
@@ -42,7 +54,13 @@ export async function presign(req: Request, res: Response): Promise<void> {
 
   if (category === "avatars" && !(AVATAR_CONTENT_TYPES as readonly string[]).includes(contentType)) {
     throw new BadRequestError(
-      "Avatar uploads must be one of: " + AVATAR_CONTENT_TYPES.join(", "),
+      "Avatar must be a " + AVATAR_LABELS + " image.",
+    );
+  }
+
+  if (category === "incident-evidence" && !(INCIDENT_EVIDENCE_CONTENT_TYPES as readonly string[]).includes(contentType)) {
+    throw new BadRequestError(
+      "Evidence must be a " + INCIDENT_EVIDENCE_LABELS + " file.",
     );
   }
 
@@ -66,7 +84,7 @@ export async function uploadAvatar(req: Request, res: Response): Promise<void> {
   if (!file) throw new BadRequestError("No file provided");
 
   if (!(AVATAR_CONTENT_TYPES as readonly string[]).includes(file.mimetype)) {
-    throw new BadRequestError("Avatar must be one of: " + AVATAR_CONTENT_TYPES.join(", "));
+    throw new BadRequestError("Avatar must be a " + AVATAR_LABELS + " image.");
   }
 
   const saved = await saveFile({
@@ -95,6 +113,7 @@ export async function registerDocument(req: Request, res: Response): Promise<voi
   }
 
   const { fileKey, fileName, mimeType, sizeBytes, docType, referenceNumber, issueDate, expiryDate } = parsed.data;
+  if (!isOwnedStorageKey(fileKey, req.user.id)) throw new BadRequestError("Invalid file key");
 
   const doc = await prisma.document.create({
     data: {
@@ -132,7 +151,7 @@ const ROLE_DOC_ALLOWLIST: Record<string, DocumentType[]> = {
   ],
   PROVIDER: [
     "PUBLIC_LIABILITY_INSURANCE", "PROFESSIONAL_INDEMNITY",
-    "WORKERS_COMP", "POLICIES_PROCEDURES",
+    "WORKERS_COMP", "POLICIES_PROCEDURES", "NDIS_AUDIT",
   ],
   PLAN_MANAGER: [
     "ABN_CONFIRMATION", "NDIS_REGISTRATION_PROOF", "BUSINESS_REP_PROOF",
@@ -141,13 +160,67 @@ const ROLE_DOC_ALLOWLIST: Record<string, DocumentType[]> = {
   ],
 };
 
+// Compliance doc types whose reference/expiry also live as shadow columns on the
+// profile itself (read by the profile-completion calculator) — kept in sync here
+// so completion checks see what the user actually uploaded.
+interface DocSyncFields { number?: string; issueDate?: string; expiry: string }
+
+const WORKER_DOC_SYNC: Partial<Record<DocumentType, DocSyncFields>> = {
+  POLICE_CHECK:    { issueDate: "policeCheckIssueDate", expiry: "policeCheckExpiry" },
+  NDIS_SCREENING:  { number: "ndisScreeningNumber", expiry: "ndisScreeningExpiry" },
+  WWCC:            { number: "wwccNumber", expiry: "wwccExpiry" },
+  FIRST_AID:       { expiry: "firstAidExpiry" },
+  CPR:             { expiry: "cprExpiry" },
+  DRIVERS_LICENCE: { expiry: "driversLicenceExpiry" },
+};
+
+const COORDINATOR_DOC_SYNC: Partial<Record<DocumentType, DocSyncFields>> = {
+  POLICE_CHECK:   { expiry: "policeCheckExpiry" },
+  WWCC:           { number: "wwccNumber", expiry: "wwccExpiry" },
+  NDIS_SCREENING: { number: "ndisScreeningNumber", expiry: "ndisScreeningExpiry" },
+};
+
+async function syncDocMetadataToProfile(
+  userId: string,
+  role: string | undefined,
+  dt: DocumentType,
+  referenceNumber: string | undefined,
+  issueDate: string | undefined,
+  expiryDate: string | undefined,
+): Promise<void> {
+  const syncMap = role === "SUPPORT_WORKER" ? WORKER_DOC_SYNC : role === "COORDINATOR" ? COORDINATOR_DOC_SYNC : undefined;
+  const fields = syncMap?.[dt];
+  if (!fields) return;
+
+  const data: Record<string, unknown> = {};
+  if (fields.number && referenceNumber) data[fields.number] = referenceNumber;
+  if (fields.issueDate && issueDate) data[fields.issueDate] = new Date(issueDate);
+  if (expiryDate) data[fields.expiry] = new Date(expiryDate);
+  if (Object.keys(data).length === 0) return;
+
+  try {
+    if (role === "SUPPORT_WORKER") {
+      await prisma.workerProfile.upsert({ where: { userId }, create: { userId, ...data }, update: data });
+    } else {
+      await prisma.coordinatorProfile.upsert({ where: { userId }, create: { userId, ...data }, update: data });
+    }
+  } catch {
+    // Best-effort sync — the Document row above is already the source of truth
+    // and has already saved successfully; don't fail the request over this.
+  }
+}
+
 const docPresignBodySchema = z.object({
   docType:     z.string().min(1),
   fileName:    z.string().min(1).max(255),
   contentType: z.string().min(1).max(120),
 });
 
-const docConfirmBodySchema = z.object({
+// A confirm call is either a real file upload (key/publicUrl/etc. required) or a
+// metadata-only edit of an already-uploaded document (e.g. renewing an expiry
+// date) — the latter must not touch the stored file at all.
+const docConfirmFileSchema = z.object({
+  metadataOnly:    z.literal(false).optional().default(false),
   key:             z.string().min(1).max(500),
   publicUrl:       z.string().url(),
   docType:         z.string().min(1),
@@ -155,10 +228,21 @@ const docConfirmBodySchema = z.object({
   mimeType:        z.string().min(1).max(120),
   sizeBytes:       z.number().int().positive(),
   referenceNumber: z.string().max(100).optional(),
-  issueDate:       z.string().datetime({ offset: true }).optional(),
-  expiryDate:      z.string().datetime({ offset: true }).optional(),
+  issueDate:       docDate,
+  expiryDate:      docDate,
   metadata:        z.record(z.string()).optional(),
 });
+
+const docConfirmMetadataOnlySchema = z.object({
+  metadataOnly:    z.literal(true),
+  docType:         z.string().min(1),
+  referenceNumber: z.string().max(100).optional(),
+  issueDate:       docDate,
+  expiryDate:      docDate,
+  metadata:        z.record(z.string()).optional(),
+});
+
+const docConfirmBodySchema = z.union([docConfirmMetadataOnlySchema, docConfirmFileSchema]);
 
 // POST /upload/document/presign
 export async function documentPresign(req: Request, res: Response): Promise<void> {
@@ -178,7 +262,9 @@ export async function documentPresign(req: Request, res: Response): Promise<void
 
   const allowed = ROLE_DOC_ALLOWLIST[role] ?? [];
   if (!allowed.includes(docType as DocumentType)) {
-    throw new BadRequestError(`Document type ${docType} is not allowed for role ${role}`);
+    const docLabel  = docType.replace(/_/g, " ");
+    const roleLabel = ROLE_LABELS[role] ?? role;
+    throw new BadRequestError(`${docLabel} is not a document type required for a ${roleLabel} account`);
   }
 
   const fileKey = buildFileKey({ originalName: fileName, userId: req.user.id, category: "compliance" });
@@ -200,12 +286,31 @@ export async function documentConfirm(req: Request, res: Response): Promise<void
     );
   }
 
-  const { key, publicUrl: pubUrl, docType, fileName, mimeType, sizeBytes, referenceNumber, issueDate, expiryDate } = parsed.data;
+  const { docType, referenceNumber, issueDate, expiryDate } = parsed.data;
+  if (!parsed.data.metadataOnly) {
+    // Client-supplied key/URL must point at this user's own upload from /document/presign.
+    if (!isOwnedStorageKey(parsed.data.key, req.user.id) || !parsed.data.publicUrl.endsWith(`/${parsed.data.key}`)) {
+      throw new BadRequestError("Invalid file key");
+    }
+  }
   const dt = docType as DocumentType;
   const isMulti = MULTI_UPLOAD_TYPES.includes(dt);
 
   let doc;
-  if (isMulti) {
+  if (parsed.data.metadataOnly) {
+    const existing = await prisma.document.findFirst({ where: { userId: req.user.id, docType: dt } });
+    if (!existing) throw new NotFoundError("No existing document to update — upload a file first");
+    doc = await prisma.document.update({
+      where: { id: existing.id },
+      data: {
+        referenceNumber: referenceNumber ?? null,
+        issueDate:  issueDate  ? new Date(issueDate)  : null,
+        expiryDate: expiryDate ? new Date(expiryDate) : null,
+        updatedAt: new Date(),
+      },
+    });
+  } else if (isMulti) {
+    const { key, publicUrl: pubUrl, fileName, mimeType, sizeBytes } = parsed.data;
     doc = await prisma.document.create({
       data: {
         userId: req.user.id, docType: dt, filePath: key, publicUrl: pubUrl,
@@ -217,10 +322,11 @@ export async function documentConfirm(req: Request, res: Response): Promise<void
       },
     });
   } else {
+    const { key, publicUrl: pubUrl, fileName, mimeType, sizeBytes } = parsed.data;
     const existing = await prisma.document.findFirst({ where: { userId: req.user.id, docType: dt } });
     if (existing) {
       if (existing.filePath && existing.filePath !== key) {
-        await deleteFile(existing.filePath).catch(() => null);
+        await deleteFile(existing.filePath, req.user.id).catch(() => null);
       }
       doc = await prisma.document.update({
         where: { id: existing.id },
@@ -245,6 +351,8 @@ export async function documentConfirm(req: Request, res: Response): Promise<void
       });
     }
   }
+
+  await syncDocMetadataToProfile(req.user.id, req.activeRole, dt, referenceNumber, issueDate, expiryDate);
 
   const { filePath: _fp, ...rest } = doc;
   success(res, { document: rest }, 201);
@@ -271,7 +379,7 @@ export async function deleteUserDocument(req: Request, res: Response): Promise<v
   const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
   if (!doc) throw new NotFoundError("Document not found");
   if (doc.userId !== req.user.id) throw new ForbiddenError("Not your document");
-  await deleteFile(doc.filePath).catch(() => null);
+  await deleteFile(doc.filePath, req.user.id).catch(() => null);
   await prisma.document.delete({ where: { id: doc.id } });
   success(res, { ok: true });
 }

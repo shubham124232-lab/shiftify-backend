@@ -14,9 +14,23 @@ import availabilityRoutes from "./modules/profiles/availability.routes";
 import documentRoutes     from "./modules/documents/document.routes";
 import dashboardRoutes    from "./modules/dashboard/dashboard.routes";
 import jobRoutes          from "./modules/jobs/job.routes";
+import reviewRoutes       from "./modules/jobs/review.routes";
 import pmRoutes           from "./modules/pm/pm.routes";
+import directConnectRoutes from "./modules/direct-connect/direct-connect.routes";
 import uploadRoutes       from "./modules/upload/upload.routes";
 import listingRoutes      from "./modules/listings/listing.routes";
+import workerRoutes       from "./modules/workers/worker.routes";
+import coordinatorRoutes  from "./modules/coordinators/coordinator.routes";
+import savedSearchRoutes  from "./modules/saved-searches/saved-search.routes";
+import coordinatorConnectionRoutes from "./modules/coordinator-connections/coordinator-connection.routes";
+import savedProfessionalRoutes     from "./modules/saved-professionals/saved-professional.routes";
+import jobInviteRoutes             from "./modules/job-invites/job-invite.routes";
+import providerOrgRoutes            from "./modules/provider-org/provider-org.routes";
+import availabilityListingRoutes    from "./modules/availability-listings/availability-listing.routes";
+import professionalSearchRoutes     from "./modules/professional-search/professional-search.routes";
+import directInquiryRoutes          from "./modules/direct-inquiries/direct-inquiry.routes";
+import publicProfileRoutes          from "./modules/public-profiles/public-profile.routes";
+import publicShiftboardRoutes       from "./modules/public-shiftboard/public-shiftboard.routes";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { requireAuth }    from "./middleware/auth.middleware";
 import { asyncHandler }   from "./utils/async-handler";
@@ -55,6 +69,17 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "shiftify-backend", env: env.NODE_ENV });
 });
 
+// ── API docs (static reference page) ────────────────────────────────────────
+app.get("/api-docs", (_req, res) => {
+  res.sendFile(path.resolve(__dirname, "public", "api-docs.html"));
+});
+
+// ── Public (no auth) ─────────────────────────────────────────────────────────
+// The Live Shiftboard marketing page — the only job-listing route in the app
+// that intentionally never runs requireAuth. Mounted here, not inside the
+// requireAuth-gated /jobs router.
+app.use("/public/shiftboard", publicShiftboardRoutes);
+
 // ── Routes ──────────────────────────────────────────────────────────────────
 // More-specific /users/me/* paths MUST come BEFORE the /users catch-all so
 // Express doesn't try to route them through user.routes.ts first.
@@ -70,10 +95,23 @@ app.use("/subscriptions", subscriptionRoutes);
 app.use("/admin",         adminRoutes);
 app.use("/dashboard",     dashboardRoutes);
 app.use("/jobs",          jobRoutes);
+app.use("/reviews",       reviewRoutes);
 app.get ("/invoices",     requireAuth, asyncHandler(listInvoices));
 app.use("/pm",            pmRoutes);
+app.use("/direct-connect", directConnectRoutes);
 app.use("/upload",        uploadRoutes);
 app.use("/provider/listings", listingRoutes);
+app.use("/workers",       workerRoutes);
+app.use("/coordinators",  coordinatorRoutes);
+app.use("/saved-searches", savedSearchRoutes);
+app.use("/coordinator-connections", coordinatorConnectionRoutes);
+app.use("/saved-professionals",     savedProfessionalRoutes);
+app.use("/job-invites",             jobInviteRoutes);
+app.use("/provider-org",            providerOrgRoutes);
+app.use("/availability-listings",   availabilityListingRoutes);
+app.use("/professional-search",     professionalSearchRoutes);
+app.use("/direct-inquiries",         directInquiryRoutes);
+app.use("/public-profiles",          publicProfileRoutes);
 
 // ── 404 ─────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

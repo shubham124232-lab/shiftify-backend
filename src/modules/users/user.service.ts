@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma";
 import { NotFoundError, ConflictError } from "../../lib/errors";
 import type { UpdateProfileInput } from "../../validators/profile.schema";
 import type { User, UserRole } from "@prisma/client";
+import { phoneVariants } from "../../lib/phone";
 
 // ─── Shared include ───────────────────────────────────────────────────────────
 
@@ -107,7 +108,7 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): Complet
         ["Emergency contact relationship", has(pp?.emergencyContactRelationship)],
         ["Privacy policy accepted",     isTrue(pp?.privacyPolicyAccepted)],
         ["Terms accepted",              isTrue(pp?.termsAccepted)],
-        ["NDIS code accepted",          isTrue(pp?.ndisCodeAccepted)],
+        ["Code of Conduct accepted",          isTrue(pp?.ndisCodeAccepted)],
       ];
       return check(fields);
     }
@@ -135,11 +136,8 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): Complet
         ["Experience level",                has(wp?.experienceLevel)],
         ["Disability experience",           hasArr(wp?.disabilityExperience)],
         ["Availability type",               has(wp?.availabilityType)],
-        ["Emergency availability",          isTrue(wp?.emergencyAvailability)],
+        ["Short-notice availability",          isTrue(wp?.emergencyAvailability)],
         ["Can transport participants",      isTrue(wp?.canTransportParticipants)],
-        ["Sleeper availability",            isTrue(wp?.sleeperAvailability)],
-        ["Available days",                  hasArr(wp?.availableDays)],
-        ["Time blocks",                     hasArr(wp?.timeBlocks)],
         ["Minimum shift hours",             has(wp?.minimumShiftHours)],
         ["Availability slots",              !!(wp && (wp.availability?.length ?? 0) > 0)],
         ["Service areas",                   hasArr(wp?.serviceAreas)],
@@ -153,8 +151,8 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): Complet
         ["Languages spoken",                hasArr(wp?.languagesSpoken)],
         ["Bio",                             has(wp?.bio)],
         ["Preferences",                     has(wp?.preferences)],
-        ["NDIS screening number",           has(wp?.ndisScreeningNumber)],
-        ["NDIS screening expiry",           has(wp?.ndisScreeningExpiry)],
+        ["Worker Screening Check number",           has(wp?.ndisScreeningNumber)],
+        ["Worker Screening Check expiry",           has(wp?.ndisScreeningExpiry)],
         ["Police check issue date",         has(wp?.policeCheckIssueDate)],
         ["Police check expiry",             has(wp?.policeCheckExpiry)],
         ["WWCC number",                     has(wp?.wwccNumber)],
@@ -168,7 +166,7 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): Complet
         ["References",                      hasArr(wp?.references)],
         ["Terms accepted",                  isTrue(wp?.termsAccepted)],
         ["Privacy policy accepted",         isTrue(wp?.privacyPolicyAccepted)],
-        ["NDIS code accepted",              isTrue(wp?.ndisCodeAccepted)],
+        ["Code of Conduct accepted",              isTrue(wp?.ndisCodeAccepted)],
         ["Declaration statement",           isTrue(wp?.declarationStatement)],
       ];
       const conditional: Field[] = [];
@@ -191,8 +189,8 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): Complet
         ["Police check expiry",                 has(cp?.policeCheckExpiry)],
         ["WWCC number",                         has(cp?.wwccNumber)],
         ["WWCC expiry",                         has(cp?.wwccExpiry)],
-        ["NDIS screening number",               has(cp?.ndisScreeningNumber)],
-        ["NDIS screening expiry",               has(cp?.ndisScreeningExpiry)],
+        ["Worker Screening Check number",               has(cp?.ndisScreeningNumber)],
+        ["Worker Screening Check expiry",               has(cp?.ndisScreeningExpiry)],
         ["Professional indemnity provider",     has(cp?.professionalIndemnityProviderName)],
         ["Professional indemnity policy",       has(cp?.professionalIndemnityPolicyNumber)],
         ["Professional indemnity expiry",       has(cp?.professionalIndemnityExpiry)],
@@ -216,7 +214,7 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): Complet
         ["Gender",                              has(cp?.gender)],
         ["Terms accepted",                      isTrue(cp?.termsAccepted)],
         ["Privacy policy accepted",             isTrue(cp?.privacyPolicyAccepted)],
-        ["NDIS code accepted",                  isTrue(cp?.ndisCodeAccepted)],
+        ["Code of Conduct accepted",                  isTrue(cp?.ndisCodeAccepted)],
         ["Compliance declaration",              isTrue(cp?.complianceDeclaration)],
         ["Consent for verification",            isTrue(cp?.consentForVerification)],
       ];
@@ -280,7 +278,7 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): Complet
         ["Logo",                                has(pr?.logoUrl)],
         ["Website URL",                         has(pr?.websiteUrl)],
         ["Terms accepted",                      isTrue(pr?.termsAccepted)],
-        ["NDIS code accepted",                  isTrue(pr?.ndisCodeAccepted)],
+        ["Code of Conduct accepted",                  isTrue(pr?.ndisCodeAccepted)],
         ["Privacy policy accepted",             isTrue(pr?.privacyPolicyAccepted)],
         ["Service agreement accepted",          isTrue(pr?.serviceAgreementAccepted)],
         ["Platform rules accepted",             isTrue(pr?.platformRulesAccepted)],
@@ -391,7 +389,7 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): Complet
         ["Accepting clients",                       isTrue(pm?.acceptingClients)],
         ["Terms accepted",                          isTrue(pm?.termsAccepted)],
         ["Privacy policy accepted",                 isTrue(pm?.privacyPolicyAccepted)],
-        ["NDIS code accepted",                      isTrue(pm?.ndisCodeAccepted)],
+        ["Code of Conduct accepted",                      isTrue(pm?.ndisCodeAccepted)],
         ["Confirm authority to register",           isTrue(pm?.confirmAuthorityToRegister)],
         ["Confirm details accurate",                isTrue(pm?.confirmDetailsAccurate)],
         ["Consent to verification",                 isTrue(pm?.consentToVerification)],
@@ -413,9 +411,9 @@ export function computeCompletion(user: FullUser, activeRole: UserRole): Complet
         conditional.push(["State coverage", hasArr(pm?.stateCoverage)]);
       }
       if (pm?.serviceCoverageType === "REGION_BASED") {
-        conditional.push(["Service areas", hasArr(pm?.serviceAreas)], ["Postcodes served", hasArr(pm?.postcodesServed)]);
+        conditional.push(["Postcodes served", hasArr(pm?.postcodesServed)]);
       }
-      if (pm?.organisationUserModel === "MULTI_USER") {
+      if (pm?.organisationUserModel === "SMALL_TEAM" || pm?.organisationUserModel === "LARGE_ORGANISATION") {
         conditional.push(
           ["Staff admin name",     has(pm?.staffAdminName)],
           ["Staff admin email",    has(pm?.staffAdminEmail)],
@@ -443,7 +441,7 @@ export async function updateProfile(userId: string, input: UpdateProfileInput) {
     if (existing && existing.id !== userId) throw new ConflictError("That email is already in use");
   }
   if (scalar.phone) {
-    const existing = await prisma.user.findUnique({ where: { phone: scalar.phone } });
+    const existing = await prisma.user.findFirst({ where: { phone: { in: phoneVariants(scalar.phone) } } });
     if (existing && existing.id !== userId) throw new ConflictError("That phone number is already in use");
   }
   if (scalar.username) {

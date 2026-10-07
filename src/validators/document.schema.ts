@@ -17,6 +17,13 @@ const DOCUMENT_TYPES = [
   "NDIS_AUDIT",
   "PERSONAL_ACCIDENT_INSURANCE",
   "QUALIFICATION_CERTIFICATE",
+  "ABN_CONFIRMATION",
+  "NDIS_REGISTRATION_PROOF",
+  "BUSINESS_REP_PROOF",
+  "POLICIES_PROCEDURES",
+  "BUSINESS_ADDRESS_EVIDENCE",
+  "CONTACT_IDENTITY_EVIDENCE",
+  "BANK_FINANCE_EVIDENCE",
   "OTHER",
 ] as const;
 
@@ -25,6 +32,6 @@ export const uploadDocumentSchema = z.object({
   referenceNumber: z.string().max(80).optional(),
   issueDate:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "issueDate must be YYYY-MM-DD").optional(),
   expiryDate:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expiryDate must be YYYY-MM-DD").optional(),
-});
+}).strict();
 
 export type UploadDocumentInput = z.infer<typeof uploadDocumentSchema>;

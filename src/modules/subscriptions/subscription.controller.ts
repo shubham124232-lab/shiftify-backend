@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { success } from "../../utils/response";
-import { UnauthorizedError } from "../../lib/errors";
+import { BadRequestError, UnauthorizedError } from "../../lib/errors";
 import * as svc from "./subscription.service";
 import type { UserRole } from "@prisma/client";
 
@@ -34,4 +34,42 @@ export async function getMyActiveSubscriptions(req: Request, res: Response): Pro
   if (!req.user) throw new UnauthorizedError();
   const subscriptions = await svc.getMyActiveSubscriptions(req.user.id);
   success(res, { subscriptions });
+}
+
+// POST /subscriptions/shift-pass — Pricing V2 §6 Single Shift Pass purchase
+export async function purchaseShiftPass(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const role = req.activeRole;
+  if (!role) throw new UnauthorizedError("No active role");
+  const pass = await svc.purchaseShiftPass(req.user.id, role as UserRole);
+  success(res, { pass }, 201);
+}
+
+// POST /subscriptions/cancel — Pricing V2 §11.1: effective at the end of the paid period
+export async function cancelSubscription(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const role = req.activeRole;
+  if (!role) throw new UnauthorizedError("No active role");
+  const subscriptions = await svc.cancelMySubscription(req.user.id, role as UserRole);
+  success(res, { subscriptions });
+}
+
+// GET /subscriptions/me/allowance — introductory-action usage for the active role
+export async function getIntroductoryAllowance(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const role = req.activeRole;
+  if (!role) throw new UnauthorizedError("No active role");
+  const allowance = await svc.getIntroductoryAllowance(req.user.id, role as UserRole);
+  success(res, { allowance });
+}
+
+// POST /subscriptions/add-on — Available Now / Growth / Speed on top of a paid base plan
+export async function activateAddOn(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const role = req.activeRole;
+  if (!role) throw new UnauthorizedError("No active role");
+  const { planId } = req.body as { planId?: string };
+  if (!planId) throw new BadRequestError("planId is required");
+  const subscription = await svc.activateAddOn(req.user.id, role as UserRole, planId);
+  success(res, { subscription }, 201);
 }

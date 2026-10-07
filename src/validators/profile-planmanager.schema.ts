@@ -10,7 +10,7 @@ const planManagerProfileBaseSchema = z.object({
   legalEntityName:                       z.string().max(120).optional(),
   abn:                                   z.string().max(20).optional(),
   acn:                                   z.string().max(20).optional(),
-  businessStructure:                     z.enum(["SOLE_TRADER", "PARTNERSHIP", "COMPANY", "TRUST"]).optional(),
+  businessStructure:                     z.enum(["SOLE_TRADER", "PARTNERSHIP", "COMPANY", "TRUST", "NOT_FOR_PROFIT"]).optional(),
   trustName:                             z.string().max(120).optional(),
   directorName:                          z.string().max(120).optional(),
   directorPosition:                      z.string().max(80).optional(),
@@ -37,13 +37,14 @@ const planManagerProfileBaseSchema = z.object({
   plansRecurringInvoices:                z.boolean().optional(),
   plansOnceOffInvoices:                  z.boolean().optional(),
   providesBudgetStatements:              z.boolean().optional(),
+  statementContactName:                  z.string().max(120).optional(),
+  statementContactEmail:                 emailOptional,
   // Step 6 -- Participant / Funding Scope
   participantTypesSupported:             z.array(z.string()).optional(),
   participantComplexityExperience:       z.array(z.string()).optional(),
   // Step 7 -- Service Coverage
   serviceCoverageType:                   z.enum(["AUSTRALIA_WIDE", "STATE_BASED", "REGION_BASED"]).optional(),
   stateCoverage:                         z.array(z.string()).optional(),
-  serviceAreas:                          z.array(z.string()).optional(),
   postcodesServed:                       z.array(z.string()).optional(),
   timezone:                              z.string().max(60).optional(),
   operatingHours:                        z.string().max(60).optional(),
@@ -78,11 +79,14 @@ const planManagerProfileBaseSchema = z.object({
   privacyContact:                        z.string().max(200).optional(),
   recordsRetentionContact:               z.string().max(200).optional(),
   // Step 10 -- Staff / User Access Control
-  organisationUserModel:                 z.enum(["SINGLE", "MULTI_USER"]).optional(),
+  organisationUserModel:                 z.enum(["SINGLE", "SMALL_TEAM", "LARGE_ORGANISATION"]).optional(),
   staffAdminName:                        z.string().max(120).optional(),
   staffAdminEmail:                       emailOptional,
   staffSeatsRequired:                    z.number().int().min(0).max(9999).optional(),
+  staffRoles:                            z.array(z.string()).optional(),
+  adminOnlyBillingMode:                  z.boolean().optional(),
   // Step 11 -- Participant Linking Setup
+  participantReferenceIdLabel:           z.string().max(60).optional(),
   participantLinkingMethod:              z.array(z.string()).optional(),
   linkApprovalRequired:                  z.boolean().optional(),
   requiresServiceAgreementBeforeInvoicing: z.boolean().optional(),
@@ -110,11 +114,15 @@ const planManagerProfileBaseSchema = z.object({
   termsAccepted:                         z.boolean().optional(),
   privacyPolicyAccepted:                 z.boolean().optional(),
   ndisCodeAccepted:                      z.boolean().optional(),
-  complianceDeclaration:                 z.boolean().optional(),
-  consentForVerification:                z.boolean().optional(),
+  confirmAuthorityToRegister:            z.boolean().optional(),
+  confirmDetailsAccurate:                z.boolean().optional(),
+  consentToVerification:                 z.boolean().optional(),
+  consentToParticipantLinkingControls:   z.boolean().optional(),
+  consentToInvoiceRoutingRules:          z.boolean().optional(),
+  docsAcknowledged:                      z.boolean().optional(),
 });
 
-export const planManagerProfileSchema = planManagerProfileBaseSchema.superRefine((data, ctx) => {
+export const planManagerProfileSchema = planManagerProfileBaseSchema.strict().superRefine((data, ctx) => {
   if (data.ndisRegistrationStatus === "REGISTERED") {
     if (!data.ndisProviderNumber) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ndisProviderNumber"], message: "NDIS provider number is required when registered" });
     if (!data.registrationExpiryDate) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["registrationExpiryDate"], message: "Registration expiry date is required when registered" });

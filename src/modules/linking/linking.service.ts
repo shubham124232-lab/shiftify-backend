@@ -6,19 +6,20 @@
 //   • Starts as PENDING (Admin can bulk-approve; avoids bypassing review).
 //   • Holds exactly one role (SUPPORT_WORKER or PARTICIPANT).
 
+import { randomBytes } from "crypto";
 import { prisma } from "../../lib/prisma";
 import { hashPassword } from "../../lib/hash";
-import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../../lib/errors";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError, BadRequestError } from "../../lib/errors";
 import * as profileService from "../profiles/profile.service";
 import * as documentService from "../documents/document.service";
+import { REQUIRED_DOCS_BY_ROLE } from "../../middleware/marketplace.middleware";
+import { notify } from "../../lib/notify";
 import type { WorkerProfileInput } from "../../validators/profile-worker.schema";
 import type { ParticipantProfileInput } from "../../validators/profile-participant.schema";
 import type { UploadDocumentInput } from "../../validators/document.schema";
 import type { UserRole, UserStatus } from "@prisma/client";
 
-// Mandatory pieces of a managed worker's onboarding — mirrors the self-registration
-// requirements. A DRAFT worker can only be activated once all of these are present.
-const REQUIRED_WORKER_DOCS = ["POLICE_CHECK", "NDIS_SCREENING", "WWCC", "FIRST_AID"] as const;
+const INTERNAL_USERNAME_PREFIX = "managed-";
 
 export interface ManagedAccountResult {
   id: string;
@@ -115,7 +116,7 @@ async function checkWorkerOnboarding(workerId: string): Promise<WorkerOnboarding
   if (wp?.travelRadiusKm == null) missing.push("Travel radius");
 
   const uploadedTypes = new Set(worker.documents.map((d) => d.docType));
-  for (const docType of REQUIRED_WORKER_DOCS) {
+  for (const docType of REQUIRED_DOCS_BY_ROLE.SUPPORT_WORKER ?? []) {
     if (!uploadedTypes.has(docType)) missing.push(`${docType.replace(/_/g, " ")} document`);
   }
 
@@ -175,13 +176,84 @@ export async function activateWorker(input: {
 }
 
 // POST /linking/participants — Coordinator creates a MANAGED PARTICIPANT.
+// Records the coordinator's declared authority (SC-N01-N04) on the new
+// participant's profile at creation time.
 export async function createParticipant(input: {
   parentUserId: string;
-  username: string;
-  password: string;
+  username?: string;
+  password?: string;
   name: string;
+  preferredName: string;
+  ageGroup: string;
+  suburb: string;
+  postcode: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  participantType: string;
+  authorisingPersonName?: string;
+  authorisingPersonRelationship?: string;
+  authorisingPersonNote?: string;
 }): Promise<ManagedAccountResult> {
-  return createManagedAccount({ ...input, role: "PARTICIPANT" });
+  // No credentials supplied (SC-N01–N04 collect none): use an internal identifier
+  // and an unguessable password nobody is told, so no usable login exists yet.
+  const suffix = randomBytes(6).toString("hex");
+  const result = await createManagedAccount({
+    parentUserId: input.parentUserId,
+    username: input.username ?? `${INTERNAL_USERNAME_PREFIX}${suffix}`,
+    password: input.password ?? randomBytes(24).toString("base64url"),
+    name: input.name,
+    role: "PARTICIPANT",
+  });
+  await prisma.participantProfile.create({
+    data: {
+      userId: result.id,
+      preferredName: input.preferredName,
+      ageGroup: input.ageGroup,
+      suburb: input.suburb,
+      postcode: input.postcode,
+      contactEmail: input.contactEmail,
+      contactPhone: input.contactPhone,
+      participantType: input.participantType,
+      authorisingPersonName: input.authorisingPersonName,
+      authorisingPersonRelationship: input.authorisingPersonRelationship,
+      authorisingPersonNote: input.authorisingPersonNote,
+      authorityConfirmedAt: new Date(),
+      authorityConfirmedByUserId: input.parentUserId,
+      infoAccuracyConfirmedAt: new Date(),
+    },
+  });
+  return result;
+}
+
+// POST /linking/participants/:id/invite — SC-N04 "Send invitation now."
+// MANAGED accounts have no email/phone of their own (username+password only),
+// so this sends to the ParticipantProfile's optional contactEmail/contactPhone
+// (SC-N01) — a login shortcut with the username the coordinator set, not a
+// token-based claim link (magic-link auth was retired platform-wide).
+export async function sendParticipantInvitation(input: {
+  parentUserId: string;
+  participantId: string;
+  method: "EMAIL" | "SMS";
+}): Promise<{ sentTo: string }> {
+  await assertManagedChild(input.parentUserId, input.participantId, "PARTICIPANT");
+  const [user, profile] = await Promise.all([
+    prisma.user.findUnique({ where: { id: input.participantId } }),
+    prisma.participantProfile.findUnique({ where: { userId: input.participantId } }),
+  ]);
+  if (!user) throw new NotFoundError("Managed account not found");
+
+  const body = user.username?.startsWith(INTERNAL_USERNAME_PREFIX)
+    ? "You've been added to Shiftify by your Support Coordinator, who will arrange access with you."
+    : `You've been added to Shiftify. Log in with username "${user.username}" and the password you were given.`;
+
+  if (input.method === "EMAIL") {
+    if (!profile?.contactEmail) throw new BadRequestError("No contact email is on file for this participant.");
+    await notify.sendEmail(profile.contactEmail, "You've been added to Shiftify", body);
+    return { sentTo: profile.contactEmail };
+  }
+  if (!profile?.contactPhone) throw new BadRequestError("No contact phone is on file for this participant.");
+  await notify.sendSms(profile.contactPhone, body);
+  return { sentTo: profile.contactPhone };
 }
 
 // GET /linking/workers — list MANAGED SUPPORT_WORKERs created by this Provider.
@@ -284,6 +356,16 @@ export async function upsertManagedParticipantProfile(input: {
   return profileService.upsertParticipantProfile(input.participantId, input.data);
 }
 
+// GET /linking/participants/:id/profile — Coordinator reads a managed participant's
+// profile (used to prefill a job posting made on the participant's behalf).
+export async function getManagedParticipantProfile(input: {
+  parentUserId: string;
+  participantId: string;
+}) {
+  await assertManagedChild(input.parentUserId, input.participantId, "PARTICIPANT");
+  return profileService.getParticipantProfile(input.participantId);
+}
+
 // Generic unlink. Called by the two public wrappers below.
 // Does NOT delete — sets parentUserId null + SUSPENDED so data is kept.
 async function unlinkManagedAccount(input: {
@@ -348,6 +430,50 @@ export async function unlinkParticipant(input: {
     targetId: input.participantId,
     expectedRole: "PARTICIPANT",
     auditAdminId: input.callerId,
+  });
+}
+
+// POST /linking/participants/:id/transfer — move a managed participant to
+// another Coordinator. Gated by ENABLE_MANAGED_TRANSFER in the controller.
+// Past jobs keep their original postedBy (old Coordinator).
+export async function transferParticipant(input: {
+  callerId: string;
+  callerIsAdmin: boolean;
+  participantId: string;
+  newCoordinatorUserId: string;
+}): Promise<void> {
+  const target = await prisma.user.findUnique({
+    where: { id: input.participantId },
+    include: { roles: { select: { role: true } } },
+  });
+  if (
+    !target ||
+    target.accountType !== "MANAGED" ||
+    !target.roles.some((r) => r.role === "PARTICIPANT")
+  ) {
+    throw new NotFoundError("Managed account not found");
+  }
+  if (!input.callerIsAdmin && target.parentUserId !== input.callerId) {
+    throw new ForbiddenError("You are not the parent of this account");
+  }
+  if (target.parentUserId === input.newCoordinatorUserId) {
+    throw new BadRequestError("Participant already belongs to that coordinator");
+  }
+  const newParent = await prisma.user.findUnique({
+    where: { id: input.newCoordinatorUserId },
+    include: { roles: { select: { role: true } } },
+  });
+  if (
+    !newParent ||
+    newParent.accountType === "MANAGED" ||
+    newParent.status !== "ACTIVE" ||
+    !newParent.roles.some((r) => r.role === "COORDINATOR")
+  ) {
+    throw new NotFoundError("Coordinator not found");
+  }
+  await prisma.user.update({
+    where: { id: input.participantId },
+    data: { parentUserId: input.newCoordinatorUserId },
   });
 }
 

@@ -7,14 +7,14 @@ import { phoneRequired } from "./shared";
 export const loginSchema = z.object({
   identifier: z.string().min(1, "Enter your email, phone, or username"),
   password: z.string().min(1),
-});
+}).strict();
 export type LoginInput = z.infer<typeof loginSchema>;
 
 // Login step 2 — submit the OTP received after credential check.
 export const loginVerifySchema = z.object({
   pendingToken: z.string().min(1),
   code: z.string().length(6, "Enter the 6-digit code"),
-});
+}).strict();
 export type LoginVerifyInput = z.infer<typeof loginVerifySchema>;
 
 // Self-registration. Pick ONE initial role; more can be added later via /auth/roles.
@@ -31,11 +31,11 @@ export const baseRegisterSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters"),
   name: z.string().min(1).max(120),
   role: z.enum(USER_ROLES),
-});
+}).strict();
 export type BaseRegisterInput = z.infer<typeof baseRegisterSchema>;
 
 // Add a role to the current account (self-service — ADMIN not grantable here).
-export const addRoleSchema = z.object({ role: z.enum(USER_ROLES) });
+export const addRoleSchema = z.object({ role: z.enum(USER_ROLES) }).strict();
 export type AddRoleInput = z.infer<typeof addRoleSchema>;
 
 // Switch active role. `password` only needed when switching into a managed/separate
@@ -43,9 +43,9 @@ export type AddRoleInput = z.infer<typeof addRoleSchema>;
 export const switchRoleSchema = z.object({
   role: z.enum(ALL_USER_ROLES),
   password: z.string().optional(),
-});
+}).strict();
 export type SwitchRoleInput = z.infer<typeof switchRoleSchema>;
 
 export const refreshSchema = z.object({
   refreshToken: z.string().min(1).optional(), // also read from the cookie
-});
+}).strict();

@@ -34,3 +34,30 @@ export async function markAllRead(userId: string): Promise<void> {
     data: { read: true },
   });
 }
+
+const DEFAULT_PREFERENCE = {
+  pushEnabled: true, emailEnabled: true, smsEnabled: true,
+  jobUpdates: true, messages: true, connectionsAndInvites: true, marketingTips: true,
+};
+
+// SW doc Window 46 — no row means "everything on" (the app's default), so this
+// returns synthetic defaults rather than 404ing for users who never touched it.
+export async function getNotificationPreference(userId: string) {
+  const pref = await prisma.notificationPreference.findUnique({ where: { userId } });
+  return pref ?? { userId, ...DEFAULT_PREFERENCE };
+}
+
+export async function updateNotificationPreference(
+  userId: string,
+  data: Partial<typeof DEFAULT_PREFERENCE> & { providerPrefs?: Record<string, unknown> },
+) {
+  const { providerPrefs, ...flags } = data;
+  // providerPrefs merges into what is stored so a partial update never wipes the other controls.
+  const current = providerPrefs ? (await prisma.notificationPreference.findUnique({ where: { userId }, select: { providerPrefs: true } }))?.providerPrefs : null;
+  const merged = providerPrefs ? { ...((current as Record<string, unknown> | null) ?? {}), ...providerPrefs } : undefined;
+  return prisma.notificationPreference.upsert({
+    where:  { userId },
+    create: { userId, ...DEFAULT_PREFERENCE, ...flags, ...(merged ? { providerPrefs: merged as object } : {}) },
+    update: { ...flags, ...(merged ? { providerPrefs: merged as object } : {}) },
+  });
+}

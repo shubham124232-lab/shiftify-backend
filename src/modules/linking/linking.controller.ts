@@ -1,11 +1,11 @@
 import type { Request, Response } from "express";
-import { createWorkerSchema, createParticipantSchema } from "../../validators/linking.schema";
+import { createWorkerSchema, createParticipantSchema, sendParticipantInvitationSchema, transferParticipantSchema } from "../../validators/linking.schema";
 import { workerProfileSchema } from "../../validators/profile-worker.schema";
 import { participantProfileSchema } from "../../validators/profile-participant.schema";
 import { uploadDocumentSchema } from "../../validators/document.schema";
 import * as linkingService from "./linking.service";
 import { success } from "../../utils/response";
-import { UnauthorizedError, BadRequestError, ValidationError } from "../../lib/errors";
+import { UnauthorizedError, BadRequestError, ValidationError, NotFoundError } from "../../lib/errors";
 
 function parseOrThrow<T>(schema: { safeParse: (v: unknown) => { success: boolean; data?: T; error?: { errors: { path: (string | number)[]; message: string }[] } } }, body: unknown): T {
   const result = schema.safeParse(body);
@@ -113,6 +113,17 @@ export async function upsertParticipantProfile(req: Request, res: Response): Pro
   success(res, { profile });
 }
 
+// GET /linking/participants/:id/profile — Coordinator reads a managed participant's
+// profile (used to prefill a job posted on the participant's behalf).
+export async function getParticipantProfile(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const profile = await linkingService.getManagedParticipantProfile({
+    parentUserId:  req.user.id,
+    participantId: req.params.id,
+  });
+  success(res, { profile });
+}
+
 // GET /linking/workers — Provider lists their managed workers.
 export async function listWorkers(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
@@ -129,8 +140,30 @@ export async function createParticipant(req: Request, res: Response): Promise<vo
     username: body.username,
     password: body.password,
     name: body.name,
+    preferredName: body.preferredName,
+    ageGroup: body.ageGroup,
+    suburb: body.suburb,
+    postcode: body.postcode,
+    contactEmail: body.contactEmail,
+    contactPhone: body.contactPhone,
+    participantType: body.participantType,
+    authorisingPersonName: body.authorisingPersonName,
+    authorisingPersonRelationship: body.authorisingPersonRelationship,
+    authorisingPersonNote: body.authorisingPersonNote,
   });
   success(res, { user: participant }, 201);
+}
+
+// POST /linking/participants/:id/invite — SC-N04 "Send invitation now."
+export async function sendParticipantInvitation(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const body = sendParticipantInvitationSchema.parse(req.body);
+  const result = await linkingService.sendParticipantInvitation({
+    parentUserId: req.user.id,
+    participantId: req.params.id,
+    method: body.method,
+  });
+  success(res, result);
 }
 
 // GET /linking/participants — Coordinator lists their managed participants.
@@ -152,6 +185,21 @@ export async function unlinkWorker(req: Request, res: Response): Promise<void> {
 }
 
 // DELETE /linking/participants/:id — Coordinator (or admin) unlinks a managed participant.
+export async function transferParticipant(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  if (process.env.ENABLE_MANAGED_TRANSFER !== "true") {
+    throw new NotFoundError("Not found");
+  }
+  const body = parseOrThrow(transferParticipantSchema, req.body);
+  await linkingService.transferParticipant({
+    callerId: req.user.id,
+    callerIsAdmin: req.activeRole === "ADMIN",
+    participantId: req.params.id,
+    newCoordinatorUserId: body.newCoordinatorUserId,
+  });
+  success(res, { ok: true });
+}
+
 export async function unlinkParticipant(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   await linkingService.unlinkParticipant({

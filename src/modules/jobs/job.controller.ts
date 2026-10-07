@@ -1,33 +1,36 @@
 import type { Request, Response } from "express";
-import { UnauthorizedError, ValidationError } from "../../lib/errors";
+import { UnauthorizedError } from "../../lib/errors";
 import { success } from "../../utils/response";
+import { parse } from "../../utils/validate";
 import * as svc from "./job.service";
 import {
   createJobSchema,
   publishJobSchema,
   jobFiltersSchema,
+  liveDashboardFiltersSchema,
   applyJobSchema,
   cancelJobSchema,
+  createReplacementSchema,
   assignWorkerSchema,
   sendMessageSchema,
   createInvoiceSchema,
+  proposeMeetAndGreetSchema,
+  respondMeetAndGreetSchema,
+  createChangeRequestSchema,
+  respondChangeRequestSchema,
+  closeConnectionSchema,
+  extendJobSchema,
+  notifyRunningLateSchema,
+  saveWorkerNoteSchema,
+  bookmarkJobSchema,
+  updateDraftJobSchema,
+  archiveThreadSchema,
 } from "../../validators/job.schema";
 import type { UserRole } from "@prisma/client";
 
 function role(req: Request): UserRole {
   if (!req.activeRole) throw new UnauthorizedError("No active role");
   return req.activeRole;
-}
-
-function parse<T>(schema: { safeParse(v: unknown): { success: boolean; data?: T; error?: { errors: { path: (string|number)[]; message: string }[] } } }, body: unknown): T {
-  const r = schema.safeParse(body);
-  if (!r.success) {
-    throw new ValidationError(
-      r.error!.errors[0]?.message ?? "Invalid input",
-      r.error!.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
-    );
-  }
-  return r.data!;
 }
 
 // POST /jobs
@@ -43,6 +46,14 @@ export async function listJobs(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const filters = parse(jobFiltersSchema, req.query);
   const result  = await svc.listJobs(req.user.id, role(req), filters);
+  success(res, result);
+}
+
+// GET /jobs/live-dashboard
+export async function listLiveDashboardJobs(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const filters = parse(liveDashboardFiltersSchema, req.query);
+  const result  = await svc.listLiveDashboardJobs(req.user.id, role(req), filters);
   success(res, result);
 }
 
@@ -65,14 +76,37 @@ export async function getJob(req: Request, res: Response): Promise<void> {
 export async function cancelJob(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const data = parse(cancelJobSchema, req.body);
-  const job  = await svc.cancelJob(req.params.id, req.user.id, data);
+  const job  = await svc.cancelJob(req.params.id, req.user.id, role(req), data);
+  success(res, { job });
+}
+
+// POST /jobs/:id/replacement — SC-04-05 manual "Find Replacement"
+export async function createReplacementRequest(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(createReplacementSchema, req.body);
+  const job  = await svc.createReplacementRequest(req.params.id, req.user.id, role(req), data);
+  success(res, { job }, 201);
+}
+
+// POST /jobs/:id/duplicate — participant portfolio "Repeat previous request"
+export async function duplicateJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const job = await svc.duplicateJob(req.params.id, req.user.id);
+  success(res, { job }, 201);
+}
+
+// PATCH /jobs/:id — SC-PT05 "Repeat support" edit, DRAFT-only
+export async function updateDraftJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(updateDraftJobSchema, req.body);
+  const job = await svc.updateDraftJob(req.params.id, req.user.id, data);
   success(res, { job });
 }
 
 // PATCH /jobs/:id/publish
 export async function publishJob(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
-  const job = await svc.publishJob(req.params.id, req.user.id);
+  const job = await svc.publishJob(req.params.id, req.user.id, role(req));
   success(res, { job });
 }
 
@@ -81,6 +115,13 @@ export async function assignWorker(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const data = parse(assignWorkerSchema, req.body);
   const job  = await svc.assignWorker(req.params.id, req.user.id, data);
+  success(res, { job });
+}
+
+// PATCH /jobs/:id/confirm-assignment
+export async function confirmAssignment(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const job = await svc.confirmAssignment(req.params.id, req.user.id);
   success(res, { job });
 }
 
@@ -127,6 +168,13 @@ export async function selectApplicant(req: Request, res: Response): Promise<void
   success(res, { job });
 }
 
+// POST /jobs/:id/featured-shift
+export async function purchaseFeaturedShift(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const purchase = await svc.purchaseFeaturedShift(req.params.id, req.user.id);
+  success(res, { purchase });
+}
+
 // PATCH /jobs/:id/applications/:appId/shortlist
 export async function shortlistApplicant(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
@@ -137,7 +185,16 @@ export async function shortlistApplicant(req: Request, res: Response): Promise<v
 // PATCH /jobs/:id/applications/:appId/decline
 export async function declineApplicant(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
-  const app = await svc.declineApplicant(req.params.id, req.params.appId, req.user.id);
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 500) : undefined;
+  const app = await svc.declineApplicant(req.params.id, req.params.appId, req.user.id, reason || undefined);
+  success(res, { application: app });
+}
+
+// PATCH /jobs/:id/applications/:appId/note — poster-private shortlist note
+export async function setApplicationNote(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const note = typeof req.body?.note === "string" ? req.body.note.slice(0, 1000) : "";
+  const app = await svc.setApplicationNote(req.params.id, req.params.appId, req.user.id, note);
   success(res, { application: app });
 }
 
@@ -146,6 +203,91 @@ export async function withdrawApplication(req: Request, res: Response): Promise<
   if (!req.user) throw new UnauthorizedError();
   const app = await svc.withdrawApplication(req.params.id, req.user.id);
   success(res, { application: app });
+}
+
+// PATCH /jobs/:id/close-connection
+export async function closeConnection(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(closeConnectionSchema, req.body);
+  const job  = await svc.closeConnection(req.params.id, req.user.id, data);
+  success(res, { job });
+}
+
+// PATCH /jobs/:id/save
+export async function bookmarkJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(bookmarkJobSchema, req.body);
+  const bookmark = await svc.bookmarkJob(req.params.id, req.user.id, data);
+  success(res, { bookmark });
+}
+
+// DELETE /jobs/:id/save
+export async function removeBookmark(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const result = await svc.removeBookmark(req.params.id, req.user.id);
+  success(res, result);
+}
+
+// PATCH /jobs/:id/running-late
+export async function notifyRunningLate(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(notifyRunningLateSchema, req.body);
+  const job  = await svc.notifyRunningLate(req.params.id, req.user.id, data);
+  success(res, { job });
+}
+
+// PATCH /jobs/:id/worker-note
+export async function saveWorkerNote(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(saveWorkerNoteSchema, req.body);
+  const job  = await svc.saveWorkerNote(req.params.id, req.user.id, data);
+  success(res, { job });
+}
+
+// PATCH /jobs/:id/decline-assignment
+export async function declineAssignment(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const job = await svc.declineAssignment(req.params.id, req.user.id);
+  success(res, { job });
+}
+
+// GET /jobs/connections/mine — SW doc Window 27 "My Connections"
+export async function listMyConnections(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const tabs = await svc.listMyConnections(req.user.id);
+  success(res, tabs);
+}
+
+// POST /jobs/:id/meet-and-greet
+export async function proposeMeetAndGreet(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(proposeMeetAndGreetSchema, req.body);
+  const mag  = await svc.proposeMeetAndGreet(req.params.id, req.user.id, data);
+  success(res, { meetAndGreet: mag }, 201);
+}
+
+// PATCH /jobs/meet-and-greet/:magId/respond
+export async function respondToMeetAndGreet(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(respondMeetAndGreetSchema, req.body);
+  const mag  = await svc.respondToMeetAndGreet(req.params.magId, req.user.id, data);
+  success(res, { meetAndGreet: mag });
+}
+
+// POST /jobs/:id/change-request
+export async function requestJobChange(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(createChangeRequestSchema, req.body);
+  const cr   = await svc.requestJobChange(req.params.id, req.user.id, data);
+  success(res, { changeRequest: cr }, 201);
+}
+
+// PATCH /jobs/change-request/:changeRequestId/respond
+export async function respondToJobChange(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(respondChangeRequestSchema, req.body);
+  const cr   = await svc.respondToJobChange(req.params.changeRequestId, req.user.id, data);
+  success(res, { changeRequest: cr });
 }
 
 // POST /jobs/:id/messages
@@ -163,6 +305,36 @@ export async function getMessages(req: Request, res: Response): Promise<void> {
   success(res, { messages: msgs });
 }
 
+// GET /jobs/messages/threads
+export async function listMessageThreads(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const includeArchived = req.query.includeArchived === "true";
+  const result = await svc.listMessageThreads(req.user.id, role(req), includeArchived);
+  success(res, result);
+}
+
+// PATCH /jobs/:id/messages/read
+export async function markThreadRead(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const threadState = await svc.markThreadRead(req.params.id, req.user.id);
+  success(res, { threadState });
+}
+
+// PATCH /jobs/:id/messages/archive
+export async function archiveThread(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(archiveThreadSchema, req.body);
+  const threadState = await svc.archiveThread(req.params.id, req.user.id, data.archived);
+  success(res, { threadState });
+}
+
+// GET /jobs/:id/invoice-recipients
+export async function getInvoiceRecipients(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const result = await svc.getInvoiceRecipients(req.params.id, req.user.id, role(req));
+  success(res, result);
+}
+
 // POST /jobs/:id/invoice
 export async function createInvoice(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
@@ -176,4 +348,29 @@ export async function listInvoices(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const invoices = await svc.listInvoices(req.user.id, role(req));
   success(res, { invoices });
+}
+
+// PATCH /jobs/:id/pause
+export async function pauseJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, { job: await svc.pauseJob(req.params.id, req.user.id) });
+}
+
+// PATCH /jobs/:id/resume
+export async function resumeJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, { job: await svc.resumeJob(req.params.id, req.user.id) });
+}
+
+// PATCH /jobs/:id/extend
+export async function extendJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(extendJobSchema, req.body);
+  success(res, { job: await svc.extendJob(req.params.id, req.user.id, data) });
+}
+
+// POST /jobs/:id/rebroadcast
+export async function rebroadcastJob(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, await svc.rebroadcastJob(req.params.id, req.user.id));
 }

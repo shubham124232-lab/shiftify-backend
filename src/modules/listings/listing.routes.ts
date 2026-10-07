@@ -9,5 +9,11 @@ const router = Router();
 // Provider-only: post + list own listings (Web posts to /provider/listings).
 router.post("/", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.createListing));
 router.get("/",  requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.listMyListings));
+router.patch("/:id", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.updateListing));
+router.get("/:id/featured-preview", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.previewFeaturedListing));
+router.post("/:id/featured", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.purchaseFeaturedListing));
+
+router.post("/platinum-tile", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.purchasePlatinumTile));
+router.get ("/platinum-tile", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.listPlatinumTileCampaigns));
 
 export default router;
