@@ -19,7 +19,7 @@ import type {
 
 const INCLUDE = {
   coordinator: { select: { id: true, name: true } },
-  participant: { select: { id: true, name: true } },
+  participant: { select: { id: true, name: true, defaultSuburb: true, defaultState: true } },
 } as const;
 
 // ─── Either side sends a connection request ───────────────────────────────────

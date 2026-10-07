@@ -268,6 +268,30 @@ async function coordinatorDashboard(userId: string) {
     prisma.notification.count({ where: { userId, read: false } }),
   ]);
 
+  // SC-D03 / SC-D05 — connected participants, new responses, confirmed support, and the latest responses.
+  const [connectedParticipants, newResponses, confirmedSupport, recentResponseRows] = await Promise.all([
+    prisma.coordinatorParticipantConnection.count({ where: { coordinatorUserId: userId, status: "ACCEPTED" } }),
+    prisma.jobApplication.count({ where: { job: { postedByUserId: userId, status: "OPEN" }, status: "INTERESTED" } }),
+    prisma.supportRequest.count({ where: { postedByUserId: userId, status: "CONFIRMED" } }),
+    prisma.jobApplication.findMany({
+      where: { job: { postedByUserId: userId, status: { in: ["OPEN", "ASSIGNED"] } }, status: { in: ["INTERESTED", "SHORTLISTED"] } },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: {
+        id: true, jobId: true, status: true, proposedRate: true, introduction: true, createdAt: true,
+        job: { select: { title: true } },
+        applicant: { select: { id: true, name: true, avatarUrl: true, roles: { select: { role: true } } } },
+      },
+    }),
+  ]);
+  const recentResponses = recentResponseRows.map((a) => ({
+    id: a.id, jobId: a.jobId, jobTitle: a.job.title, status: a.status,
+    proposedRate: a.proposedRate != null ? Number(a.proposedRate) : null,
+    message: a.introduction ?? null, createdAt: a.createdAt,
+    applicant: { id: a.applicant.id, name: a.applicant.name, avatarUrl: a.applicant.avatarUrl },
+    applicantType: a.applicant.roles.some((r) => r.role === "PROVIDER") ? "Provider" : "Support worker",
+  }));
+
   const [draftCount, urgentCount, unfilledCount] = await Promise.all([
     prisma.supportRequest.count({ where: { postedByUserId: userId, status: "DRAFT" } }),
     prisma.supportRequest.count({ where: { postedByUserId: userId, urgency: "RAPID", status: "OPEN" } }),
@@ -284,8 +308,12 @@ async function coordinatorDashboard(userId: string) {
       upcomingShifts:       upcomingCount,
       awaitingConfirmation: awaitingCount,
       managedParticipants:  managedParticipantCount,
+      connectedParticipants,
+      newResponses,
+      confirmedSupport,
       unreadMessages,
     },
+    recentResponses,
     openJobs,
     upcomingShifts,
     awaitingConfirmation,

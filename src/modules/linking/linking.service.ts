@@ -29,6 +29,8 @@ export interface ManagedAccountResult {
   status: string;
   roles: UserRole[];
   parentUserId: string;
+  suburb?: string | null;
+  state?: string | null;
 }
 
 // Generic creator. Called by the two public wrappers below.
@@ -257,7 +259,14 @@ export async function sendParticipantInvitation(input: {
 }
 
 // GET /linking/workers — list MANAGED SUPPORT_WORKERs created by this Provider.
-export async function listWorkers(parentUserId: string): Promise<ManagedAccountResult[]> {
+// PR-W01 — the workforce overview also shows compliance status/expiry, Available Now and the roster.
+export type ManagedWorkerOverview = ManagedAccountResult & {
+  availableNow: boolean;
+  compliance: { documents: number; expired: number; expiringSoon: number; nextExpiry: string | null };
+  upcomingAssignments: number;
+};
+
+export async function listWorkers(parentUserId: string): Promise<ManagedWorkerOverview[]> {
   const users = await prisma.user.findMany({
     where: {
       parentUserId,
@@ -267,16 +276,41 @@ export async function listWorkers(parentUserId: string): Promise<ManagedAccountR
     include: { roles: { select: { role: true } } },
     orderBy: { createdAt: "asc" },
   });
+  const ids = users.map((u) => u.id);
+  const now = new Date();
+  const soon = new Date(now.getTime() + 30 * 24 * 3600e3);
+  const [profiles, docs, upcoming] = await Promise.all([
+    prisma.workerProfile.findMany({ where: { userId: { in: ids } }, select: { userId: true, isAvailableNow: true } }),
+    prisma.document.findMany({ where: { userId: { in: ids } }, select: { userId: true, expiryDate: true } }),
+    prisma.supportRequest.groupBy({
+      by: ["assignedWorkerUserId"],
+      where: { assignedWorkerUserId: { in: ids }, status: { in: ["ASSIGNED", "IN_PROGRESS"] }, scheduledStartAt: { gte: now } },
+      _count: true,
+    }),
+  ]);
 
-  return users.map((u) => ({
-    id: u.id,
-    username: u.username!,
-    name: u.name,
-    accountType: u.accountType,
-    status: u.status,
-    roles: u.roles.map((r) => r.role),
-    parentUserId: u.parentUserId!,
-  }));
+  return users.map((u) => {
+    const mine = docs.filter((d) => d.userId === u.id);
+    const dated = mine.filter((d) => d.expiryDate).map((d) => d.expiryDate as Date).sort((a, b) => a.getTime() - b.getTime());
+    const nextExpiry = dated.find((d) => d >= now) ?? null;
+    return {
+      id: u.id,
+      username: u.username!,
+      name: u.name,
+      accountType: u.accountType,
+      status: u.status,
+      roles: u.roles.map((r) => r.role),
+      parentUserId: u.parentUserId!,
+      availableNow: profiles.find((p) => p.userId === u.id)?.isAvailableNow ?? false,
+      compliance: {
+        documents: mine.length,
+        expired: dated.filter((d) => d < now).length,
+        expiringSoon: dated.filter((d) => d >= now && d <= soon).length,
+        nextExpiry: nextExpiry ? nextExpiry.toISOString() : null,
+      },
+      upcomingAssignments: upcoming.find((x) => x.assignedWorkerUserId === u.id)?._count ?? 0,
+    };
+  });
 }
 
 // ── Parent-managed onboarding ──────────────────────────────────────────────
@@ -497,5 +531,7 @@ export async function listParticipants(parentUserId: string): Promise<ManagedAcc
     status: u.status,
     roles: u.roles.map((r) => r.role),
     parentUserId: u.parentUserId!,
+    suburb: u.defaultSuburb,
+    state: u.defaultState,
   }));
 }
