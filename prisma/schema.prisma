@@ -257,6 +257,7 @@ enum NotificationType {
   JOB_APPLICATION_VIEWED
   REQUEST_SCHEDULE_RESULT
   PROVIDER_JOIN_REQUEST
+  TEAM_AVAILABILITY_REQUEST
 }
 
 enum SubscriptionStatus {
@@ -2091,6 +2092,7 @@ model ProviderListing {
   serviceCategories   Json? // String[] — every service with current capacity
   daysAvailable       Json? // String[] — MON..SUN
   responseExpectation String? // e.g. SAME_DAY | WITHIN_48_HOURS | WITHIN_A_WEEK
+  openSlots           Int? // places currently open on a SERVICE listing (Provider demo "Update capacity")
 
   // HOUSING vacancies (sil-vacancy form)
   vacancyCategory String? // SIL | SDA | SIL_SDA | RESPITE | MEDIUM_TERM | SHORT_TERM | OTHER
@@ -2145,6 +2147,12 @@ model ProviderBranch {
   provider       User     @relation("ProviderBranches", fields: [providerUserId], references: [id], onDelete: Cascade)
   name           String
   createdAt      DateTime @default(now())
+  // Provider demo (2026-10-09) Branch workspace details. managerUserId is the owner or an Administrator's user.
+  region         String?
+  timezone       String?
+  managerUserId  String?
+  serviceLines   String[] @default([])
+  isActive       Boolean  @default(true)
 
   administrators ProviderAdministrator[]
   teamMembers    ProviderTeamMember[]
@@ -2165,6 +2173,9 @@ model ProviderAdministrator {
   user           User             @relation("ProviderAdminPerson", fields: [userId], references: [id], onDelete: Cascade)
   branches       ProviderBranch[]
   createdAt      DateTime         @default(now())
+  // Labels only for now — presets are shown and stored but not yet enforced.
+  rolePreset     String           @default("ADMINISTRATOR") // ADMINISTRATOR | BRANCH_MANAGER | INTAKE | WORKFORCE | READ_ONLY
+  status         String           @default("ACTIVE") // ACTIVE | INACTIVE
 
   @@unique([providerUserId, userId])
   @@index([providerUserId])
@@ -2257,4 +2268,40 @@ model PlatinumTileCampaign {
 
   @@index([providerUserId])
   @@index([coverage])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Provider Team Availability (Provider demo 2026-10-09): an internal "are you free?" request sent to
+// the organisation's own people for a shift. Managed workers reply themselves; roster (mobile-only)
+// members cannot log in, so the Provider records their answer.
+// ───────────────────────────────────────────────────────────────────────────
+
+model TeamAvailabilityRequest {
+  id             String   @id @default(uuid())
+  providerUserId String
+  jobId          String?
+  title          String
+  startsAt       DateTime?
+  endsAt         DateTime?
+  message        String?
+  createdAt      DateTime @default(now())
+
+  replies TeamAvailabilityReply[]
+
+  @@index([providerUserId, createdAt])
+}
+
+model TeamAvailabilityReply {
+  id           String   @id @default(uuid())
+  requestId    String
+  request      TeamAvailabilityRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  memberType   String // MANAGED | ROSTER
+  memberUserId String? // managed worker's login user
+  teamMemberId String? // roster member
+  memberName   String
+  status       String   @default("PENDING") // PENDING | AVAILABLE | UNAVAILABLE
+  respondedAt  DateTime?
+
+  @@index([requestId])
+  @@index([memberUserId, status])
 }

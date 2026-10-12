@@ -13,8 +13,11 @@ import { devCodesEnabled } from "../../config/env";
 import { getActiveProviderOrgCaps } from "../subscriptions/subscription.service";
 import type {
   CreateBranchInput,
+  UpdateBranchInput,
   CreateAdministratorInput,
+  UpdateAdministratorInput,
   CreateTeamMemberInput,
+  UpdateTeamMemberInput,
   ConfirmTeamMemberVerificationInput,
 } from "../../validators/provider-org.schema";
 
@@ -61,15 +64,67 @@ export async function createBranch(providerUserId: string, input: CreateBranchIn
       );
     }
   }
-  return prisma.providerBranch.create({ data: { providerUserId, name: input.name } });
+  await assertManager(providerUserId, input.managerUserId);
+  return prisma.providerBranch.create({
+    data: {
+      providerUserId,
+      name: input.name,
+      region: input.region ?? null,
+      timezone: input.timezone ?? null,
+      managerUserId: input.managerUserId ?? null,
+      serviceLines: input.serviceLines ?? [],
+    },
+  });
+}
+
+// A Branch manager is the organisation owner or one of its Administrators.
+async function assertManager(providerUserId: string, managerUserId: string | null | undefined) {
+  if (!managerUserId || managerUserId === providerUserId) return;
+  const admin = await prisma.providerAdministrator.findUnique({
+    where: { providerUserId_userId: { providerUserId, userId: managerUserId } },
+  });
+  if (!admin) throw new BadRequestError("The Branch manager must be the owner or one of your Administrators.");
+}
+
+async function managerNames(providerUserId: string, userIds: (string | null)[]) {
+  const ids = [...new Set(userIds.filter((x): x is string => !!x))];
+  const users = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
+  return new Map(users.map((u) => [u.id, u.name]));
 }
 
 export async function listBranches(providerUserId: string) {
-  return prisma.providerBranch.findMany({
+  const branches = await prisma.providerBranch.findMany({
     where: { providerUserId },
     orderBy: { createdAt: "asc" },
     include: { _count: { select: { administrators: true, teamMembers: true } } },
   });
+  const names = await managerNames(providerUserId, branches.map((b) => b.managerUserId));
+  return branches.map((b) => ({ ...b, managerName: b.managerUserId ? names.get(b.managerUserId) ?? null : null }));
+}
+
+// One Branch with its people — the "Open workspace" view.
+export async function getBranch(providerUserId: string, branchId: string) {
+  const branch = await prisma.providerBranch.findUnique({
+    where: { id: branchId },
+    include: {
+      administrators: { include: { user: { select: { id: true, name: true, email: true } } } },
+      teamMembers: {
+        where: { removedAt: null },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, name: true, mobile: true, skills: true, inviteStatus: true, locations: true, relationshipType: true },
+      },
+    },
+  });
+  if (!branch || branch.providerUserId !== providerUserId) throw new NotFoundError("Branch not found");
+  const names = await managerNames(providerUserId, [branch.managerUserId]);
+  return { ...branch, managerName: branch.managerUserId ? names.get(branch.managerUserId) ?? null : null };
+}
+
+export async function updateBranch(providerUserId: string, branchId: string, input: UpdateBranchInput) {
+  const branch = await prisma.providerBranch.findUnique({ where: { id: branchId } });
+  if (!branch || branch.providerUserId !== providerUserId) throw new NotFoundError("Branch not found");
+  if (input.managerUserId !== undefined) await assertManager(providerUserId, input.managerUserId);
+  return prisma.providerBranch.update({ where: { id: branchId }, data: input });
 }
 
 export async function deleteBranch(providerUserId: string, branchId: string) {
@@ -125,6 +180,7 @@ export async function createAdministrator(providerUserId: string, input: CreateA
     data: {
       providerUserId,
       userId: user.id,
+      ...(input.rolePreset ? { rolePreset: input.rolePreset } : {}),
       branches: branchIds.length > 0 ? { connect: branchIds.map((id) => ({ id })) } : undefined,
     },
     include: { user: { select: { id: true, name: true, email: true } }, branches: { select: { id: true, name: true } } },
@@ -135,6 +191,24 @@ export async function listAdministrators(providerUserId: string) {
   return prisma.providerAdministrator.findMany({
     where: { providerUserId },
     orderBy: { createdAt: "asc" },
+    include: { user: { select: { id: true, name: true, email: true } }, branches: { select: { id: true, name: true } } },
+  });
+}
+
+export async function updateAdministrator(providerUserId: string, administratorId: string, input: UpdateAdministratorInput) {
+  const admin = await prisma.providerAdministrator.findUnique({ where: { id: administratorId } });
+  if (!admin || admin.providerUserId !== providerUserId) throw new NotFoundError("Administrator not found");
+  if (input.branchIds) {
+    const owned = await prisma.providerBranch.count({ where: { id: { in: input.branchIds }, providerUserId } });
+    if (owned !== input.branchIds.length) throw new BadRequestError("One or more Branches do not belong to your organisation.");
+  }
+  return prisma.providerAdministrator.update({
+    where: { id: administratorId },
+    data: {
+      ...(input.rolePreset ? { rolePreset: input.rolePreset } : {}),
+      ...(input.status ? { status: input.status } : {}),
+      ...(input.branchIds ? { branches: { set: input.branchIds.map((id) => ({ id })) } } : {}),
+    },
     include: { user: { select: { id: true, name: true, email: true } }, branches: { select: { id: true, name: true } } },
   });
 }
@@ -159,6 +233,7 @@ export async function createTeamMember(providerUserId: string, input: CreateTeam
 
   const branch = await prisma.providerBranch.findUnique({ where: { id: input.branchId } });
   if (!branch || branch.providerUserId !== providerUserId) throw new BadRequestError("Branch does not belong to your organisation.");
+  if (!branch.isActive) throw new BadRequestError("This Branch is deactivated. Activate it before adding Team Members.");
 
   const existing = await prisma.providerTeamMember.findUnique({
     where: { providerUserId_mobile: { providerUserId, mobile: input.mobile } },
@@ -223,6 +298,26 @@ export async function listTeamMembers(providerUserId: string) {
   return prisma.providerTeamMember.findMany({
     where: { providerUserId, removedAt: null },
     orderBy: { createdAt: "asc" },
+    select: {
+      id: true, name: true, mobile: true, skills: true, inviteStatus: true,
+      email: true, relationshipType: true, locations: true, accessLevel: true, profileVisibility: true,
+      mobileVerifiedAt: true, claimedByUserId: true, createdAt: true,
+      branch: { select: { id: true, name: true } },
+    },
+  });
+}
+
+export async function updateTeamMember(providerUserId: string, teamMemberId: string, input: UpdateTeamMemberInput) {
+  const member = await prisma.providerTeamMember.findUnique({ where: { id: teamMemberId } });
+  if (!member || member.providerUserId !== providerUserId || member.removedAt) throw new NotFoundError("Team Member not found");
+  if (input.branchId && input.branchId !== member.branchId) {
+    const branch = await prisma.providerBranch.findUnique({ where: { id: input.branchId } });
+    if (!branch || branch.providerUserId !== providerUserId) throw new BadRequestError("Branch does not belong to your organisation.");
+    if (!branch.isActive) throw new BadRequestError("This Branch is deactivated.");
+  }
+  return prisma.providerTeamMember.update({
+    where: { id: teamMemberId },
+    data: input,
     select: {
       id: true, name: true, mobile: true, skills: true, inviteStatus: true,
       email: true, relationshipType: true, locations: true, accessLevel: true, profileVisibility: true,

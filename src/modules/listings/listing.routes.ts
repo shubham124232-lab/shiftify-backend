@@ -11,6 +11,7 @@ router.post("/", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.createL
 router.get("/",  requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.listMyListings));
 router.patch("/:id", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.updateListing));
 router.get("/:id/featured-preview", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.previewFeaturedListing));
+router.post("/:id/renew", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.renewListing));
 router.post("/:id/featured", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.purchaseFeaturedListing));
 
 router.post("/platinum-tile", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.purchasePlatinumTile));

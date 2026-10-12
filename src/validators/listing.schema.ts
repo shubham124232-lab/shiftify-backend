@@ -47,6 +47,7 @@ export const createListingSchema = z
     serviceCategories:   z.array(z.string().max(120)).max(30).optional(),
     daysAvailable:       z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).max(7).optional(),
     responseExpectation: z.enum(["SAME_DAY", "WITHIN_48_HOURS", "WITHIN_A_WEEK"]).optional(),
+    openSlots:           z.number().int().min(0).max(999).optional(),
 
     // HOUSING vacancies (sil-vacancy form)
     vacancyCategory: z
@@ -120,6 +121,7 @@ export const updateListingSchema = z.object({
   serviceCategories:   z.array(z.string().max(120)).max(30).optional(),
   daysAvailable:       z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).max(7).optional(),
   responseExpectation: z.enum(["SAME_DAY", "WITHIN_48_HOURS", "WITHIN_A_WEEK"]).optional(),
+  openSlots:           z.number().int().min(0).max(999).optional(),
   vacancyCategory: z
     .enum(["SIL", "SDA", "SIL_SDA", "RESPITE", "MEDIUM_TERM", "SHORT_TERM", "OTHER"])
     .optional(),

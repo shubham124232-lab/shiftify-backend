@@ -47,6 +47,13 @@ export async function purchaseFeaturedListing(req: Request, res: Response) {
   return success(res, result, 201);
 }
 
+// POST /provider/listings/:id/renew — another 30 days for a housing vacancy.
+export async function renewListing(req: Request, res: Response) {
+  if (!req.user) throw new UnauthorizedError();
+  const result = await svc.renewHousingListing(req.user.id, req.params.id);
+  return success(res, result);
+}
+
 export async function purchasePlatinumTile(req: Request, res: Response) {
   if (!req.user) throw new UnauthorizedError();
   const { coverage, durationMonths, centreSuburb, marketState } = req.body ?? {};

@@ -4,6 +4,7 @@
 import { prisma } from "../../lib/prisma";
 import type { UserRole } from "@prisma/client";
 import type { JobStatus } from "@prisma/client";
+import { providerServiceCategories } from "../../lib/provider-categories";
 
 const JOB_SUMMARY = {
   id: true, title: true, category: true, urgency: true,
@@ -356,6 +357,10 @@ async function providerDashboard(userId: string) {
     replacementNeeded,
     expiryProfile,
     expiringListings,
+    serviceListings,
+    recentEnquiries,
+    recentConfirmed,
+    newInquiryCount,
   ] = await Promise.all([
     prisma.jobApplication.findMany({
       where: incoming,
@@ -393,7 +398,57 @@ async function providerDashboard(userId: string) {
       where: { providerUserId: userId, listingCategory: "HOUSING", status: "ACTIVE", listingExpiresAt: { not: null, lte: new Date(now.getTime() + 14 * 86400000) } },
       select: { id: true, title: true, listingExpiresAt: true },
     }),
+    // Live service listings → the categories this Provider can service (drives Relevant opportunities).
+    prisma.providerListing.findMany({
+      where: { providerUserId: userId, listingCategory: "SERVICE", status: "ACTIVE" },
+      select: { serviceCategory: true, serviceCategories: true },
+    }),
+    // Recent activity feed: enquiries received and confirmed starts (applications come from workerResponses).
+    prisma.directInquiry.findMany({
+      where: { recipientUserId: userId, parentInquiryId: null },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+      select: { id: true, createdAt: true, kind: true, sender: { select: { name: true } } },
+    }),
+    prisma.supportRequest.findMany({
+      where: { selectedApplicantUserId: userId, status: { in: ["CONFIRMED", "COMPLETED"] } },
+      orderBy: { updatedAt: "desc" },
+      take: 3,
+      select: { id: true, title: true, updatedAt: true },
+    }),
+    // Direct/capacity/housing enquiries still waiting for a first response.
+    prisma.directInquiry.count({ where: { recipientUserId: userId, parentInquiryId: null, status: "NEW" } }),
   ]);
+
+  // Relevant opportunities — other people's open, upcoming requests in a category this Provider services.
+  const serviceCategoryValues = providerServiceCategories(serviceListings);
+  const relevantOpportunities = serviceCategoryValues.length === 0 ? [] : await prisma.supportRequest.findMany({
+    where: {
+      status: "OPEN",
+      postedByUserId: { not: userId },
+      scheduledStartAt: { gt: now },
+      category: { in: serviceCategoryValues },
+    },
+    select: JOB_SUMMARY,
+    orderBy: { scheduledStartAt: "asc" },
+    take: 4,
+  });
+
+  // Recent activity — newest first across applications, enquiries and confirmations.
+  const recentActivity = [
+    ...workerResponses.map((a) => ({
+      id: `app-${a.id}`, type: "APPLICATION" as const, at: a.createdAt,
+      text: `${a.applicant.name ?? "A worker"} applied to ${a.job.title}`,
+    })),
+    ...recentEnquiries.map((e) => ({
+      id: `enq-${e.id}`, type: "ENQUIRY" as const, at: e.createdAt,
+      text: `New ${e.kind === "HOME_LIVING" ? "housing" : e.kind === "CAPACITY" ? "service" : ""} enquiry from ${e.sender.name ?? "a user"}`.replace("  ", " "),
+    })),
+    ...recentConfirmed.map((r) => ({
+      id: `conf-${r.id}`, type: "CONFIRMATION" as const, at: r.updatedAt,
+      text: `${r.title} confirmed`,
+    })),
+  ].sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, 6);
 
   // PR-D03 — insurance (30 days) and Home and Living listing (14 days) expiries needing attention.
   const soon = new Date(now.getTime() + 30 * 86400000);
@@ -419,6 +474,7 @@ async function providerDashboard(userId: string) {
       openRequests:          openRequestCount,
       responsesReceived:     workerResponseCount,
       outgoingPendingApplications: outgoingPendingCount,
+      newInquiries:          newInquiryCount,
     },
     // Responses to the Provider's own requests (what the "Worker responses" card shows).
     workerResponses: workerResponses.map((a) => ({
@@ -435,6 +491,14 @@ async function providerDashboard(userId: string) {
     activeShifts,
     unassignedAccepted,
     unreadNotifications,
+    // Provider demo — Service pipeline strip, Relevant opportunities and Recent activity cards.
+    pipeline: {
+      awaitingAcceptance: outgoingPendingCount,
+      awaitingIntake:     unassignedCount,
+      startConfirmed:     confirmedIntakesCount,
+    },
+    relevantOpportunities,
+    recentActivity,
   };
 }
 

@@ -29,6 +29,7 @@ const LISTING_SELECT = {
   serviceCategories: true,
   daysAvailable: true,
   responseExpectation: true,
+  openSlots: true,
   vacancyCategory: true,
   propertyType: true,
   vacancyCount: true,
@@ -226,6 +227,39 @@ export async function purchaseFeaturedListing(providerUserId: string, listingId:
   });
 
   return { listing: updated, priceAud: FEATURED_LISTING_PRICE_AUD, mockReceiptRef };
+}
+
+// Renew a SIL/SDA/Home and Living vacancy for another 30 days (Pricing V2 §7.2). The new term starts when the
+// current one ends (or now, if it already lapsed). A Featured listing renews its Featured term too and keeps
+// its queue position; the Featured package price covers the listing, so it is charged instead of Standard.
+export async function renewHousingListing(providerUserId: string, listingId: string) {
+  const listing = await (prisma as any).providerListing.findUnique({ where: { id: listingId } });
+  if (!listing || listing.providerUserId !== providerUserId) {
+    throw new ApiError(404, "NOT_FOUND", "Listing not found");
+  }
+  if (listing.listingCategory !== "HOUSING") throw new BadRequestError("Only a housing vacancy can be renewed");
+  if (listing.status !== "ACTIVE" && listing.status !== "PAUSED") {
+    throw new BadRequestError("Only a live or paused vacancy can be renewed");
+  }
+
+  const now = new Date();
+  const from = (d: Date | null | undefined) => (d && d > now ? d : now);
+  const listingExpiresAt = new Date(from(listing.listingExpiresAt).getTime() + LISTING_DURATION_MS);
+  const featured = !!listing.isFeatured;
+  const priceAud = featured ? FEATURED_LISTING_PRICE_AUD : STANDARD_LISTING_PRICE_AUD;
+  const mockReceiptRef = `DEV-${randomUUID().toUpperCase()}`;
+
+  const updated = await (prisma as any).providerListing.update({
+    where: { id: listingId },
+    data: {
+      listingExpiresAt,
+      standardPaidAt: now,
+      packageReceiptRef: mockReceiptRef,
+      ...(featured ? { featuredExpiresAt: new Date(from(listing.featuredExpiresAt).getTime() + FEATURED_LISTING_DURATION_MS) } : {}),
+    },
+    select: LISTING_SELECT,
+  });
+  return { listing: updated, priceAud, mockReceiptRef };
 }
 
 // ─── Platinum Tile Sponsorship (Pricing V2 §7) ─────────────────────────────────
