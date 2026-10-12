@@ -73,6 +73,8 @@ export async function createBranch(providerUserId: string, input: CreateBranchIn
       timezone: input.timezone ?? null,
       managerUserId: input.managerUserId ?? null,
       serviceLines: input.serviceLines ?? [],
+      address: input.address ?? null,
+      escalationContact: input.escalationContact ?? null,
     },
   });
 }
@@ -181,6 +183,7 @@ export async function createAdministrator(providerUserId: string, input: CreateA
       providerUserId,
       userId: user.id,
       ...(input.rolePreset ? { rolePreset: input.rolePreset } : {}),
+      ...(input.billingAccess !== undefined ? { billingAccess: input.billingAccess } : {}),
       branches: branchIds.length > 0 ? { connect: branchIds.map((id) => ({ id })) } : undefined,
     },
     include: { user: { select: { id: true, name: true, email: true } }, branches: { select: { id: true, name: true } } },
@@ -207,6 +210,7 @@ export async function updateAdministrator(providerUserId: string, administratorI
     data: {
       ...(input.rolePreset ? { rolePreset: input.rolePreset } : {}),
       ...(input.status ? { status: input.status } : {}),
+      ...(input.billingAccess !== undefined ? { billingAccess: input.billingAccess } : {}),
       ...(input.branchIds ? { branches: { set: input.branchIds.map((id) => ({ id })) } } : {}),
     },
     include: { user: { select: { id: true, name: true, email: true } }, branches: { select: { id: true, name: true } } },

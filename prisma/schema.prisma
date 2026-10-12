@@ -2093,6 +2093,9 @@ model ProviderListing {
   daysAvailable       Json? // String[] — MON..SUN
   responseExpectation String? // e.g. SAME_DAY | WITHIN_48_HOURS | WITHIN_A_WEEK
   openSlots           Int? // places currently open on a SERVICE listing (Provider demo "Update capacity")
+  // Provider demo: which Branch the listing belongs to and who owns it (the organisation owner or an Administrator).
+  branchId            String?
+  ownerUserId         String?
 
   // HOUSING vacancies (sil-vacancy form)
   vacancyCategory String? // SIL | SDA | SIL_SDA | RESPITE | MEDIUM_TERM | SHORT_TERM | OTHER
@@ -2153,6 +2156,9 @@ model ProviderBranch {
   managerUserId  String?
   serviceLines   String[] @default([])
   isActive       Boolean  @default(true)
+  // Provider demo form fields (2026-10-12): branch address and escalation contact.
+  address            String?
+  escalationContact  String?
 
   administrators ProviderAdministrator[]
   teamMembers    ProviderTeamMember[]
@@ -2176,6 +2182,8 @@ model ProviderAdministrator {
   // Labels only for now — presets are shown and stored but not yet enforced.
   rolePreset     String           @default("ADMINISTRATOR") // ADMINISTRATOR | BRANCH_MANAGER | INTAKE | WORKFORCE | READ_ONLY
   status         String           @default("ACTIVE") // ACTIVE | INACTIVE
+  // Provider demo "Billing access" (label only for now, like the role presets).
+  billingAccess  Boolean          @default(false)
 
   @@unique([providerUserId, userId])
   @@index([providerUserId])

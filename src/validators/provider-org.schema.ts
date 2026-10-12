@@ -6,6 +6,8 @@ export const createBranchSchema = z.object({
   timezone: z.string().max(60).optional(),
   managerUserId: z.string().uuid().nullable().optional(),
   serviceLines: z.array(z.string().max(60)).max(20).optional(),
+  address: z.string().max(300).nullable().optional(),
+  escalationContact: z.string().max(200).nullable().optional(),
 }).strict();
 export type CreateBranchInput = z.infer<typeof createBranchSchema>;
 
@@ -20,12 +22,14 @@ export const createAdministratorSchema = z.object({
   email: z.string().email(),
   branchIds: z.array(z.string().uuid()).optional(),
   rolePreset: z.enum(ADMIN_ROLE_PRESETS).optional(),
+  billingAccess: z.boolean().optional(),
 }).strict();
 export type CreateAdministratorInput = z.infer<typeof createAdministratorSchema>;
 
 export const updateAdministratorSchema = z.object({
   rolePreset: z.enum(ADMIN_ROLE_PRESETS).optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+  billingAccess: z.boolean().optional(),
   branchIds: z.array(z.string().uuid()).optional(),
 }).strict();
 export type UpdateAdministratorInput = z.infer<typeof updateAdministratorSchema>;

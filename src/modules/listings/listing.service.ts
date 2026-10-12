@@ -30,6 +30,8 @@ const LISTING_SELECT = {
   daysAvailable: true,
   responseExpectation: true,
   openSlots: true,
+  branchId: true,
+  ownerUserId: true,
   vacancyCategory: true,
   propertyType: true,
   vacancyCount: true,
@@ -57,6 +59,19 @@ async function syncProfileCapacity(providerUserId: string, accepting: "YES" | "L
   });
 }
 
+// Provider demo — a listing may belong to one of the organisation's Branches and be owned by the
+// organisation owner or one of its Administrators.
+async function assertBranchAndOwner(providerUserId: string, branchId?: string | null, ownerUserId?: string | null) {
+  if (branchId) {
+    const branch = await prisma.providerBranch.findUnique({ where: { id: branchId }, select: { providerUserId: true } });
+    if (!branch || branch.providerUserId !== providerUserId) throw new ApiError(400, "BAD_REQUEST", "That Branch does not belong to your organisation.");
+  }
+  if (ownerUserId && ownerUserId !== providerUserId) {
+    const admin = await prisma.providerAdministrator.findUnique({ where: { providerUserId_userId: { providerUserId, userId: ownerUserId } }, select: { id: true } });
+    if (!admin) throw new ApiError(400, "BAD_REQUEST", "The owner must be the organisation owner or one of your Administrators.");
+  }
+}
+
 export async function createListing(providerUserId: string, activeRole: UserRole, input: CreateListingInput) {
   if (!(await subscriptionGated(providerUserId, activeRole))) {
     throw new ApiError(
@@ -68,6 +83,8 @@ export async function createListing(providerUserId: string, activeRole: UserRole
 
   // Pricing V2 §5.2 item 26 — unlimited active listings are included in every
   // paid Provider Organisation plan; no per-tier cap.
+
+  await assertBranchAndOwner(providerUserId, input.branchId, input.ownerUserId);
 
   // acknowledgement is a form-only declaration — not persisted.
   const { acknowledgement: _ack, saveAsDraft, ...data } = input;
@@ -115,6 +132,7 @@ export async function updateListing(providerUserId: string, listingId: string, i
   if (!existing || existing.providerUserId !== providerUserId) {
     throw new ApiError(404, "NOT_FOUND", "Listing not found");
   }
+  await assertBranchAndOwner(providerUserId, input.branchId, input.ownerUserId);
 
   // Publishing a saved Home and Living draft re-runs the registration gate and starts the 30-day package.
   let publishPackage = {};
