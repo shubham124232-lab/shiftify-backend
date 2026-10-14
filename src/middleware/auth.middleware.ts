@@ -23,6 +23,11 @@ declare module "express-serve-static-core" {
     roles?: UserRole[];
     // Session (refresh-token row) this access token belongs to.
     sessionId?: string;
+    // Provider doc section 2: an invited Administrator acts INSIDE the organisation. While acting as Provider,
+    // req.user.id is the organisation owner's id (so allowance, plan, requests and listings are the organisation's)
+    // and the person's own id is kept here. Branch scope and the billing right come from their Administrator record.
+    actorUserId?: string;
+    providerAdmin?: { id: string; rolePreset: string; billingAccess: boolean; branchIds: string[] };
   }
 }
 
@@ -56,9 +61,26 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     if (!session) throw new UnauthorizedError("Session ended");
     if (user.status === "SUSPENDED") throw new UnauthorizedError("Your account is suspended. Your records and confirmed arrangements are kept. To ask for a review, contact Shiftify support.");
     req.user      = user;
+    req.actorUserId = user.id;
     req.activeRole = payload.activeRole as UserRole;
     req.roles      = (payload.roles ?? []) as UserRole[];
     req.sessionId  = session.id;
+    // Account endpoints always act as the person themselves.
+    if (req.activeRole === "PROVIDER" && !/^\/(auth|users)(\/|$)/.test(req.baseUrl)) {
+      const admin = await prisma.providerAdministrator.findFirst({
+        where:   { userId: user.id, status: "ACTIVE" },
+        orderBy: { createdAt: "asc" },
+        select:  { id: true, providerUserId: true, rolePreset: true, billingAccess: true, branches: { select: { id: true } } },
+      });
+      // An organisation owner always acts as their own organisation, even if also invited to another.
+      if (admin && !(await prisma.providerProfile.findUnique({ where: { userId: user.id }, select: { userId: true } }))) {
+        req.user = { ...user, id: admin.providerUserId };
+        req.providerAdmin = {
+          id: admin.id, rolePreset: admin.rolePreset, billingAccess: admin.billingAccess,
+          branchIds: admin.branches.map((b) => b.id),
+        };
+      }
+    }
     next();
   } catch (err) {
     next(err);

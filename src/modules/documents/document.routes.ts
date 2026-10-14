@@ -2,6 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../../utils/async-handler";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { uploadMiddleware } from "../../middleware/upload.middleware";
+import { requireRole } from "../../middleware/role.middleware";
 import { blockManagedSelfService } from "../../middleware/managed.middleware";
 import * as ctrl from "./document.controller";
 
@@ -19,6 +20,9 @@ router.post(
 
 // GET  /users/me/documents — managed accounts may still view what was uploaded for them
 router.get("/", requireAuth, asyncHandler(ctrl.listDocuments));
+
+// GET /users/me/documents/organisation — Provider: organisation + managed-worker evidence with renewal history
+router.get("/organisation", requireAuth, requireRole("PROVIDER"), asyncHandler(ctrl.listOrganisationDocuments));
 
 // DELETE /users/me/documents/:id
 router.delete("/:id", requireAuth, blockManagedSelfService, asyncHandler(ctrl.deleteDocument));

@@ -56,13 +56,8 @@ async function main() {
   // Provider free tier — V2 §2: 10 once-only introductory Provider actions, then a
   // paid plan or a $19.99 Shift Pass. Same `_FREE` key convention as the SW/SC rows.
   { key: "PROVIDER_FREE",        role: "PROVIDER"       as const, name: "Provider — Free",          amountAud: 0,     isAddOn: false, features: ["10 once-only introductory Provider actions (no expiry)", "Provider profile, notifications and history"] },
-  // Legacy per-listing Provider plans — superseded by PROVIDER_ORG_* below
-  // (Pricing V2 §5 has exactly 4 Provider plans, none of them listing-count
-  // based). Kept as inactive rows, not deleted, so old UserSubscription FK
-  // rows still resolve; `active: false` keeps them out of listPlans()/activateAccount().
-  { key: "PROVIDER_BASIC",       role: "PROVIDER"       as const, name: "Provider — Basic",         amountAud: 99.99, isAddOn: false, active: false, features: ["Up to 20 active job listings", "Verified badge on profile", "Basic analytics dashboard", "Standard support"] },
-  { key: "PROVIDER_GROWTH",      role: "PROVIDER"       as const, name: "Provider — Growth",        amountAud: 39.99, isAddOn: true,  active: false, features: ["Up to 40 active job listings", "Priority in search results", "Advanced analytics dashboard", "Priority support"] },
-  { key: "PROVIDER_SPEED",       role: "PROVIDER"       as const, name: "Provider — Speed",         amountAud: 29.99, isAddOn: true,  active: false, features: ["Up to 10 active job listings", "Fast onboarding tools", "Standard support"] },
+  // The legacy per-listing Provider plans (Basic/Growth/Speed) were removed from the seed (Provider journey
+  // 2 Oct 2026 §1). Existing database rows are left untouched so old UserSubscription links still resolve.
   { key: "PLAN_MANAGER_BASIC",   role: "PLAN_MANAGER"   as const, name: "Plan Manager — Basic",     amountAud: 19.99, isAddOn: false, features: ["Manage up to 50 participant plans", "Budget tracking & reporting", "Claim submission tools", "Priority support"] },
   // Provider organisation tiers (Pricing V2 §4/§5) — Branch/Administrator/Team
   // Member capacity. These are now the ONLY active Provider base plans.

@@ -824,6 +824,12 @@ model ProviderProfile {
   accessibilityCapabilities String[] @default([])
   culturalCapabilities    String[] @default([])
   enquiryPreference       String?
+  // Provider doc P10 (additive): funding accepted, continuity model, intake process, who may enquire, public phone.
+  fundingAccepted         String[] @default([])
+  continuityModel         String?
+  intakeProcess           String?
+  directEnquiryAudience   String?
+  displayPublicPhone      Boolean  @default(false)
   // Provider doc PR-V01 — business address for minimum verification (additive).
   businessAddress         String?
   logoUrl             String?
@@ -1246,6 +1252,12 @@ model Document {
   verifiedAt        DateTime?
   uploadedAt        DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
+  // Provider doc P72 (additive): title, issuer, who may view it, and renewal history (a renewal replaces, never overwrites).
+  title             String?
+  issuer            String?
+  visibility        String?
+  replacesId        String?
+  supersededAt      DateTime?
 
   @@index([userId])
   @@index([status])
@@ -1287,6 +1299,14 @@ model SupportRequest {
   recurrencePattern Json?
 
   workerPreferences Json?
+  // Provider staffing wizard (demo, 2026-10-14): which branch the request belongs to, its type, who is responsible,
+  // how many workers, and how it is distributed (internal first / external, audience, matching).
+  branchId               String?
+  requestType            String?
+  responsibleAdminUserId String?
+  workersRequired        Int     @default(1)
+  distribution           Json?
+  internalOffers    InternalShiftOffer[]
   // Participant-selected task checkboxes from the master service catalogue
   // (e.g. ["Showering/bathing","Dressing/grooming"]) — participant posting spec.
   selectedTasks     Json?
@@ -1675,6 +1695,36 @@ model DirectInquiry {
 
   @@index([recipientUserId, createdAt])
   @@index([senderUserId, createdAt])
+}
+
+// Provider doc P66 (additive): the Provider's own record of intake before a service starts. Kept apart from the request so
+// a confirmed referral, completed onboarding and delivered support stay separate statuses.
+model ServiceStartRecord {
+  jobId             String   @id
+  providerUserId    String
+  agreedStartAt     DateTime?
+  nominatedWorkerId String? // internal Team Member id
+  serviceAgreement  String   @default("PENDING") // AGREED | PENDING
+  participantAgreement String @default("PENDING") // CONFIRMED | PENDING
+  notes             String?
+  isDraft           Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+
+  @@index([providerUserId])
+}
+
+// Provider doc P65 (additive): private intake handling for one received enquiry. Kept in its own table so the
+// DirectInquiry rows other roles read are unchanged. inquiryId is the first (root) message of the thread.
+model EnquiryIntake {
+  inquiryId       String    @id
+  providerUserId  String
+  ownerUserId     String?
+  internalNote    String?
+  appointmentAt   DateTime?
+  appointmentType String? // INTAKE_CALL | PROPERTY_INSPECTION | COMPATIBILITY_MEETING
+  updatedAt       DateTime  @updatedAt
+
+  @@index([providerUserId])
 }
 
 // Minimal pilot safety gate — a flag button on the job thread that notifies
@@ -2159,6 +2209,9 @@ model ProviderBranch {
   // Provider demo form fields (2026-10-12): branch address and escalation contact.
   address            String?
   escalationContact  String?
+  // Provider doc P15 (additive): Branch contact and service radius.
+  contact            String?
+  serviceRadiusKm    Int?
 
   administrators ProviderAdministrator[]
   teamMembers    ProviderTeamMember[]
@@ -2181,9 +2234,14 @@ model ProviderAdministrator {
   createdAt      DateTime         @default(now())
   // Labels only for now — presets are shown and stored but not yet enforced.
   rolePreset     String           @default("ADMINISTRATOR") // ADMINISTRATOR | BRANCH_MANAGER | INTAKE | WORKFORCE | READ_ONLY
-  status         String           @default("ACTIVE") // ACTIVE | INACTIVE
+  // Provider doc P16: invitation lifecycle. PENDING -> ACTIVE (accepted) | EXPIRED | REVOKED. Existing rows stay ACTIVE.
+  status         String           @default("ACTIVE") // PENDING | ACTIVE | INACTIVE | EXPIRED | REVOKED
+  inviteExpiresAt DateTime?
+  acceptedAt      DateTime?
   // Provider demo "Billing access" (label only for now, like the role presets).
   billingAccess  Boolean          @default(false)
+  // Approved demo invite form (additive): optional code typed by the inviter. Stored only; no referral programme validates it yet.
+  referralCode   String?
 
   @@unique([providerUserId, userId])
   @@index([providerUserId])
@@ -2206,6 +2264,10 @@ model ProviderTeamMember {
   email                     String?
   relationshipType          String? // EMPLOYEE | CONTRACTOR | OTHER
   locations                 String[]       @default([])
+  // Provider doc P19 (additive): languages, credential review state and years of relevant experience.
+  languages                 String[]       @default([])
+  credentialStatus          String? // CURRENT | NEEDS_REVIEW | NOT_PROVIDED
+  experienceYears           Int?
   // PR-W02 (additive): what the member may do in the organisation, and who may see their profile.
   accessLevel               String? // STANDARD | LIMITED
   profileVisibility         String? // ORGANISATION_ONLY | VISIBLE_TO_PARTICIPANTS
@@ -2312,4 +2374,44 @@ model TeamAvailabilityReply {
 
   @@index([requestId])
   @@index([memberUserId, status])
+}
+
+
+// Provider doc P30: an internal shift offer to one of the Provider's own people. It records Pending / Accepted /
+// Declined / Expired; the worker's acceptance does not confirm the shift (the Provider confirms separately).
+model InternalShiftOffer {
+  id             String         @id @default(uuid())
+  providerUserId String
+  jobId          String
+  job            SupportRequest @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  memberType     String // MANAGED | ROSTER
+  memberUserId   String?
+  teamMemberId   String?
+  memberName     String
+  status         String         @default("PENDING") // PENDING | ACCEPTED | DECLINED | EXPIRED
+  offeredRate    Decimal?       @db.Decimal(8, 2)
+  sentAt         DateTime       @default(now())
+  respondedAt    DateTime?
+
+  @@index([providerUserId, status])
+  @@index([jobId])
+  @@index([memberUserId, status])
+}
+
+// Provider doc P82 / approved demo "Help & Tickets": a platform-support case with a record reference.
+// Separate from support-delivery incident reports.
+model SupportTicket {
+  id          String   @id @default(uuid())
+  reference   String   @unique
+  userId      String
+  subject     String
+  category    String
+  impact      String
+  relatedRef  String?
+  description String
+  status      String   @default("OPEN") // OPEN | AWAITING_SUPPORT | RESOLVED | CLOSED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, status])
 }

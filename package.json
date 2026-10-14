@@ -19,6 +19,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "backfill:scores": "tsx scripts/backfill-application-scores.ts",
     "backfill:job-coordinates": "tsx scripts/backfill-job-coordinates.ts",
+    "seed:demo-applications": "tsx scripts/seed-demo-applications.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

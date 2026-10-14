@@ -75,6 +75,8 @@ export async function createBranch(providerUserId: string, input: CreateBranchIn
       serviceLines: input.serviceLines ?? [],
       address: input.address ?? null,
       escalationContact: input.escalationContact ?? null,
+      contact: input.contact ?? null,
+      serviceRadiusKm: input.serviceRadiusKm ?? null,
     },
   });
 }
@@ -94,9 +96,16 @@ async function managerNames(providerUserId: string, userIds: (string | null)[]) 
   return new Map(users.map((u) => [u.id, u.name]));
 }
 
-export async function listBranches(providerUserId: string) {
+// Provider doc section 2: an Administrator only sees and changes the Branches they are authorised for.
+// `scope` is their authorised Branch ids, or null/undefined for an organisation Owner (no restriction).
+type BranchScope = string[] | null | undefined;
+function assertBranchInScope(scope: BranchScope, branchId: string, message = "Branch not found"): void {
+  if (scope && !scope.includes(branchId)) throw new NotFoundError(message);
+}
+
+export async function listBranches(providerUserId: string, scope?: BranchScope) {
   const branches = await prisma.providerBranch.findMany({
-    where: { providerUserId },
+    where: { providerUserId, ...(scope ? { id: { in: scope } } : {}) },
     orderBy: { createdAt: "asc" },
     include: { _count: { select: { administrators: true, teamMembers: true } } },
   });
@@ -105,7 +114,8 @@ export async function listBranches(providerUserId: string) {
 }
 
 // One Branch with its people — the "Open workspace" view.
-export async function getBranch(providerUserId: string, branchId: string) {
+export async function getBranch(providerUserId: string, branchId: string, scope?: BranchScope) {
+  assertBranchInScope(scope, branchId);
   const branch = await prisma.providerBranch.findUnique({
     where: { id: branchId },
     include: {
@@ -122,14 +132,37 @@ export async function getBranch(providerUserId: string, branchId: string) {
   return { ...branch, managerName: branch.managerUserId ? names.get(branch.managerUserId) ?? null : null };
 }
 
-export async function updateBranch(providerUserId: string, branchId: string, input: UpdateBranchInput) {
+export async function updateBranch(providerUserId: string, branchId: string, input: UpdateBranchInput, scope?: BranchScope) {
+  assertBranchInScope(scope, branchId);
   const branch = await prisma.providerBranch.findUnique({ where: { id: branchId } });
   if (!branch || branch.providerUserId !== providerUserId) throw new NotFoundError("Branch not found");
   if (input.managerUserId !== undefined) await assertManager(providerUserId, input.managerUserId);
-  return prisma.providerBranch.update({ where: { id: branchId }, data: input });
+  const { transferToBranchId, ...data } = input;
+  if (data.isActive === false && branch.isActive) {
+    // Doc P15: deactivating a Branch with active work needs its ownership handled first; history stays.
+    const [requests, people] = await Promise.all([
+      prisma.supportRequest.count({ where: { branchId, status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] }, scheduledStartAt: { gt: new Date() } } }),
+      prisma.providerTeamMember.count({ where: { branchId, removedAt: null } }),
+    ]);
+    if (requests + people > 0) {
+      if (!transferToBranchId) {
+        throw new ApiError(409, "BRANCH_HAS_ACTIVE_WORK", `${requests} active staffing request${requests === 1 ? "" : "s"} and ${people} Team Member${people === 1 ? "" : "s"} are on this Branch. Transfer them to another Branch before deactivating it.`);
+      }
+      if (transferToBranchId === branchId) throw new BadRequestError("Choose a different Branch to transfer to.");
+      assertBranchInScope(scope, transferToBranchId, "Branch does not belong to your organisation.");
+      const target = await prisma.providerBranch.findUnique({ where: { id: transferToBranchId } });
+      if (!target || target.providerUserId !== providerUserId || !target.isActive) throw new BadRequestError("Choose an active Branch of your organisation to transfer to.");
+      await prisma.$transaction([
+        prisma.supportRequest.updateMany({ where: { branchId, status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] }, scheduledStartAt: { gt: new Date() } }, data: { branchId: transferToBranchId } }),
+        prisma.providerTeamMember.updateMany({ where: { branchId, removedAt: null }, data: { branchId: transferToBranchId } }),
+      ]);
+    }
+  }
+  return prisma.providerBranch.update({ where: { id: branchId }, data });
 }
 
-export async function deleteBranch(providerUserId: string, branchId: string) {
+export async function deleteBranch(providerUserId: string, branchId: string, scope?: BranchScope) {
+  assertBranchInScope(scope, branchId);
   const branch = await prisma.providerBranch.findUnique({ where: { id: branchId } });
   if (!branch || branch.providerUserId !== providerUserId) throw new NotFoundError("Branch not found");
   // Deleting a Branch cascades to its Team Member rows, which would erase the
@@ -149,20 +182,61 @@ export async function deleteBranch(providerUserId: string, branchId: string) {
 
 // ─── Administrators ─────────────────────────────────────────────────────────
 
+// The organisation owner this person acts for as an Administrator, or null if they own their own Provider
+// profile (an owner always acts as their own organisation) or are not an active Administrator anywhere.
+export async function resolveAdministeredOrgOwner(userId: string): Promise<string | null> {
+  const admin = await prisma.providerAdministrator.findFirst({
+    where: { userId, status: "ACTIVE" }, orderBy: { createdAt: "asc" }, select: { providerUserId: true },
+  });
+  if (!admin) return null;
+  const own = await prisma.providerProfile.findUnique({ where: { userId }, select: { userId: true } });
+  return own ? null : admin.providerUserId;
+}
+
+const INVITE_TTL_DAYS = 7;
+// Statuses that hold a seat in the plan's Administrator limit (an Expired/Revoked invite does not).
+const SEAT_STATUSES = ["PENDING", "ACTIVE", "INACTIVE"];
+const ADMIN_INCLUDE = { user: { select: { id: true, name: true, email: true } }, branches: { select: { id: true, name: true } } } as const;
+
+const inviteExpiry = (): Date => new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000);
+
+async function notifyInvite(providerUserId: string, inviteeId: string): Promise<void> {
+  const org = await prisma.providerProfile.findUnique({ where: { userId: providerUserId }, select: { businessName: true } });
+  await notify.sendPushNotification(inviteeId, "Invitation to administer a Provider organisation",
+    `${org?.businessName ?? "A Provider organisation"} invited you to help manage it. Open Invitations to accept. The invitation expires in ${INVITE_TTL_DAYS} days.`);
+}
+
+// P16 - PENDING invitations past their expiry become EXPIRED (checked lazily, no scheduler needed).
+async function expireStaleInvites(where: { providerUserId?: string; userId?: string }) {
+  await prisma.providerAdministrator.updateMany({
+    where: { ...where, status: "PENDING", inviteExpiresAt: { lt: new Date() } },
+    data: { status: "EXPIRED" },
+  });
+}
+
 export async function createAdministrator(providerUserId: string, input: CreateAdministratorInput) {
   const caps = await requireCaps(providerUserId);
 
-  const user = await prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
-  if (!user) throw new NotFoundError("No Shiftify account exists with that email yet — ask them to sign up first.");
+  const user = await prisma.user.findUnique({ where: { email: input.email.toLowerCase() }, include: { roles: { select: { role: true } } } });
+  if (!user) throw new NotFoundError("No Shiftify account exists with that email yet — ask them to sign up as a Provider first.");
   if (user.id === providerUserId) throw new BadRequestError("You are already the owner of this organisation.");
+  // Each Shiftify login holds one account role, so an Administrator must have signed up as a Provider.
+  if (!user.roles.some((r) => r.role === "PROVIDER")) {
+    throw new BadRequestError("That email belongs to a different type of Shiftify account. Each login holds one account type, so ask them to sign up as a Provider with their work email.");
+  }
 
+  await expireStaleInvites({ providerUserId, userId: user.id });
   const existing = await prisma.providerAdministrator.findUnique({
     where: { providerUserId_userId: { providerUserId, userId: user.id } },
   });
-  if (existing) throw new ConflictError("This person is already an Administrator on your organisation.");
+  if (existing && SEAT_STATUSES.includes(existing.status)) {
+    throw new ConflictError(existing.status === "PENDING"
+      ? "This person already has a pending invitation. Resend it from the Administrators list."
+      : "This person is already an Administrator on your organisation.");
+  }
 
   if (caps.maxAdministrators != null) {
-    const count = await prisma.providerAdministrator.count({ where: { providerUserId } });
+    const count = await prisma.providerAdministrator.count({ where: { providerUserId, status: { in: SEAT_STATUSES } } });
     if (count >= caps.maxAdministrators) {
       throw new ApiError(
         403,
@@ -172,27 +246,83 @@ export async function createAdministrator(providerUserId: string, input: CreateA
     }
   }
 
-  let branchIds = input.branchIds ?? [];
+  const branchIds = input.branchIds ?? [];
   if (branchIds.length > 0) {
     const owned = await prisma.providerBranch.count({ where: { id: { in: branchIds }, providerUserId } });
     if (owned !== branchIds.length) throw new BadRequestError("One or more Branches do not belong to your organisation.");
   }
 
-  return prisma.providerAdministrator.create({
-    data: {
-      providerUserId,
-      userId: user.id,
-      ...(input.rolePreset ? { rolePreset: input.rolePreset } : {}),
-      ...(input.billingAccess !== undefined ? { billingAccess: input.billingAccess } : {}),
-      branches: branchIds.length > 0 ? { connect: branchIds.map((id) => ({ id })) } : undefined,
-    },
-    include: { user: { select: { id: true, name: true, email: true } }, branches: { select: { id: true, name: true } } },
+  const data = {
+    status: "PENDING",
+    inviteExpiresAt: inviteExpiry(),
+    acceptedAt: null,
+    ...(input.rolePreset ? { rolePreset: input.rolePreset } : {}),
+    ...(input.billingAccess !== undefined ? { billingAccess: input.billingAccess } : {}),
+    ...(input.referralCode ? { referralCode: input.referralCode } : {}),
+  };
+  const administrator = existing
+    // Re-inviting someone whose earlier invitation expired or was revoked reuses the same row.
+    ? await prisma.providerAdministrator.update({ where: { id: existing.id }, data: { ...data, branches: { set: branchIds.map((id) => ({ id })) } }, include: ADMIN_INCLUDE })
+    : await prisma.providerAdministrator.create({
+        data: { providerUserId, userId: user.id, ...data, branches: branchIds.length > 0 ? { connect: branchIds.map((id) => ({ id })) } : undefined },
+        include: ADMIN_INCLUDE,
+      });
+  await notifyInvite(providerUserId, user.id);
+  return administrator;
+}
+
+// Resend refreshes the expiry and re-notifies; it also revives an Expired invitation.
+export async function resendAdministratorInvite(providerUserId: string, administratorId: string) {
+  const admin = await prisma.providerAdministrator.findUnique({ where: { id: administratorId } });
+  if (!admin || admin.providerUserId !== providerUserId) throw new NotFoundError("Administrator not found");
+  if (admin.status !== "PENDING" && admin.status !== "EXPIRED") throw new BadRequestError("Only a pending or expired invitation can be resent.");
+  const updated = await prisma.providerAdministrator.update({
+    where: { id: administratorId }, data: { status: "PENDING", inviteExpiresAt: inviteExpiry() }, include: ADMIN_INCLUDE,
   });
+  await notifyInvite(providerUserId, admin.userId);
+  return updated;
+}
+
+export async function revokeAdministratorInvite(providerUserId: string, administratorId: string) {
+  const admin = await prisma.providerAdministrator.findUnique({ where: { id: administratorId } });
+  if (!admin || admin.providerUserId !== providerUserId) throw new NotFoundError("Administrator not found");
+  if (admin.status !== "PENDING" && admin.status !== "EXPIRED") throw new BadRequestError("Only a pending or expired invitation can be revoked. Remove an active Administrator instead.");
+  await prisma.providerAdministrator.update({ where: { id: administratorId }, data: { status: "REVOKED", inviteExpiresAt: null } });
+}
+
+// The invited person's own view: invitations waiting for them (not yet an Administrator, so not org-scoped).
+export async function listMyAdministratorInvitations(userId: string) {
+  await expireStaleInvites({ userId });
+  const rows = await prisma.providerAdministrator.findMany({
+    where: { userId, status: "PENDING" },
+    orderBy: { createdAt: "desc" },
+    include: { provider: { select: { providerProfile: { select: { businessName: true } } } } },
+  });
+  return rows.map((r) => ({
+    id: r.id, businessName: r.provider.providerProfile?.businessName ?? "A Provider organisation",
+    rolePreset: r.rolePreset, expiresAt: r.inviteExpiresAt,
+  }));
+}
+
+export async function acceptAdministratorInvitation(userId: string, administratorId: string) {
+  await expireStaleInvites({ userId });
+  const admin = await prisma.providerAdministrator.findUnique({ where: { id: administratorId } });
+  if (!admin || admin.userId !== userId) throw new NotFoundError("Invitation not found");
+  if (admin.status !== "PENDING") throw new BadRequestError(admin.status === "EXPIRED" ? "This invitation has expired. Ask the organisation to resend it." : "This invitation is no longer open.");
+  await prisma.providerAdministrator.update({ where: { id: administratorId }, data: { status: "ACTIVE", acceptedAt: new Date(), inviteExpiresAt: null } });
+  return { providerUserId: admin.providerUserId };
+}
+
+export async function declineAdministratorInvitation(userId: string, administratorId: string) {
+  const admin = await prisma.providerAdministrator.findUnique({ where: { id: administratorId } });
+  if (!admin || admin.userId !== userId || admin.status !== "PENDING") throw new NotFoundError("Invitation not found");
+  await prisma.providerAdministrator.update({ where: { id: administratorId }, data: { status: "REVOKED", inviteExpiresAt: null } });
 }
 
 export async function listAdministrators(providerUserId: string) {
+  await expireStaleInvites({ providerUserId });
   return prisma.providerAdministrator.findMany({
-    where: { providerUserId },
+    where: { providerUserId, status: { not: "REVOKED" } },
     orderBy: { createdAt: "asc" },
     include: { user: { select: { id: true, name: true, email: true } }, branches: { select: { id: true, name: true } } },
   });
@@ -232,8 +362,9 @@ function hashCode(code: string): string {
   return crypto.createHash("sha256").update(code).digest("hex");
 }
 
-export async function createTeamMember(providerUserId: string, input: CreateTeamMemberInput) {
+export async function createTeamMember(providerUserId: string, input: CreateTeamMemberInput, scope?: BranchScope) {
   const caps = await requireCaps(providerUserId);
+  assertBranchInScope(scope, input.branchId, "Branch does not belong to your organisation.");
 
   const branch = await prisma.providerBranch.findUnique({ where: { id: input.branchId } });
   if (!branch || branch.providerUserId !== providerUserId) throw new BadRequestError("Branch does not belong to your organisation.");
@@ -271,11 +402,12 @@ export async function createTeamMember(providerUserId: string, input: CreateTeam
       data: {
         removedAt: null, branchId: input.branchId, name: input.name, skills: input.skills ?? [],
         email: input.email ?? null, relationshipType: input.relationshipType, locations: input.locations ?? [], consentAcknowledgedAt: new Date(),
+        languages: input.languages ?? [], credentialStatus: input.credentialStatus ?? null, experienceYears: input.experienceYears ?? null,
         accessLevel: input.accessLevel ?? null, profileVisibility: input.profileVisibility ?? null,
       },
     });
-    const _dev_code = await sendVerificationSms(restored.id, providerUserId);
-    return { ...restored, _dev_code };
+    const _dev_code = await sendVerificationEmail(restored.id, providerUserId);
+    return { ...(await autoApproveForTesting(restored)), _dev_code };
   }
 
   const teamMember = await prisma.providerTeamMember.create({
@@ -288,32 +420,47 @@ export async function createTeamMember(providerUserId: string, input: CreateTeam
       email: input.email ?? null,
       relationshipType: input.relationshipType,
       locations: input.locations ?? [],
+      languages: input.languages ?? [],
+      credentialStatus: input.credentialStatus ?? null,
+      experienceYears: input.experienceYears ?? null,
       accessLevel: input.accessLevel ?? null,
       profileVisibility: input.profileVisibility ?? null,
       consentAcknowledgedAt: new Date(),
     },
   });
 
-  const _dev_code = await sendVerificationSms(teamMember.id, providerUserId);
-  return { ...teamMember, _dev_code };
+  const _dev_code = await sendVerificationEmail(teamMember.id, providerUserId);
+  return { ...(await autoApproveForTesting(teamMember)), _dev_code };
 }
 
-export async function listTeamMembers(providerUserId: string) {
+// TESTING ONLY: while dev codes are returned (local / staging with RETURN_DEV_OTP) a new Team Member is verified
+// automatically so the flow can be tested without an inbox. Email stays required. Real deployments verify by email code.
+async function autoApproveForTesting<T extends { id: string }>(member: T): Promise<T> {
+  if (!returnDevCode()) return member;
+  return prisma.providerTeamMember.update({
+    where: { id: member.id },
+    data: { inviteStatus: "VERIFIED", mobileVerifiedAt: new Date(), verificationCodeHash: null, verificationCodeExpiresAt: null },
+  }) as unknown as T;
+}
+
+export async function listTeamMembers(providerUserId: string, scope?: BranchScope) {
   return prisma.providerTeamMember.findMany({
-    where: { providerUserId, removedAt: null },
+    where: { providerUserId, removedAt: null, ...(scope ? { branchId: { in: scope } } : {}) },
     orderBy: { createdAt: "asc" },
     select: {
       id: true, name: true, mobile: true, skills: true, inviteStatus: true,
-      email: true, relationshipType: true, locations: true, accessLevel: true, profileVisibility: true,
+      email: true, relationshipType: true, locations: true, languages: true, credentialStatus: true, experienceYears: true, accessLevel: true, profileVisibility: true,
       mobileVerifiedAt: true, claimedByUserId: true, createdAt: true,
       branch: { select: { id: true, name: true } },
     },
   });
 }
 
-export async function updateTeamMember(providerUserId: string, teamMemberId: string, input: UpdateTeamMemberInput) {
+export async function updateTeamMember(providerUserId: string, teamMemberId: string, input: UpdateTeamMemberInput, scope?: BranchScope) {
   const member = await prisma.providerTeamMember.findUnique({ where: { id: teamMemberId } });
   if (!member || member.providerUserId !== providerUserId || member.removedAt) throw new NotFoundError("Team Member not found");
+  assertBranchInScope(scope, member.branchId, "Team Member not found");
+  if (input.branchId) assertBranchInScope(scope, input.branchId, "Branch does not belong to your organisation.");
   if (input.branchId && input.branchId !== member.branchId) {
     const branch = await prisma.providerBranch.findUnique({ where: { id: input.branchId } });
     if (!branch || branch.providerUserId !== providerUserId) throw new BadRequestError("Branch does not belong to your organisation.");
@@ -324,16 +471,17 @@ export async function updateTeamMember(providerUserId: string, teamMemberId: str
     data: input,
     select: {
       id: true, name: true, mobile: true, skills: true, inviteStatus: true,
-      email: true, relationshipType: true, locations: true, accessLevel: true, profileVisibility: true,
+      email: true, relationshipType: true, locations: true, languages: true, credentialStatus: true, experienceYears: true, accessLevel: true, profileVisibility: true,
       mobileVerifiedAt: true, claimedByUserId: true, createdAt: true,
       branch: { select: { id: true, name: true } },
     },
   });
 }
 
-export async function removeTeamMember(providerUserId: string, teamMemberId: string) {
+export async function removeTeamMember(providerUserId: string, teamMemberId: string, scope?: BranchScope) {
   const member = await prisma.providerTeamMember.findUnique({ where: { id: teamMemberId } });
   if (!member || member.providerUserId !== providerUserId || member.removedAt) throw new NotFoundError("Team Member not found");
+  assertBranchInScope(scope, member.branchId, "Team Member not found");
   // Soft-remove: the row stays so the person still counts toward this period's capacity.
   await prisma.providerTeamMember.update({ where: { id: teamMemberId }, data: { removedAt: new Date() } });
 }
@@ -343,13 +491,16 @@ export async function resendTeamMemberVerification(providerUserId: string, teamM
   const member = await prisma.providerTeamMember.findUnique({ where: { id: teamMemberId } });
   if (!member || member.providerUserId !== providerUserId) throw new NotFoundError("Team Member not found");
   if (member.inviteStatus === "VERIFIED") throw new ConflictError("This Team Member is already verified.");
-  const _dev_code = await sendVerificationSms(teamMemberId, providerUserId);
+  const _dev_code = await sendVerificationEmail(teamMemberId, providerUserId);
   return { _dev_code };
 }
 
-async function sendVerificationSms(teamMemberId: string, providerUserId: string): Promise<string | undefined> {
+// Team Member verification is by emailed code (no phone OTP). `mobileVerifiedAt` keeps its column name but now records
+// the moment the person confirmed their emailed code.
+async function sendVerificationEmail(teamMemberId: string, providerUserId: string): Promise<string | undefined> {
   const member = await prisma.providerTeamMember.findUnique({ where: { id: teamMemberId } });
   if (!member || member.providerUserId !== providerUserId) throw new NotFoundError("Team Member not found");
+  if (!member.email) throw new BadRequestError("Add an email address for this Team Member first. Verification codes are sent by email.");
 
   const code = generateCode();
   await prisma.providerTeamMember.update({
@@ -360,9 +511,10 @@ async function sendVerificationSms(teamMemberId: string, providerUserId: string)
     },
   });
 
-  await notify.sendSms(
-    member.mobile,
-    `[Shiftify] You've been added as a Team Member. Your verification code is ${code}. Valid ${VERIFICATION_TTL_MINUTES} minutes.`,
+  await notify.sendEmail(
+    member.email,
+    "Your Shiftify verification code",
+    `You've been added as a Team Member. Your verification code is ${code}. It is valid for ${VERIFICATION_TTL_MINUTES} minutes.`,
   );
 
   return returnDevCode() ? code : undefined;
@@ -405,7 +557,7 @@ export async function getCapacitySummary(providerUserId: string) {
       where: { providerUserId, OR: [{ removedAt: null }, { removedAt: { gte: caps.periodStart } }] },
     }),
     countManagedWorkers(providerUserId),
-    prisma.providerAdministrator.count({ where: { providerUserId } }),
+    prisma.providerAdministrator.count({ where: { providerUserId, status: { in: SEAT_STATUSES } } }),
     prisma.providerBranch.count({ where: { providerUserId } }),
   ]);
   return {

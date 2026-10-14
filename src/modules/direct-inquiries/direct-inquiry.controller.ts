@@ -3,7 +3,7 @@ import { BadRequestError, UnauthorizedError } from "../../lib/errors";
 import { success } from "../../utils/response";
 import { parse } from "../../utils/validate";
 import * as svc from "./direct-inquiry.service";
-import { sendDirectInquirySchema, updateInquiryStatusSchema, replyInquirySchema } from "../../validators/direct-inquiry.schema";
+import { sendDirectInquirySchema, updateInquiryStatusSchema, replyInquirySchema, saveIntakeSchema } from "../../validators/direct-inquiry.schema";
 
 // POST /direct-inquiries
 export async function send(req: Request, res: Response): Promise<void> {
@@ -33,6 +33,14 @@ export async function updateStatus(req: Request, res: Response): Promise<void> {
   const { status } = parse(updateInquiryStatusSchema, req.body);
   const inquiry = await svc.updateInquiryStatus(req.params.id, req.user.id, status);
   success(res, { inquiry });
+}
+
+// PUT /direct-inquiries/:id/intake
+export async function saveIntake(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(saveIntakeSchema, req.body);
+  const intake = await svc.saveEnquiryIntake(req.params.id, req.user.id, data);
+  success(res, { intake });
 }
 
 // POST /direct-inquiries/:id/report

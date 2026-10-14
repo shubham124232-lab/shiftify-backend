@@ -12,6 +12,7 @@ router.get  ("/sent",      asyncHandler(ctrl.listSent));
 router.get  ("/received",  asyncHandler(ctrl.listReceived));
 router.patch("/:id/read",  asyncHandler(ctrl.markRead));
 router.patch("/:id/status", asyncHandler(ctrl.updateStatus));
+router.put  ("/:id/intake", asyncHandler(ctrl.saveIntake));
 router.post ("/:id/reply",  asyncHandler(ctrl.reply));
 router.post ("/:id/report", asyncHandler(ctrl.report));
 

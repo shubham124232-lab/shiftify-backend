@@ -96,6 +96,12 @@ export const createJobSchema = z.object({
   // ── Coordinator / PM extras (internal only) ──────────────────────────────
   workerPreferences:      z.record(z.unknown()).optional(),
   internalNote:           z.string().max(2000).optional(),
+  // Provider staffing wizard
+  branchId:               z.string().uuid().optional(),
+  requestType:            z.string().max(40).optional(),
+  responsibleAdminUserId: z.string().uuid().optional(),
+  workersRequired:        z.number().int().min(1).max(50).optional(),
+  distribution:           z.record(z.unknown()).optional(),
   caseReference:          z.string().max(120).optional(),
   // NEW_SUPPORT | REPLACEMENT | URGENT_INTERIM | HOSPITAL_DISCHARGE | SIL_SDA | etc.
   requestPurposeCategory: z.string().max(80).optional(),
@@ -247,7 +253,7 @@ export const updateDraftJobSchema = z.object({
   scheduledEndAt:      z.string().datetime({ offset: true }).optional(),
   category:            JobCategoryEnum.optional(),
   subcategory:         z.string().max(100).optional(),
-  selectedTasks:       z.array(z.string()).optional(),
+  selectedTasks:       z.union([z.array(z.string().max(120)).max(50), z.record(z.unknown())]).optional(),
   isRecurring:         z.boolean().optional(),
   recurrencePattern:   z.record(z.unknown()).optional(),
   fundingType:         FundingTypeEnum.optional(),
@@ -263,6 +269,27 @@ export const updateDraftJobSchema = z.object({
   postcode:            z.string().max(10).optional(),
   addressLine:         z.string().max(300).optional(),
   locationNotes:       z.string().max(1000).optional(),
+  // Provider staffing wizard "Edit" - the same fields the wizard creates a request with.
+  title:                  z.string().min(3).max(200).optional(),
+  shiftType:              ShiftTypeEnum.optional(),
+  timeFlexibility:        z.string().max(40).optional(),
+  applicationDeadlineAt:  z.string().datetime({ offset: true }).optional(),
+  serviceDeliveryMode:    z.string().max(50).optional(),
+  visibilityTarget:       z.string().max(40).optional(),
+  planManagerName:        z.string().max(120).optional(),
+  responsePreferences:    z.record(z.unknown()).optional(),
+  workerPreferences:      z.record(z.unknown()).optional(),
+  internalNote:           z.string().max(2000).optional(),
+  branchId:               z.string().uuid().optional(),
+  requestType:            z.string().max(40).optional(),
+  responsibleAdminUserId: z.string().uuid().optional(),
+  workersRequired:        z.number().int().min(1).max(50).optional(),
+  distribution:           z.record(z.unknown()).optional(),
+  requestPurposeCategory: z.string().max(80).optional(),
+  riskSafetyNotes:        z.string().max(2000).optional(),
+  safetyFlags:            z.record(z.unknown()).optional(),
+  emergencyContactName:   z.string().max(120).optional(),
+  emergencyContactPhone:  phoneOptional,
 }).strict();
 
 // ─── Provider assigns a worker after being selected ──────────────────────────

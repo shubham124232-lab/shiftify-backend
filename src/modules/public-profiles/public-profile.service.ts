@@ -25,6 +25,7 @@ export async function getPublicProfile(viewerUserId: string, subjectUserId: stri
           stateCoverage: true, languages: true, accessibilityCapabilities: true, culturalCapabilities: true,
           enquiryPreference: true, logoUrl: true, averageRating: true, totalRatings: true, isPubliclyListed: true,
           currentCapacityStatus: true,
+          fundingAccepted: true, continuityModel: true, intakeProcess: true,
         },
       },
     },

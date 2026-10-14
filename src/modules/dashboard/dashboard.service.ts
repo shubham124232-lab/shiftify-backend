@@ -379,7 +379,7 @@ async function providerDashboard(userId: string) {
     prisma.supportRequest.count({ where: { postedByUserId: userId, applications: { some: { status: incoming.status } } } }),
     prisma.jobApplication.findMany({ where: { applicantUserId: userId, status: "INTERESTED" }, include: { job: { select: JOB_SUMMARY } }, orderBy: { createdAt: "desc" }, take: 5 }),
     prisma.jobApplication.count({ where: { applicantUserId: userId, status: "INTERESTED" } }),
-    prisma.supportRequest.findMany({ where: active, select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
+    prisma.supportRequest.findMany({ where: active, select: { ...JOB_SUMMARY, selectedApplicant: { select: { name: true } } }, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
     prisma.supportRequest.findMany({ where: awaitingAllocation, select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
     prisma.supportRequest.count({ where: awaitingAllocation }),
     prisma.supportRequest.count({ where: { selectedApplicantUserId: userId, status: { in: ["CONFIRMED", "COMPLETED"] } } }),

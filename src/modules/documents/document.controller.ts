@@ -27,6 +27,11 @@ export async function listDocuments(req: Request, res: Response): Promise<void> 
   success(res, { documents });
 }
 
+export async function listOrganisationDocuments(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, await documentService.listOrganisationDocuments(req.user.id));
+}
+
 export async function deleteDocument(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   await documentService.deleteDocument(req.user.id, req.params.id);

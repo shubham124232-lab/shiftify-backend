@@ -8,11 +8,15 @@ export const createBranchSchema = z.object({
   serviceLines: z.array(z.string().max(60)).max(20).optional(),
   address: z.string().max(300).nullable().optional(),
   escalationContact: z.string().max(200).nullable().optional(),
+  contact: z.string().max(200).nullable().optional(),
+  serviceRadiusKm: z.number().int().min(1).max(500).nullable().optional(),
 }).strict();
 export type CreateBranchInput = z.infer<typeof createBranchSchema>;
 
 export const updateBranchSchema = createBranchSchema.partial().extend({
   isActive: z.boolean().optional(),
+  // Deactivating a Branch with active work: move its active requests and Team Members here first (doc P15).
+  transferToBranchId: z.string().uuid().optional(),
 }).strict();
 export type UpdateBranchInput = z.infer<typeof updateBranchSchema>;
 
@@ -23,6 +27,7 @@ export const createAdministratorSchema = z.object({
   branchIds: z.array(z.string().uuid()).optional(),
   rolePreset: z.enum(ADMIN_ROLE_PRESETS).optional(),
   billingAccess: z.boolean().optional(),
+  referralCode: z.string().trim().max(40).optional(),
 }).strict();
 export type CreateAdministratorInput = z.infer<typeof createAdministratorSchema>;
 
@@ -38,9 +43,13 @@ export const createTeamMemberSchema = z.object({
   name: z.string().min(1).max(120),
   mobile: z.string().min(6).max(20),
   skills: z.array(z.string().max(60)).max(20).optional(),
-  email: z.string().email().optional(),
+  // Required: the verification code is emailed (no phone OTP).
+  email: z.string().email("Enter the Team Member's email address"),
   relationshipType: z.enum(["EMPLOYEE", "CONTRACTOR", "OTHER"]),
   locations: z.array(z.string().max(80)).max(20).optional(),
+  languages: z.array(z.string().max(40)).max(20).optional(),
+  credentialStatus: z.enum(["CURRENT", "NEEDS_REVIEW", "NOT_PROVIDED"]).optional(),
+  experienceYears: z.number().int().min(0).max(60).nullable().optional(),
   accessLevel: z.enum(["STANDARD", "LIMITED"]).optional(),
   profileVisibility: z.enum(["ORGANISATION_ONLY", "VISIBLE_TO_PARTICIPANTS"]).optional(),
   consentAcknowledged: z.literal(true, { errorMap: () => ({ message: "Confirm the worker has agreed to be linked to your organisation" }) }),
@@ -54,6 +63,9 @@ export const updateTeamMemberSchema = z.object({
   email: z.string().email().nullable().optional(),
   relationshipType: z.enum(["EMPLOYEE", "CONTRACTOR", "OTHER"]).optional(),
   locations: z.array(z.string().max(80)).max(20).optional(),
+  languages: z.array(z.string().max(40)).max(20).optional(),
+  credentialStatus: z.enum(["CURRENT", "NEEDS_REVIEW", "NOT_PROVIDED"]).optional(),
+  experienceYears: z.number().int().min(0).max(60).nullable().optional(),
   accessLevel: z.enum(["STANDARD", "LIMITED"]).optional(),
   profileVisibility: z.enum(["ORGANISATION_ONLY", "VISIBLE_TO_PARTICIPANTS"]).optional(),
   branchId: z.string().uuid().optional(),

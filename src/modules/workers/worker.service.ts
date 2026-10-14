@@ -80,6 +80,12 @@ export async function browseAvailableWorkers(
         locationDisplay: true,
         nameDisplayMode: true,
         rateDisplayMode: true,
+        languagesSpoken: true,
+        experienceYearsBucket: true,
+        travelRadiusKm: true,
+        ndisScreeningExpiry: true,
+        wwccExpiry: true,
+        policeCheckExpiry: true,
         user: { select: { id: true, name: true, avatarUrl: true } },
       },
     }),
@@ -89,8 +95,14 @@ export async function browseAvailableWorkers(
   // SW doc §2-3 Window 14 — this listing is a pre-Connect discovery surface
   // (no interaction with the browsing user exists yet for any worker here), so
   // it's exactly where the worker's own display-mode preferences apply.
-  const masked = workers.map(({ nameDisplayMode, rateDisplayMode, hourlyRate, user, postcode, locationDisplay, ...w }) => ({
+  const now = new Date();
+  const masked = workers.map(({ nameDisplayMode, rateDisplayMode, hourlyRate, user, postcode, locationDisplay, ndisScreeningExpiry, wwccExpiry, policeCheckExpiry, ...w }) => {
+    // Only a yes/no summary leaves the server: every recorded check is in date, and the NDIS Worker Screening is on file.
+    const recorded = [ndisScreeningExpiry, wwccExpiry, policeCheckExpiry].filter((d): d is Date => d !== null);
+    const credentialSummaryCurrent = ndisScreeningExpiry !== null && recorded.every((d) => d > now);
+    return {
     ...w,
+    credentialSummaryCurrent,
     ...maskLocation({ suburb: w.suburb, state: w.state, postcode, locationDisplay }),
     hourlyRate: rateDisplayMode === "PUBLIC" || rateDisplayMode == null ? hourlyRate : null,
     user: {
@@ -98,7 +110,8 @@ export async function browseAvailableWorkers(
       name: nameDisplayMode === "FIRST_NAME_INITIAL" ? toFirstNameInitial(user.name) : user.name,
     },
     cancellationRate: cancellationRate(w.totalCompleted, w.totalCancelledByWorker),
-  }));
+  };
+  });
 
   return { workers: masked, total, page, limit };
 }

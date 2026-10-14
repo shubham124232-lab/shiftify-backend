@@ -8,7 +8,7 @@ import {
 } from "../../validators/auth.schema";
 import * as authService from "./auth.service";
 import { success } from "../../utils/response";
-import { UnauthorizedError } from "../../lib/errors";
+import { UnauthorizedError, ForbiddenError } from "../../lib/errors";
 import { env } from "../../config/env";
 import type { User, UserRole } from "@prisma/client";
 
@@ -123,12 +123,12 @@ export async function logout(req: Request, res: Response): Promise<void> {
   success(res, { ok: true });
 }
 
-// POST /auth/roles — add another role to the current account.
+// POST /auth/roles — closed: each Shiftify login holds one account role (client rule, 2026-10-14).
+// Anyone who needs a second role signs up again with a different email. removeRole stays so older
+// multi-role accounts can be tidied up.
 export async function addRole(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
-  const { role } = addRoleSchema.parse(req.body);
-  const roles = await authService.addRole(req.user.id, role);
-  success(res, { roles }, 201);
+  throw new ForbiddenError("Each Shiftify login holds one account role. To use another role, sign up with a different email.");
 }
 
 // DELETE /auth/roles/:role — drop a role from the current account.

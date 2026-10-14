@@ -463,6 +463,11 @@ export async function createJob(
     ? (input.selectedTasks as Prisma.InputJsonValue)
     : undefined,
       internalNote:         input.internalNote ?? null,
+      branchId:               input.branchId ?? null,
+      requestType:            input.requestType ?? null,
+      responsibleAdminUserId: input.responsibleAdminUserId ?? null,
+      workersRequired:        input.workersRequired ?? 1,
+      distribution:           input.distribution ? (input.distribution as Prisma.InputJsonValue) : undefined,
       caseReference:        input.caseReference ?? null,
       requestPurposeCategory: input.requestPurposeCategory ?? null,
       // Step 4 (safety-critical)
@@ -1668,14 +1673,24 @@ export async function updateDraftJob(
     assertStartMatchesTier(job!.urgency, new Date(input.scheduledStartAt), false);
   }
 
-  const { scheduledStartAt, scheduledEndAt, recurrencePattern, ...rest } = input;
+  const {
+    scheduledStartAt, scheduledEndAt, recurrencePattern, applicationDeadlineAt,
+    selectedTasks, workerPreferences, safetyFlags, distribution, responsePreferences, ...rest
+  } = input;
+  const json = (v: unknown) => v as Prisma.InputJsonValue;
   return prisma.supportRequest.update({
     where: { id: jobId },
     data: {
       ...rest,
       ...(scheduledStartAt ? { scheduledStartAt: new Date(scheduledStartAt) } : {}),
       ...(scheduledEndAt ? { scheduledEndAt: new Date(scheduledEndAt) } : {}),
-      ...(recurrencePattern ? { recurrencePattern: recurrencePattern as Prisma.InputJsonValue } : {}),
+      ...(applicationDeadlineAt ? { applicationDeadlineAt: new Date(applicationDeadlineAt) } : {}),
+      ...(recurrencePattern ? { recurrencePattern: json(recurrencePattern) } : {}),
+      ...(selectedTasks ? { selectedTasks: json(selectedTasks) } : {}),
+      ...(workerPreferences ? { workerPreferences: json(workerPreferences) } : {}),
+      ...(safetyFlags ? { safetyFlags: json(safetyFlags) } : {}),
+      ...(distribution ? { distribution: json(distribution) } : {}),
+      ...(responsePreferences ? { responsePreferences: json(responsePreferences) } : {}),
     },
   });
 }
