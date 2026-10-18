@@ -1,3 +1,4 @@
+import { recordReferral } from "../refer-earn/refer-earn.service";
 import type { Request, Response } from "express";
 import {
   baseRegisterSchema,
@@ -48,7 +49,9 @@ function publicUser(user: User, roles: UserRole[], activeRole: UserRole) {
 
 export async function register(req: Request, res: Response): Promise<void> {
   const body = baseRegisterSchema.parse(req.body);
-  const r = await authService.register(body);
+  const { referralCode, ...registerInput } = body;
+  const r = await authService.register(registerInput);
+  await recordReferral(r.user.id, referralCode).catch(() => undefined);
   setRefreshCookie(res, r.tokens.refreshToken, r.tokens.refreshTokenExpiresAt);
   success(
     res,

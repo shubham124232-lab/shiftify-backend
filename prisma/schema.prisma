@@ -313,6 +313,9 @@ model User {
   emailVerified Boolean @default(false)
   phoneVerified Boolean @default(false)
 
+  // Provider handoff Refer & Earn (additive): the code this person shares. Created the first time it is needed.
+  referralCode String? @unique
+
   // Guest window for self-registered participants — now keyed off email verification (OTP),
   // not magic links.
   guestUntil          DateTime?
@@ -2369,7 +2372,8 @@ model TeamAvailabilityReply {
   memberUserId String? // managed worker's login user
   teamMemberId String? // roster member
   memberName   String
-  status       String   @default("PENDING") // PENDING | AVAILABLE | UNAVAILABLE
+  status       String   @default("PENDING") // PENDING | AVAILABLE | CONDITIONS | UNAVAILABLE
+  conditionsNote String? // what the worker needs when status is CONDITIONS
   respondedAt  DateTime?
 
   @@index([requestId])
@@ -2414,4 +2418,31 @@ model SupportTicket {
   updatedAt   DateTime @updatedAt
 
   @@index([userId, status])
+}
+
+// Provider handoff Refer & Earn: one row per new account that signed up with a peer referral code.
+// PENDING until the new account verifies contact details and completes its profile; then QUALIFIED, or NOT_ELIGIBLE with a reason.
+model Referral {
+  id             String    @id @default(uuid())
+  referrerUserId String
+  referredUserId String    @unique
+  code           String
+  status         String    @default("PENDING") // PENDING | QUALIFIED | NOT_ELIGIBLE
+  reason         String?
+  createdAt      DateTime  @default(now())
+  qualifiedAt    DateTime?
+
+  @@index([referrerUserId, status])
+}
+
+// Provider handoff Help & Tickets: replies on a ticket. authorKind is USER (the account) or SUPPORT (Shiftify staff).
+model TicketMessage {
+  id           String   @id @default(uuid())
+  ticketId     String
+  authorUserId String?
+  authorKind   String   @default("USER") // USER | SUPPORT
+  body         String
+  createdAt    DateTime @default(now())
+
+  @@index([ticketId, createdAt])
 }

@@ -12,9 +12,10 @@ const INCLUDE = {
   job:         { select: { id: true, title: true, status: true, postedByUserId: true, urgency: true, category: true, suburb: true, state: true, scheduledStartAt: true, totalHours: true, budgetPerHour: true, isRecurring: true, applicationDeadlineAt: true } },
 } as const;
 
-// Pricing V2 §9.4 — a Provider's Direct Connect invite is a paid $9.99 charge,
-// only taken if the worker accepts. A Coordinator's SC-F01-06 invite is free.
-const PROVIDER_DIRECT_CONNECT_PRICE_AUD = 9.99;
+// Provider Final handoff — Direct Connect is included in every paid plan: no connection fee, no checkout.
+// The amount stays 0 (not null) so a Provider invite is still marked as a Direct Connect for the 3-concurrent-invite rule (§9.3).
+// A Coordinator's SC-F01-06 invite carries no amount.
+const PROVIDER_DIRECT_CONNECT_PRICE_AUD = 0;
 
 // ─── Poster invites one specific worker/provider to their job (free for a ─────
 // Coordinator's SC-F01-06 invite, paid for a Provider's Direct Connect, §9).

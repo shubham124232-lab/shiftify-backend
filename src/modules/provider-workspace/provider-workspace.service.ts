@@ -454,12 +454,12 @@ export async function createAvailabilityRequest(
 }
 
 // The Provider records the answer of a roster (mobile-only) member, e.g. after a phone call.
-export async function recordRosterReply(providerUserId: string, replyId: string, status: "AVAILABLE" | "UNAVAILABLE") {
+export async function recordRosterReply(providerUserId: string, replyId: string, status: "AVAILABLE" | "CONDITIONS" | "UNAVAILABLE", conditionsNote?: string) {
   const reply = await prisma.teamAvailabilityReply.findUnique({ where: { id: replyId }, include: { request: { select: { providerUserId: true } } } });
   if (!reply || reply.request.providerUserId !== providerUserId) throw new NotFoundError("Reply not found");
   // Login workers reply for themselves; the Provider may only preview their answer on staging.
   if (reply.memberType !== "ROSTER" && !devCodesEnabled) throw new ForbiddenError("Managed workers reply for themselves.");
-  return prisma.teamAvailabilityReply.update({ where: { id: replyId }, data: { status, respondedAt: new Date() } });
+  return prisma.teamAvailabilityReply.update({ where: { id: replyId }, data: { status, conditionsNote: status === "CONDITIONS" ? conditionsNote ?? null : null, respondedAt: new Date() } });
 }
 
 // Managed worker side: requests addressed to me, newest first.
@@ -612,16 +612,16 @@ export async function myAvailabilityRequests(workerUserId: string) {
   return replies;
 }
 
-export async function respondToAvailabilityRequest(workerUserId: string, replyId: string, status: "AVAILABLE" | "UNAVAILABLE") {
+export async function respondToAvailabilityRequest(workerUserId: string, replyId: string, status: "AVAILABLE" | "CONDITIONS" | "UNAVAILABLE", conditionsNote?: string) {
   const reply = await prisma.teamAvailabilityReply.findUnique({ where: { id: replyId } });
   if (!reply || reply.memberUserId !== workerUserId) throw new NotFoundError("Request not found");
   const updated = await prisma.teamAvailabilityReply.update({
-    where: { id: replyId }, data: { status, respondedAt: new Date() },
+    where: { id: replyId }, data: { status, conditionsNote: status === "CONDITIONS" ? conditionsNote ?? null : null, respondedAt: new Date() },
     include: { request: { select: { providerUserId: true, title: true, jobId: true } } },
   });
   const who = await prisma.user.findUnique({ where: { id: workerUserId }, select: { name: true } });
-  void notify.sendPushNotification(updated.request.providerUserId, `Availability reply: ${status === "AVAILABLE" ? "available" : "unavailable"}`,
-    `${who?.name ?? "A team member"} is ${status === "AVAILABLE" ? "available" : "unavailable"} for: ${updated.request.title}.`,
+  void notify.sendPushNotification(updated.request.providerUserId, `Availability reply: ${status === "AVAILABLE" ? "available" : status === "CONDITIONS" ? "available with conditions" : "unavailable"}`,
+    `${who?.name ?? "A team member"} is ${status === "AVAILABLE" ? "available" : status === "CONDITIONS" ? `available with conditions (${conditionsNote ?? ""})` : "unavailable"} for: ${updated.request.title}.`,
     { requestId: reply.requestId, ...(updated.request.jobId ? { jobId: updated.request.jobId } : {}) }, "TEAM_AVAILABILITY_REQUEST").catch(() => undefined);
   return updated;
 }

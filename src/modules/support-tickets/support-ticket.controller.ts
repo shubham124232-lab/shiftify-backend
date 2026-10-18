@@ -19,6 +19,29 @@ export async function createTicket(req: Request, res: Response): Promise<void> {
   success(res, { ticket }, 201);
 }
 
+const replySchema = z.object({ body: z.string().trim().min(1, "Write a reply").max(4000) }).strict();
+
+export async function getTicket(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, await svc.getTicket(req.user.id, req.params.id));
+}
+
+export async function replyToTicket(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const { body } = parse(replySchema, req.body);
+  success(res, { message: await svc.replyToTicket(req.user.id, req.params.id, body) }, 201);
+}
+
+export async function resolveTicket(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, { ticket: await svc.setTicketState(req.user.id, req.params.id, "resolve") });
+}
+
+export async function reopenTicket(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, { ticket: await svc.setTicketState(req.user.id, req.params.id, "reopen") });
+}
+
 export async function listTickets(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const status = typeof req.query.status === "string" && (svc.TICKET_STATUSES as readonly string[]).includes(req.query.status) ? req.query.status : undefined;

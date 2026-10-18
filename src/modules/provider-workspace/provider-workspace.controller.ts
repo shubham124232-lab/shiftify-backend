@@ -49,11 +49,14 @@ export async function createAvailabilityRequest(req: Request, res: Response): Pr
   success(res, { request: await svc.createAvailabilityRequest(uid(req), data) }, 201);
 }
 
-const replySchema = z.object({ status: z.enum(["AVAILABLE", "UNAVAILABLE"]) }).strict();
+const replySchema = z.object({
+  status: z.enum(["AVAILABLE", "CONDITIONS", "UNAVAILABLE"]),
+  conditionsNote: z.string().trim().max(500).optional(),
+}).strict().refine((v) => v.status !== "CONDITIONS" || !!v.conditionsNote, { message: "Say what conditions apply", path: ["conditionsNote"] });
 
 export async function recordRosterReply(req: Request, res: Response): Promise<void> {
-  const { status } = parse(replySchema, req.body);
-  success(res, { reply: await svc.recordRosterReply(uid(req), req.params.id, status) });
+  const { status, conditionsNote } = parse(replySchema, req.body);
+  success(res, { reply: await svc.recordRosterReply(uid(req), req.params.id, status, conditionsNote) });
 }
 
 export async function getMyAvailabilityRequests(req: Request, res: Response): Promise<void> {
@@ -61,8 +64,8 @@ export async function getMyAvailabilityRequests(req: Request, res: Response): Pr
 }
 
 export async function respondToAvailabilityRequest(req: Request, res: Response): Promise<void> {
-  const { status } = parse(replySchema, req.body);
-  success(res, { reply: await svc.respondToAvailabilityRequest(uid(req), req.params.id, status) });
+  const { status, conditionsNote } = parse(replySchema, req.body);
+  success(res, { reply: await svc.respondToAvailabilityRequest(uid(req), req.params.id, status, conditionsNote) });
 }
 
 // ─── Internal shift offers ────────────────────────────────────────────────────

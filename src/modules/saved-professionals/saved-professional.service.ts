@@ -55,7 +55,7 @@ export async function listSavedProfessionals(ownerUserId: string, listType?: str
         select: {
           id: true, name: true, avatarUrl: true,
           roles: { select: { role: true } },
-          workerProfile:   { select: { rating: true, totalReviews: true, hourlyRate: true, servicesOffered: true, suburb: true, state: true } },
+          workerProfile:   { select: { rating: true, totalReviews: true, hourlyRate: true, servicesOffered: true, suburb: true, state: true, isAvailableNow: true, languagesSpoken: true, travelRadiusKm: true } },
           providerProfile: { select: { averageRating: true, totalRatings: true, coreServices: true, businessName: true } },
         },
       },

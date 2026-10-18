@@ -28,6 +28,7 @@ import jobInviteRoutes             from "./modules/job-invites/job-invite.routes
 import providerOrgRoutes            from "./modules/provider-org/provider-org.routes";
 import providerWorkspaceRoutes      from "./modules/provider-workspace/provider-workspace.routes";
 import supportTicketRoutes          from "./modules/support-tickets/support-ticket.routes";
+import referEarnRoutes              from "./modules/refer-earn/refer-earn.routes";
 import availabilityListingRoutes    from "./modules/availability-listings/availability-listing.routes";
 import professionalSearchRoutes     from "./modules/professional-search/professional-search.routes";
 import directInquiryRoutes          from "./modules/direct-inquiries/direct-inquiry.routes";
@@ -114,6 +115,7 @@ app.use("/job-invites",             jobInviteRoutes);
 app.use("/provider-org",            providerOrgRoutes);
 app.use("/provider-workspace",      providerWorkspaceRoutes);
 app.use("/support-tickets",         supportTicketRoutes);
+app.use("/refer-and-earn",          referEarnRoutes);
 app.use("/availability-listings",   availabilityListingRoutes);
 app.use("/professional-search",     professionalSearchRoutes);
 app.use("/direct-inquiries",         directInquiryRoutes);
