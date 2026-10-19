@@ -13,8 +13,10 @@ import type {
   RespondDirectConnectInput,
 } from "../../validators/direct-connect.schema";
 
+const DIRECT_CONNECT_FEE_AUD = 9.99;
+
 // ─── Provider sends a Direct Connect invite to a worker ───────────────────────
-// Direct Connect is included in paid plans (Final handoff): no charge on send or on accept.
+// No charge on send. Provider Final handoff: $9.99 is only taken if the worker accepts.
 
 export async function createDirectConnect(
   providerUserId: string,
@@ -110,7 +112,7 @@ export async function respondToDirectConnect(
   });
 
   const providerBody = input.action === "ACCEPT"
-    ? `${updated.worker.name} accepted your Direct Connect invite.`
+    ? `${updated.worker.name} accepted your Direct Connect invite. $${DIRECT_CONNECT_FEE_AUD.toFixed(2)} charged.`
     : `${updated.worker.name} declined your Direct Connect invite.`;
 
   void notify.sendPushNotification(
