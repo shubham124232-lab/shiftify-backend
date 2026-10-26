@@ -208,19 +208,12 @@ const sections: Record<string, () => Promise<void>> = {
 
   async roles() {
     const a = actors.authUser ?? (await register("PARTICIPANT", "role"))!;
+    // One login holds one role: a second role needs a separate sign-up.
     let r = await req("POST", "/auth/roles", { role: "SUPPORT_WORKER" }, a.token);
-    report(r.status === 200 || r.status === 201, "add second role (SUPPORT_WORKER)", JSON.stringify(r.body).slice(0, 150));
+    report(r.status === 403 && errCode(r) === "FORBIDDEN", "second role on one login is blocked", `status=${r.status} code=${errCode(r)}`);
 
     r = await req("POST", "/auth/switch-role", { role: "SUPPORT_WORKER" }, a.token);
-    const d = data(r);
-    const newTok = d.accessToken ?? d.tokens?.accessToken;
-    report(r.status === 200 && !!newTok, "switch role re-mints token", JSON.stringify(r.body).slice(0, 150));
-
-    if (newTok) {
-      // activeRole is carried in the JWT, not on /users/me — decode the payload.
-      const payload = JSON.parse(Buffer.from(newTok.split(".")[1], "base64url").toString());
-      report(payload.activeRole === "SUPPORT_WORKER", "activeRole switched (JWT claim)", `activeRole=${payload.activeRole}`);
-    }
+    report(r.status === 403 && errCode(r) === "FORBIDDEN", "switch to a role the login does not hold is blocked", `status=${r.status} code=${errCode(r)}`);
   },
 
   async profile() {
