@@ -52,7 +52,7 @@ export const createTeamMemberSchema = z.object({
   experienceYears: z.number().int().min(0).max(60).nullable().optional(),
   accessLevel: z.enum(["STANDARD", "LIMITED"]).optional(),
   profileVisibility: z.enum(["ORGANISATION_ONLY", "VISIBLE_TO_PARTICIPANTS"]).optional(),
-  consentAcknowledged: z.literal(true, { errorMap: () => ({ message: "Confirm the worker has agreed to be linked to your organisation" }) }),
+  consentAcknowledged: z.literal(true, { message: "Confirm the worker has agreed to be linked to your organisation" }),
   branchId: z.string().uuid(),
 }).strict();
 export type CreateTeamMemberInput = z.infer<typeof createTeamMemberSchema>;

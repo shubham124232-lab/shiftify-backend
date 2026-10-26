@@ -28,24 +28,22 @@ function humanizeZodIssue(issue: ZodIssue): string {
   const field = humanizeFieldName(issue.path.join("."));
 
   switch (issue.code) {
-    case "invalid_enum_value":
+    case "invalid_value":
       return `Please choose a valid option for "${field}".`;
     case "invalid_type":
-      return issue.received === "undefined"
+      return /received undefined/.test(issue.message)
         ? `"${field}" is required.`
         : `"${field}" isn't the right type of value.`;
     case "too_small":
-      return issue.type === "string"
+      return issue.origin === "string"
         ? `"${field}" is too short.`
         : `"${field}" is too small.`;
     case "too_big":
-      return issue.type === "string"
+      return issue.origin === "string"
         ? `"${field}" is too long.`
         : `"${field}" is too large.`;
-    case "invalid_string":
+    case "invalid_format":
       return `"${field}" isn't in a valid format.`;
-    case "invalid_date":
-      return `"${field}" isn't a valid date.`;
     default:
       return `"${field}" is invalid. Please check this field.`;
   }

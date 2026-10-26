@@ -44,7 +44,7 @@ export const createJobSchema = z.object({
   // by category — both shapes land in the same Json? column unchanged.
   selectedTasks:          z.union([
     z.array(z.string().max(120)).max(50),
-    z.record(z.unknown()),
+    z.record(z.string(), z.unknown()),
   ]).optional(),
 
   // ── Step 2: Schedule ────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ export const createJobSchema = z.object({
   scheduledEndAt:         z.string().datetime({ offset: true }),
   totalHours:             z.number().positive().max(500).optional(),
   isRecurring:            z.boolean().default(false),
-  recurrencePattern:      z.record(z.unknown()).optional(),
+  recurrencePattern:      z.record(z.string(), z.unknown()).optional(),
   applicationDeadlineAt:  z.string().datetime({ offset: true }).optional(),
 
   // ── Step 3: Location ────────────────────────────────────────────────────
@@ -82,8 +82,8 @@ export const createJobSchema = z.object({
   travelReimbursement:    z.string().max(40).optional(),
   planManagerName:        z.string().max(120).optional(),
   // Last-Minute "how would you like updates" / Routine "how should professionals respond" (participant posting spec).
-  contactPreferences:     z.record(z.unknown()).optional(),
-  responsePreferences:    z.record(z.unknown()).optional(),
+  contactPreferences:     z.record(z.string(), z.unknown()).optional(),
+  responsePreferences:    z.record(z.string(), z.unknown()).optional(),
 
   // ── Step 7: Visibility & matching ────────────────────────────────────────
   // ALL | VERIFIED | PROVIDERS_ONLY | WORKERS_ONLY | INVITE_ONLY
@@ -94,14 +94,14 @@ export const createJobSchema = z.object({
   allowDirectMessages:    z.boolean().default(true),
 
   // ── Coordinator / PM extras (internal only) ──────────────────────────────
-  workerPreferences:      z.record(z.unknown()).optional(),
+  workerPreferences:      z.record(z.string(), z.unknown()).optional(),
   internalNote:           z.string().max(2000).optional(),
   // Provider staffing wizard
   branchId:               z.string().uuid().optional(),
   requestType:            z.string().max(40).optional(),
   responsibleAdminUserId: z.string().uuid().optional(),
   workersRequired:        z.number().int().min(1).max(50).optional(),
-  distribution:           z.record(z.unknown()).optional(),
+  distribution:           z.record(z.string(), z.unknown()).optional(),
   caseReference:          z.string().max(120).optional(),
   // NEW_SUPPORT | REPLACEMENT | URGENT_INTERIM | HOSPITAL_DISCHARGE | SIL_SDA | etc.
   requestPurposeCategory: z.string().max(80).optional(),
@@ -111,7 +111,7 @@ export const createJobSchema = z.object({
   medicalNotes:           z.string().max(2000).optional(),
   behaviourNotes:         z.string().max(2000).optional(),
   // Structured safety checklist selections (participant posting spec).
-  safetyFlags:            z.record(z.unknown()).optional(),
+  safetyFlags:            z.record(z.string(), z.unknown()).optional(),
   // Per-job emergency contact override — falls back to the participant profile's
   // own emergency contact if left blank.
   emergencyContactName:         z.string().max(120).optional(),
@@ -222,7 +222,7 @@ export const applyJobSchema = z.object({
   introduction:       z.string().max(3000).optional(),
 
   // Structured confirmations blob (suitability checkboxes, docs visibility, etc.)
-  applicationData:    z.record(z.unknown()).optional(),
+  applicationData:    z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
 // ─── Cancel ──────────────────────────────────────────────────────────────────
@@ -253,9 +253,9 @@ export const updateDraftJobSchema = z.object({
   scheduledEndAt:      z.string().datetime({ offset: true }).optional(),
   category:            JobCategoryEnum.optional(),
   subcategory:         z.string().max(100).optional(),
-  selectedTasks:       z.union([z.array(z.string().max(120)).max(50), z.record(z.unknown())]).optional(),
+  selectedTasks:       z.union([z.array(z.string().max(120)).max(50), z.record(z.string(), z.unknown())]).optional(),
   isRecurring:         z.boolean().optional(),
-  recurrencePattern:   z.record(z.unknown()).optional(),
+  recurrencePattern:   z.record(z.string(), z.unknown()).optional(),
   fundingType:         FundingTypeEnum.optional(),
   budgetType:          z.string().optional(),
   budgetPerHour:       z.number().min(0).max(9999).optional(),
@@ -277,17 +277,17 @@ export const updateDraftJobSchema = z.object({
   serviceDeliveryMode:    z.string().max(50).optional(),
   visibilityTarget:       z.string().max(40).optional(),
   planManagerName:        z.string().max(120).optional(),
-  responsePreferences:    z.record(z.unknown()).optional(),
-  workerPreferences:      z.record(z.unknown()).optional(),
+  responsePreferences:    z.record(z.string(), z.unknown()).optional(),
+  workerPreferences:      z.record(z.string(), z.unknown()).optional(),
   internalNote:           z.string().max(2000).optional(),
   branchId:               z.string().uuid().optional(),
   requestType:            z.string().max(40).optional(),
   responsibleAdminUserId: z.string().uuid().optional(),
   workersRequired:        z.number().int().min(1).max(50).optional(),
-  distribution:           z.record(z.unknown()).optional(),
+  distribution:           z.record(z.string(), z.unknown()).optional(),
   requestPurposeCategory: z.string().max(80).optional(),
   riskSafetyNotes:        z.string().max(2000).optional(),
-  safetyFlags:            z.record(z.unknown()).optional(),
+  safetyFlags:            z.record(z.string(), z.unknown()).optional(),
   emergencyContactName:   z.string().max(120).optional(),
   emergencyContactPhone:  phoneOptional,
 }).strict();
@@ -354,7 +354,7 @@ export const workerPaymentStatusSchema = z.object({ paid: z.boolean() }).strict(
 export const createChangeRequestSchema = z.object({
   changeType:  z.enum(["TIME", "DURATION", "DATE", "RECURRENCE", "RATE", "OTHER"]),
   reason:      z.string().max(500).optional(),
-  alternative: z.record(z.unknown()),
+  alternative: z.record(z.string(), z.unknown()),
 }).strict();
 
 export const respondChangeRequestSchema = z.object({

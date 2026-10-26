@@ -63,12 +63,13 @@ const workPreferencesSchema = z.object({
 });
 
 function applyWorkerRefinements<Shape extends z.ZodRawShape>(schema: z.ZodObject<Shape>) {
-  return schema.strict().superRefine((data, ctx) => {
+  return schema.strict().superRefine((raw, ctx) => {
+    const data = raw as { rightToWork?: string; visaType?: unknown; visaExpiry?: unknown };
     // The ABN is asked in the "Work and business details" window, after the work setup is saved, so it is no longer
     // required in the same request as workType.
     if (data.rightToWork === "VISA_HOLDER") {
-      if (!data.visaType) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["visaType"], message: "Visa type is required for visa holders" });
-      if (!data.visaExpiry) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["visaExpiry"], message: "Visa expiry is required for visa holders" });
+      if (!data.visaType) ctx.addIssue({ code: "custom", path: ["visaType"], message: "Visa type is required for visa holders" });
+      if (!data.visaExpiry) ctx.addIssue({ code: "custom", path: ["visaExpiry"], message: "Visa expiry is required for visa holders" });
     }
   });
 }

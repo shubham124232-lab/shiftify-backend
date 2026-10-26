@@ -9,12 +9,12 @@ import { providerProfileSchema     } from "../../validators/profile-provider.sch
 import { coordinatorProfileSchema  } from "../../validators/profile-coordinator.schema";
 import { planManagerProfileSchema  } from "../../validators/profile-planmanager.schema";
 
-function parseOrThrow<T>(schema: { safeParse: (v: unknown) => { success: boolean; data?: T; error?: { errors: { path: (string | number)[]; message: string }[] } } }, body: unknown): T {
+function parseOrThrow<T>(schema: { safeParse: (v: unknown) => { success: boolean; data?: T; error?: { issues: { path: PropertyKey[]; message: string }[] } } }, body: unknown): T {
   const result = schema.safeParse(body);
   if (!result.success) {
     throw new ValidationError(
-      result.error!.errors[0]?.message ?? "Invalid input",
-      result.error!.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
+      result.error!.issues[0]?.message ?? "Invalid input",
+      result.error!.issues.map((e) => ({ path: e.path.map(String).join("."), message: e.message })),
     );
   }
   return result.data!;

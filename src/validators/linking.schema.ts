@@ -52,10 +52,10 @@ export const createParticipantSchema = managedAccountSchema
     authorisingPersonNote: z.string().max(500).optional(),
     // SC-N03 — two separate confirmations
     authorityConfirmed: z.literal(true, {
-      errorMap: () => ({ message: "You must confirm you're authorised to source support for this participant" }),
+      message: "You must confirm you're authorised to source support for this participant",
     }),
     infoAccuracyConfirmed: z.literal(true, {
-      errorMap: () => ({ message: "You must confirm you understand access may be reviewed and managed" }),
+      message: "You must confirm you understand access may be reviewed and managed",
     }),
   })
   .refine(

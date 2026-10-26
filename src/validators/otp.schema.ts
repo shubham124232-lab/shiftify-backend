@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // Channel accepted by all OTP endpoints.
 const channelSchema = z.enum(["email", "phone"], {
-  errorMap: () => ({ message: 'channel must be "email" or "phone"' }),
+  message: 'channel must be "email" or "phone"',
 });
 
 // POST /auth/verify/request  — ask for a new OTP on the authenticated account.

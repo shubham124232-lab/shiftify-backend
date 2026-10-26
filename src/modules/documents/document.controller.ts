@@ -12,8 +12,8 @@ export async function uploadDocument(req: Request, res: Response): Promise<void>
   const parsed = uploadDocumentSchema.safeParse(req.body);
   if (!parsed.success) {
     throw new ValidationError(
-      parsed.error.errors[0]?.message ?? "Invalid input",
-      parsed.error.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
+      parsed.error.issues[0]?.message ?? "Invalid input",
+      parsed.error.issues.map((e) => ({ path: e.path.map(String).join("."), message: e.message })),
     );
   }
 

@@ -45,8 +45,8 @@ export async function presign(req: Request, res: Response): Promise<void> {
   const parsed = presignQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     throw new ValidationError(
-      parsed.error.errors[0]?.message ?? "Invalid query",
-      parsed.error.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
+      parsed.error.issues[0]?.message ?? "Invalid query",
+      parsed.error.issues.map((e) => ({ path: e.path.map(String).join("."), message: e.message })),
     );
   }
 
@@ -119,8 +119,8 @@ export async function registerDocument(req: Request, res: Response): Promise<voi
   const parsed = registerDocSchema.safeParse(req.body);
   if (!parsed.success) {
     throw new ValidationError(
-      parsed.error.errors[0]?.message ?? "Invalid body",
-      parsed.error.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
+      parsed.error.issues[0]?.message ?? "Invalid body",
+      parsed.error.issues.map((e) => ({ path: e.path.map(String).join("."), message: e.message })),
     );
   }
 
@@ -243,7 +243,7 @@ const docConfirmFileSchema = z.object({
   referenceNumber: z.string().max(100).optional(),
   issueDate:       docDate,
   expiryDate:      docDate,
-  metadata:        z.record(z.string()).optional(),
+  metadata:        z.record(z.string(), z.string()).optional(),
 });
 
 const docConfirmMetadataOnlySchema = z.object({
@@ -252,7 +252,7 @@ const docConfirmMetadataOnlySchema = z.object({
   referenceNumber: z.string().max(100).optional(),
   issueDate:       docDate,
   expiryDate:      docDate,
-  metadata:        z.record(z.string()).optional(),
+  metadata:        z.record(z.string(), z.string()).optional(),
 });
 
 const docConfirmBodySchema = z.union([docConfirmMetadataOnlySchema, docConfirmFileSchema]);
@@ -264,8 +264,8 @@ export async function documentPresign(req: Request, res: Response): Promise<void
   const parsed = docPresignBodySchema.safeParse(req.body);
   if (!parsed.success) {
     throw new ValidationError(
-      parsed.error.errors[0]?.message ?? "Invalid body",
-      parsed.error.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
+      parsed.error.issues[0]?.message ?? "Invalid body",
+      parsed.error.issues.map((e) => ({ path: e.path.map(String).join("."), message: e.message })),
     );
   }
 
@@ -294,8 +294,8 @@ export async function documentConfirm(req: Request, res: Response): Promise<void
   const parsed = docConfirmBodySchema.safeParse(req.body);
   if (!parsed.success) {
     throw new ValidationError(
-      parsed.error.errors[0]?.message ?? "Invalid body",
-      parsed.error.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
+      parsed.error.issues[0]?.message ?? "Invalid body",
+      parsed.error.issues.map((e) => ({ path: e.path.map(String).join("."), message: e.message })),
     );
   }
 
