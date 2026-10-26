@@ -319,6 +319,11 @@ async function closeUnfilledFastRequests(): Promise<void> {
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 
 export function startCronJobs(): void {
+  // Off by default: the polling jobs keep the Neon compute awake 24/7. Set ENABLE_CRON=true on live.
+  if (process.env.ENABLE_CRON !== "true") {
+    console.log("[cron] Background jobs disabled (set ENABLE_CRON=true to enable)");
+    return;
+  }
   // Run immediately on startup then every hour
   void expireGuestWindows();
   void clearExpiredAvailableNow();
