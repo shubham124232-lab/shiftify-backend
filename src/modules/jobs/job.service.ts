@@ -2016,12 +2016,10 @@ export async function selectApplicant(jobId: string, appId: string, posterId: st
 
 // ─── Featured Shift (Pricing V2 §8) ────────────────────────────────────────────
 // Paid pin/label on one open job post, priced and duration-capped by the job's
-// own urgency tier — all 4 tiers are sellable now that Featured Shift no
-// longer has to dodge the retired EMERGENCY/REPLACEMENT values.
+// own urgency tier. Only Last-Minute (Short Notice) and Routine posts are sold:
+// Rapid and Urgent requests get ordinary matching without a Featured upsell.
 
 const FEATURED_SHIFT_CONFIG: Partial<Record<JobUrgency, { priceAud: number; durationMs: number }>> = {
-  RAPID:       { priceAud: 19.99, durationMs: 60 * 60 * 1000 },
-  URGENT:      { priceAud: 14.99, durationMs: 24 * 60 * 60 * 1000 },
   LAST_MINUTE: { priceAud: 9.99,  durationMs: 48 * 60 * 60 * 1000 },
   ROUTINE:     { priceAud: 21.99, durationMs: 7 * 24 * 60 * 60 * 1000 },
 };

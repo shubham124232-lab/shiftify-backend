@@ -348,7 +348,7 @@ export async function promotions(userId: string) {
       select: { id: true, title: true, featuredQueuePosition: true, featuredSince: true, featuredExpiresAt: true, status: true },
     }),
     prisma.supportRequest.findMany({
-      where: { postedByUserId: userId, status: "OPEN", scheduledStartAt: { gt: new Date() } },
+      where: { postedByUserId: userId, status: "OPEN", urgency: { in: ["LAST_MINUTE", "ROUTINE"] }, scheduledStartAt: { gt: new Date() } },
       orderBy: { scheduledStartAt: "asc" }, take: 50,
       select: { id: true, title: true, urgency: true, suburb: true, scheduledStartAt: true, featuredUntil: true },
     }),
