@@ -40,6 +40,7 @@ const LISTING_SELECT = {
   fundingRoutes: true,
   urgency: true,
   housingDetails: true,
+  serviceDetails: true,
   createdAt: true,
   updatedAt: true,
   isFeatured: true,

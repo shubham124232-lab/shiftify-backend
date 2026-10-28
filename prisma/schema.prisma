@@ -2163,6 +2163,9 @@ model ProviderListing {
   // compatibility, costs/approvals and inspection process (additive).
   housingDetails Json?
 
+  // Provider demo service/capacity wizard (additive): workforce model, capabilities, schedule, rates, intake and visibility.
+  serviceDetails Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
