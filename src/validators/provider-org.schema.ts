@@ -76,3 +76,13 @@ export const confirmTeamMemberVerificationSchema = z.object({
   code: z.string().min(4).max(10),
 }).strict();
 export type ConfirmTeamMemberVerificationInput = z.infer<typeof confirmTeamMemberVerificationSchema>;
+
+
+// Provider demo "Service capability": one popup per service line (category).
+export const saveServiceLineSchema = z.object({
+  capabilityLimits: z.string().trim().min(1, "Describe your capability and limits").max(2000),
+  competencies: z.array(z.string().max(60)).max(30).optional(),
+  branchIds: z.array(z.string().uuid()).max(50).optional(),
+  managerUserId: z.string().uuid().nullable().optional(),
+}).strict();
+export type SaveServiceLineInput = z.infer<typeof saveServiceLineSchema>;

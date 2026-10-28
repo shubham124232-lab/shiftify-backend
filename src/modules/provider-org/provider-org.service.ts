@@ -6,6 +6,7 @@
 
 import crypto from "node:crypto";
 import { prisma } from "../../lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from "../../lib/errors";
 import { ApiError } from "../../lib/errors";
 import { notify } from "../../lib/notify";
@@ -19,6 +20,7 @@ import type {
   CreateTeamMemberInput,
   UpdateTeamMemberInput,
   ConfirmTeamMemberVerificationInput,
+  SaveServiceLineInput,
 } from "../../validators/provider-org.schema";
 
 const VERIFICATION_TTL_MINUTES = 10;
@@ -617,4 +619,47 @@ export async function requestToJoin(requesterId: string, abn: string) {
       { requesterId, email: me?.email ?? null }, "PROVIDER_JOIN_REQUEST");
   }
   return { requested: true };
+}
+
+
+// ─── Service lines (Provider demo "Service capability") ─────────────────────
+
+type ServiceLineDetail = { capabilityLimits: string; competencies: string[]; branchIds: string[]; managerUserId: string | null; updatedAt: string };
+
+export async function listServiceLines(providerUserId: string): Promise<Record<string, ServiceLineDetail>> {
+  const profile = await prisma.providerProfile.findUnique({ where: { userId: providerUserId }, select: { serviceLineDetails: true } });
+  return ((profile?.serviceLineDetails ?? {}) as Record<string, ServiceLineDetail>);
+}
+
+// Saves the capability answers for one category and keeps each Branch's service-line list in step with the chosen coverage.
+export async function saveServiceLine(providerUserId: string, category: string, input: SaveServiceLineInput, scope?: BranchScope) {
+  const key = category.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (!key || key.length > 60) throw new BadRequestError("Choose a service category.");
+  const profile = await prisma.providerProfile.findUnique({ where: { userId: providerUserId }, select: { id: true } });
+  if (!profile) throw new BadRequestError("Complete your Provider profile before adding service lines.");
+  if (input.managerUserId !== undefined && input.managerUserId !== null) await assertManager(providerUserId, input.managerUserId);
+
+  const branches = await prisma.providerBranch.findMany({ where: { providerUserId }, select: { id: true, serviceLines: true } });
+  const covered = new Set(input.branchIds ?? []);
+  for (const id of covered) {
+    if (!branches.some((b) => b.id === id)) throw new BadRequestError("Choose Branches of your organisation.");
+    assertBranchInScope(scope, id);
+  }
+  const label = key;
+  await prisma.$transaction([
+    ...(input.branchIds
+      ? branches.map((b) => {
+          const has = b.serviceLines.some((l) => l.trim().toUpperCase().replace(/[\s-]+/g, "_") === key);
+          const lines = covered.has(b.id) ? (has ? b.serviceLines : [...b.serviceLines, label]) : b.serviceLines.filter((l) => l.trim().toUpperCase().replace(/[\s-]+/g, "_") !== key);
+          return prisma.providerBranch.update({ where: { id: b.id }, data: { serviceLines: lines } });
+        })
+      : []),
+  ]);
+  const all = await listServiceLines(providerUserId);
+  all[key] = {
+    capabilityLimits: input.capabilityLimits, competencies: input.competencies ?? [], branchIds: input.branchIds ?? all[key]?.branchIds ?? [],
+    managerUserId: input.managerUserId ?? null, updatedAt: new Date().toISOString(),
+  };
+  await prisma.providerProfile.update({ where: { userId: providerUserId }, data: { serviceLineDetails: all as unknown as Prisma.InputJsonValue } });
+  return { category: key, ...all[key] };
 }

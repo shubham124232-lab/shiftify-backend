@@ -12,6 +12,7 @@ import {
   createTeamMemberSchema,
   updateTeamMemberSchema,
   confirmTeamMemberVerificationSchema,
+  saveServiceLineSchema,
 } from "../../validators/provider-org.schema";
 
 export async function requestToJoin(req: Request, res: Response): Promise<void> {
@@ -174,4 +175,18 @@ export async function declineInvitation(req: Request, res: Response): Promise<vo
   if (!req.actorUserId) throw new UnauthorizedError();
   await svc.declineAdministratorInvitation(req.actorUserId, req.params.id);
   success(res, { message: "Invitation declined" });
+}
+
+
+// ─── Service lines ──────────────────────────────────────────────────────────
+
+export async function listServiceLines(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  success(res, { serviceLines: await svc.listServiceLines(req.user.id) });
+}
+
+export async function saveServiceLine(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new UnauthorizedError();
+  const data = parse(saveServiceLineSchema, req.body);
+  success(res, { serviceLine: await svc.saveServiceLine(req.user.id, req.params.category, data, branchScope(req)) });
 }
