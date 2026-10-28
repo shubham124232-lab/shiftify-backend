@@ -253,16 +253,16 @@ async function chargePostingAction(userId: string, role: UserRole, jobId: string
 
 // ─── Create job ───────────────────────────────────────────────────────────────
 
-// Posting-journey timing groups (Rapid now–60 min, Urgent over 60 min–4 h,
-// Last-Minute over 4–48 h, Routine more than 48 h). The forms steer people to the
+// Posting-journey timing groups (Rapid now–2 h, Urgent over 2–6 h,
+// Last-Minute over 6–48 h, Routine more than 48 h). The forms steer people to the
 // right tier, but the API is shared with Flutter, so each tier's window is enforced
 // here too. A few minutes of slack covers the gap between choosing a time and
 // pressing Post; the lower bounds get a wider slack because a person can legitimately
 // spend a while in the form after picking a start time.
 const TIER_WINDOWS: Record<JobUrgency, { minMinutes: number; maxMinutes: number | null; label: string; earlier: string; later: string }> = {
-  RAPID:       { minMinutes: 0,       maxMinutes: 60,      label: "Rapid",       earlier: "",                    later: "an Urgent, Last-Minute or Routine" },
-  URGENT:      { minMinutes: 60,      maxMinutes: 4 * 60,  label: "Urgent",      earlier: "a Rapid",             later: "a Last-Minute or Routine" },
-  LAST_MINUTE: { minMinutes: 4 * 60,  maxMinutes: 48 * 60, label: "Last-Minute", earlier: "a Rapid or Urgent",   later: "a Routine" },
+  RAPID:       { minMinutes: 0,       maxMinutes: 2 * 60,  label: "Rapid",       earlier: "",                    later: "an Urgent, Last-Minute or Routine" },
+  URGENT:      { minMinutes: 2 * 60,  maxMinutes: 6 * 60,  label: "Urgent",      earlier: "a Rapid",             later: "a Last-Minute or Routine" },
+  LAST_MINUTE: { minMinutes: 6 * 60,  maxMinutes: 48 * 60, label: "Last-Minute", earlier: "a Rapid or Urgent",   later: "a Routine" },
   ROUTINE:     { minMinutes: 48 * 60, maxMinutes: null,    label: "Routine",     earlier: "a Rapid, Urgent or Last-Minute", later: "" },
 };
 const TIER_UPPER_SLACK_MINUTES = 10;
@@ -1429,16 +1429,15 @@ export async function declineAssignment(jobId: string, userId: string) {
   return updated[0];
 }
 
-// SC/SW journey doc time windows — Rapid 0-60min, Urgent 60min-4hr,
-// Last-Minute 4-48hr, Routine 48hr+. Used to tier a replacement post by how
+// Time windows — Rapid 0-2hr, Urgent 2-6hr, Last-Minute 6-48hr, Routine 48hr+. Used to tier a replacement post by how
 // much time is actually left until start, instead of a hardcoded tier.
 const TIER_LABEL: Record<JobUrgency, string> = {
   RAPID: "Rapid", URGENT: "Urgent", LAST_MINUTE: "Last-Minute", ROUTINE: "Routine",
 };
 
 function urgencyFromHoursToStart(hoursToStart: number): JobUrgency {
-  if (hoursToStart <= 1)  return "RAPID";
-  if (hoursToStart <= 4)  return "URGENT";
+  if (hoursToStart <= 2)  return "RAPID";
+  if (hoursToStart <= 6)  return "URGENT";
   if (hoursToStart <= 48) return "LAST_MINUTE";
   return "ROUTINE";
 }
