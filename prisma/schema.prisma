@@ -65,6 +65,8 @@ enum DocumentType {
   CPR
   MANUAL_HANDLING
   INFECTION_CONTROL
+  MEDICATION_COMPETENCY
+  PHOTO_ID
   DRIVERS_LICENCE
   VEHICLE_INSURANCE
   PUBLIC_LIABILITY_INSURANCE
@@ -252,6 +254,10 @@ enum NotificationType {
   REQUEST_STARTING_UNCONFIRMED
   JOB_APPLICATION_WITHDRAWN
   REQUEST_FILLED
+  JOB_APPLICATION_VIEWED
+  REQUEST_SCHEDULE_RESULT
+  PROVIDER_JOIN_REQUEST
+  TEAM_AVAILABILITY_REQUEST
 }
 
 enum SubscriptionStatus {
@@ -306,6 +312,9 @@ model User {
 
   emailVerified Boolean @default(false)
   phoneVerified Boolean @default(false)
+
+  // Provider handoff Refer & Earn (additive): the code this person shares. Created the first time it is needed.
+  referralCode String? @unique
 
   // Guest window for self-registered participants — now keyed off email verification (OTP),
   // not magic links.
@@ -567,6 +576,18 @@ model WorkerProfile {
   rateDisplayMode   String? // PUBLIC | AFTER_CONNECT | HIDDEN
   contactPreference String? // ALLOW_MESSAGES | INVITATIONS_ONLY
 
+  // SW doc Window 14 — who may find this profile and how much location is shown, enforced
+  // in the worker browse and professional search before a Connect exists.
+  visibleTo       String? // ALL | PARTICIPANTS | COORDINATORS | PROVIDERS | PAUSED (null = ALL)
+  locationDisplay String? // SUBURB | GENERAL_AREA (null = SUBURB)
+
+  // SW doc Window 10 — provider-employed details (organisation name, invite or connection code).
+  employmentDetails Json? // { organisationName, inviteCode }
+
+  // SW doc Windows 11-13 — standing preferences with no column of their own:
+  // { transportParticipants, meetAndGreetModes[], minimumShift, shiftBoundaries[], maxShiftHours, supportComfort[] }
+  workPreferences Json?
+
   // SW doc Window 9 — lets the worker choose whether their compliance/document
   // status is visible to a participant before a Connect exists.
   documentsVisibleToParticipants Boolean @default(false)
@@ -606,6 +627,8 @@ model WorkerProfile {
   // SW doc Window 22 — optional user-chosen expiry ("Available until: Select
   // time"). When null, the cron falls back to the fixed 24h window above.
   availableNowUntil        DateTime?
+  // SW doc Windows 22-23 — { requestTypes, areaMode, suburb, servicesMode, services, overnight, transportParticipants, maxDistanceKm, alertsOn, paused }
+  availableNowSettings     Json?
   seekingPlanManager       Boolean   @default(false)
 
   // Capacity — mirrors CoordinatorProfile/ProviderProfile's currentCapacityStatus pattern
@@ -804,6 +827,12 @@ model ProviderProfile {
   accessibilityCapabilities String[] @default([])
   culturalCapabilities    String[] @default([])
   enquiryPreference       String?
+  // Provider doc P10 (additive): funding accepted, continuity model, intake process, who may enquire, public phone.
+  fundingAccepted         String[] @default([])
+  continuityModel         String?
+  intakeProcess           String?
+  directEnquiryAudience   String?
+  displayPublicPhone      Boolean  @default(false)
   // Provider doc PR-V01 — business address for minimum verification (additive).
   businessAddress         String?
   logoUrl             String?
@@ -1162,6 +1191,7 @@ enum AvailabilityListingStatus {
   ACTIVE
   PAUSED
   EXPIRED
+  ARCHIVED
 }
 
 // SW doc Windows 24-26 — a worker's "I'm generally available" post, distinct
@@ -1225,6 +1255,12 @@ model Document {
   verifiedAt        DateTime?
   uploadedAt        DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
+  // Provider doc P72 (additive): title, issuer, who may view it, and renewal history (a renewal replaces, never overwrites).
+  title             String?
+  issuer            String?
+  visibility        String?
+  replacesId        String?
+  supersededAt      DateTime?
 
   @@index([userId])
   @@index([status])
@@ -1237,6 +1273,8 @@ model Document {
 
 model SupportRequest {
   id String @id @default(uuid())
+
+  clientRequestId String?
 
   postedByUserId String
   postedBy       User   @relation("PostedBy", fields: [postedByUserId], references: [id])
@@ -1264,6 +1302,14 @@ model SupportRequest {
   recurrencePattern Json?
 
   workerPreferences Json?
+  // Provider staffing wizard (demo, 2026-10-14): which branch the request belongs to, its type, who is responsible,
+  // how many workers, and how it is distributed (internal first / external, audience, matching).
+  branchId               String?
+  requestType            String?
+  responsibleAdminUserId String?
+  workersRequired        Int     @default(1)
+  distribution           Json?
+  internalOffers    InternalShiftOffer[]
   // Participant-selected task checkboxes from the master service catalogue
   // (e.g. ["Showering/bathing","Dressing/grooming"]) — participant posting spec.
   selectedTasks     Json?
@@ -1341,6 +1387,8 @@ model SupportRequest {
   workerConfirmedAt    DateTime?
   startedAt            DateTime?
   completedAt          DateTime?
+  // SW doc Windows 38-41 — { actualStart, actualEnd, breakMinutes, servicesDelivered, extras, activities, outcome, handover, incident, submittedAt, paidAt }
+  completionRecord     Json?
   confirmedAt          DateTime?
   cancelledAt          DateTime?
   cancelledByUserId    String?
@@ -1409,6 +1457,9 @@ model SupportRequest {
   @@index([postedByUserId, status])
   @@index([assignedWorkerUserId, status])
   @@index([selectedApplicantUserId, status])
+  // Phase 2 — one live request per posting attempt: a retry or double click with the same
+  // clientRequestId returns the request that already exists instead of creating a duplicate.
+  @@unique([postedByUserId, clientRequestId])
 }
 
 // Supports multiple workers on one job, without touching SupportRequest's
@@ -1445,6 +1496,7 @@ model Review {
   reliabilityRating   Int?
   communicationRating Int?
   qualityRating       Int?
+  organisationRating  Int?
   privateConcern      String?
   createdAt           DateTime       @default(now())
 
@@ -1646,6 +1698,36 @@ model DirectInquiry {
 
   @@index([recipientUserId, createdAt])
   @@index([senderUserId, createdAt])
+}
+
+// Provider doc P66 (additive): the Provider's own record of intake before a service starts. Kept apart from the request so
+// a confirmed referral, completed onboarding and delivered support stay separate statuses.
+model ServiceStartRecord {
+  jobId             String   @id
+  providerUserId    String
+  agreedStartAt     DateTime?
+  nominatedWorkerId String? // internal Team Member id
+  serviceAgreement  String   @default("PENDING") // AGREED | PENDING
+  participantAgreement String @default("PENDING") // CONFIRMED | PENDING
+  notes             String?
+  isDraft           Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+
+  @@index([providerUserId])
+}
+
+// Provider doc P65 (additive): private intake handling for one received enquiry. Kept in its own table so the
+// DirectInquiry rows other roles read are unchanged. inquiryId is the first (root) message of the thread.
+model EnquiryIntake {
+  inquiryId       String    @id
+  providerUserId  String
+  ownerUserId     String?
+  internalNote    String?
+  appointmentAt   DateTime?
+  appointmentType String? // INTAKE_CALL | PROPERTY_INSPECTION | COMPATIBILITY_MEETING
+  updatedAt       DateTime  @updatedAt
+
+  @@index([providerUserId])
 }
 
 // Minimal pilot safety gate — a flag button on the job thread that notifies
@@ -2063,6 +2145,10 @@ model ProviderListing {
   serviceCategories   Json? // String[] — every service with current capacity
   daysAvailable       Json? // String[] — MON..SUN
   responseExpectation String? // e.g. SAME_DAY | WITHIN_48_HOURS | WITHIN_A_WEEK
+  openSlots           Int? // places currently open on a SERVICE listing (Provider demo "Update capacity")
+  // Provider demo: which Branch the listing belongs to and who owns it (the organisation owner or an Administrator).
+  branchId            String?
+  ownerUserId         String?
 
   // HOUSING vacancies (sil-vacancy form)
   vacancyCategory String? // SIL | SDA | SIL_SDA | RESPITE | MEDIUM_TERM | SHORT_TERM | OTHER
@@ -2117,6 +2203,18 @@ model ProviderBranch {
   provider       User     @relation("ProviderBranches", fields: [providerUserId], references: [id], onDelete: Cascade)
   name           String
   createdAt      DateTime @default(now())
+  // Provider demo (2026-10-09) Branch workspace details. managerUserId is the owner or an Administrator's user.
+  region         String?
+  timezone       String?
+  managerUserId  String?
+  serviceLines   String[] @default([])
+  isActive       Boolean  @default(true)
+  // Provider demo form fields (2026-10-12): branch address and escalation contact.
+  address            String?
+  escalationContact  String?
+  // Provider doc P15 (additive): Branch contact and service radius.
+  contact            String?
+  serviceRadiusKm    Int?
 
   administrators ProviderAdministrator[]
   teamMembers    ProviderTeamMember[]
@@ -2137,6 +2235,16 @@ model ProviderAdministrator {
   user           User             @relation("ProviderAdminPerson", fields: [userId], references: [id], onDelete: Cascade)
   branches       ProviderBranch[]
   createdAt      DateTime         @default(now())
+  // Labels only for now — presets are shown and stored but not yet enforced.
+  rolePreset     String           @default("ADMINISTRATOR") // ADMINISTRATOR | BRANCH_MANAGER | INTAKE | WORKFORCE | READ_ONLY
+  // Provider doc P16: invitation lifecycle. PENDING -> ACTIVE (accepted) | EXPIRED | REVOKED. Existing rows stay ACTIVE.
+  status         String           @default("ACTIVE") // PENDING | ACTIVE | INACTIVE | EXPIRED | REVOKED
+  inviteExpiresAt DateTime?
+  acceptedAt      DateTime?
+  // Provider demo "Billing access" (label only for now, like the role presets).
+  billingAccess  Boolean          @default(false)
+  // Approved demo invite form (additive): optional code typed by the inviter. Stored only; no referral programme validates it yet.
+  referralCode   String?
 
   @@unique([providerUserId, userId])
   @@index([providerUserId])
@@ -2159,6 +2267,10 @@ model ProviderTeamMember {
   email                     String?
   relationshipType          String? // EMPLOYEE | CONTRACTOR | OTHER
   locations                 String[]       @default([])
+  // Provider doc P19 (additive): languages, credential review state and years of relevant experience.
+  languages                 String[]       @default([])
+  credentialStatus          String? // CURRENT | NEEDS_REVIEW | NOT_PROVIDED
+  experienceYears           Int?
   // PR-W02 (additive): what the member may do in the organisation, and who may see their profile.
   accessLevel               String? // STANDARD | LIMITED
   profileVisibility         String? // ORGANISATION_ONLY | VISIBLE_TO_PARTICIPANTS
@@ -2229,4 +2341,108 @@ model PlatinumTileCampaign {
 
   @@index([providerUserId])
   @@index([coverage])
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Provider Team Availability (Provider demo 2026-10-09): an internal "are you free?" request sent to
+// the organisation's own people for a shift. Managed workers reply themselves; roster (mobile-only)
+// members cannot log in, so the Provider records their answer.
+// ───────────────────────────────────────────────────────────────────────────
+
+model TeamAvailabilityRequest {
+  id             String   @id @default(uuid())
+  providerUserId String
+  jobId          String?
+  title          String
+  startsAt       DateTime?
+  endsAt         DateTime?
+  message        String?
+  createdAt      DateTime @default(now())
+
+  replies TeamAvailabilityReply[]
+
+  @@index([providerUserId, createdAt])
+}
+
+model TeamAvailabilityReply {
+  id           String   @id @default(uuid())
+  requestId    String
+  request      TeamAvailabilityRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  memberType   String // MANAGED | ROSTER
+  memberUserId String? // managed worker's login user
+  teamMemberId String? // roster member
+  memberName   String
+  status       String   @default("PENDING") // PENDING | AVAILABLE | CONDITIONS | UNAVAILABLE
+  conditionsNote String? // what the worker needs when status is CONDITIONS
+  respondedAt  DateTime?
+
+  @@index([requestId])
+  @@index([memberUserId, status])
+}
+
+
+// Provider doc P30: an internal shift offer to one of the Provider's own people. It records Pending / Accepted /
+// Declined / Expired; the worker's acceptance does not confirm the shift (the Provider confirms separately).
+model InternalShiftOffer {
+  id             String         @id @default(uuid())
+  providerUserId String
+  jobId          String
+  job            SupportRequest @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  memberType     String // MANAGED | ROSTER
+  memberUserId   String?
+  teamMemberId   String?
+  memberName     String
+  status         String         @default("PENDING") // PENDING | ACCEPTED | DECLINED | EXPIRED
+  offeredRate    Decimal?       @db.Decimal(8, 2)
+  sentAt         DateTime       @default(now())
+  respondedAt    DateTime?
+
+  @@index([providerUserId, status])
+  @@index([jobId])
+  @@index([memberUserId, status])
+}
+
+// Provider doc P82 / approved demo "Help & Tickets": a platform-support case with a record reference.
+// Separate from support-delivery incident reports.
+model SupportTicket {
+  id          String   @id @default(uuid())
+  reference   String   @unique
+  userId      String
+  subject     String
+  category    String
+  impact      String
+  relatedRef  String?
+  description String
+  status      String   @default("OPEN") // OPEN | AWAITING_SUPPORT | RESOLVED | CLOSED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+// Provider handoff Refer & Earn: one row per new account that signed up with a peer referral code.
+// PENDING until the new account verifies contact details and completes its profile; then QUALIFIED, or NOT_ELIGIBLE with a reason.
+model Referral {
+  id             String    @id @default(uuid())
+  referrerUserId String
+  referredUserId String    @unique
+  code           String
+  status         String    @default("PENDING") // PENDING | QUALIFIED | NOT_ELIGIBLE
+  reason         String?
+  createdAt      DateTime  @default(now())
+  qualifiedAt    DateTime?
+
+  @@index([referrerUserId, status])
+}
+
+// Provider handoff Help & Tickets: replies on a ticket. authorKind is USER (the account) or SUPPORT (Shiftify staff).
+model TicketMessage {
+  id           String   @id @default(uuid())
+  ticketId     String
+  authorUserId String?
+  authorKind   String   @default("USER") // USER | SUPPORT
+  body         String
+  createdAt    DateTime @default(now())
+
+  @@index([ticketId, createdAt])
 }

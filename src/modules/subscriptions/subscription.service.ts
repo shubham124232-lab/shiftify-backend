@@ -443,3 +443,27 @@ export async function activateAddOn(userId: string, role: UserRole, planId: stri
   });
   return withBillingFields(row);
 }
+
+// Provider doc PR-OM01 — plan, billing, passes and promotion history in one chronological list.
+export interface BillingHistoryItem { kind: "PLAN" | "SHIFT_PASS" | "FEATURED_SHIFT" | "PLATINUM_TILE" | "LISTING" | "DIRECT_CONNECT"; label: string; amountAud: number | null; at: string; detail: string }
+
+export async function getBillingHistory(userId: string): Promise<BillingHistoryItem[]> {
+  const [subs, passes, featured, tiles, listings, connects] = await Promise.all([
+    prisma.userSubscription.findMany({ where: { userId }, include: { plan: { select: { name: true, key: true } } }, orderBy: { activatedAt: "desc" }, take: 50 }),
+    prisma.shiftPassPurchase.findMany({ where: { userId }, orderBy: { purchasedAt: "desc" }, take: 50 }),
+    prisma.featuredShiftPurchase.findMany({ where: { purchasedByUserId: userId }, include: { job: { select: { title: true } } }, orderBy: { purchasedAt: "desc" }, take: 50 }),
+    prisma.platinumTileCampaign.findMany({ where: { providerUserId: userId }, orderBy: { createdAt: "desc" }, take: 50 }),
+    prisma.providerListing.findMany({ where: { providerUserId: userId, standardPaidAt: { not: null } }, select: { title: true, standardPaidAt: true, isFeatured: true, featuredSince: true, listingExpiresAt: true }, orderBy: { standardPaidAt: "desc" }, take: 50 }),
+    // Pricing V2 §9 — Direct Connect is charged only once the worker accepts.
+    prisma.jobInvite.findMany({ where: { invitedByUserId: userId, status: "ACCEPTED", amountAud: { not: null } }, include: { job: { select: { title: true } } }, orderBy: { respondedAt: "desc" }, take: 50 }),
+  ]);
+  const out: BillingHistoryItem[] = [
+    ...subs.map((s) => ({ kind: "PLAN" as const, label: `Plan: ${s.plan.name}`, amountAud: null, at: s.activatedAt.toISOString(), detail: s.cancelledAt ? `Cancelled ${s.cancelledAt.toLocaleDateString("en-AU")}, access until ${s.expiresAt ? s.expiresAt.toLocaleDateString("en-AU") : "period end"}` : s.status === "ACTIVE" ? "Active" : s.status })),
+    ...passes.map((p) => ({ kind: "SHIFT_PASS" as const, label: "Single Shift Pass", amountAud: Number(p.priceAud), at: p.purchasedAt.toISOString(), detail: p.consumedAt ? "Used" : "Unused" })),
+    ...featured.map((f) => ({ kind: "FEATURED_SHIFT" as const, label: `Featured Shift: ${f.job.title}`, amountAud: Number(f.priceAud), at: f.purchasedAt.toISOString(), detail: `Until ${f.expiresAt.toLocaleString("en-AU", { dateStyle: "short", timeStyle: "short" })}` })),
+    ...tiles.map((t) => ({ kind: "PLATINUM_TILE" as const, label: `Platinum Tile (${t.coverage})`, amountAud: Number(t.priceAud), at: t.createdAt.toISOString(), detail: `${t.startsAt.toLocaleDateString("en-AU")} to ${t.endsAt.toLocaleDateString("en-AU")}` })),
+    ...listings.map((l) => ({ kind: "LISTING" as const, label: `Standard listing: ${l.title}`, amountAud: 199, at: (l.standardPaidAt as Date).toISOString(), detail: l.listingExpiresAt ? `Expires ${l.listingExpiresAt.toLocaleDateString("en-AU")}` : "30 days" })),
+    ...connects.map((c) => ({ kind: "DIRECT_CONNECT" as const, label: `Direct Connect: ${c.job.title}`, amountAud: Number(c.amountAud), at: (c.respondedAt ?? c.createdAt).toISOString(), detail: "Charged on acceptance" })),
+  ];
+  return out.sort((a, b) => b.at.localeCompare(a.at));
+}

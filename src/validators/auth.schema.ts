@@ -31,6 +31,8 @@ export const baseRegisterSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters"),
   name: z.string().min(1).max(120),
   role: z.enum(USER_ROLES),
+  // Optional peer referral code (Provider handoff). An unknown code is ignored, never an error.
+  referralCode: z.string().trim().max(40).optional(),
 }).strict();
 export type BaseRegisterInput = z.infer<typeof baseRegisterSchema>;
 

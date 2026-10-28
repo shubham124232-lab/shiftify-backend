@@ -9,6 +9,8 @@ const DOCUMENT_TYPES = [
   "CPR",
   "MANUAL_HANDLING",
   "INFECTION_CONTROL",
+  "MEDICATION_COMPETENCY",
+  "PHOTO_ID",
   "DRIVERS_LICENCE",
   "VEHICLE_INSURANCE",
   "PUBLIC_LIABILITY_INSURANCE",
@@ -32,6 +34,10 @@ export const uploadDocumentSchema = z.object({
   referenceNumber: z.string().max(80).optional(),
   issueDate:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "issueDate must be YYYY-MM-DD").optional(),
   expiryDate:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expiryDate must be YYYY-MM-DD").optional(),
+  title:           z.string().max(120).optional(),
+  issuer:          z.string().max(120).optional(),
+  visibility:      z.enum(["VERIFICATION_TEAM", "AUTHORISED_ADMINISTRATORS", "AUTHORISED_WORKFORCE", "AFTER_PERMITTED_ENQUIRY"]).optional(),
+  replacesId:      z.string().uuid().optional(),
 }).strict();
 
 export type UploadDocumentInput = z.infer<typeof uploadDocumentSchema>;

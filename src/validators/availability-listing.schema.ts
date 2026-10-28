@@ -3,7 +3,7 @@ import { JobCategoryEnum } from "./job.schema";
 
 export const AvailabilityListingTypeEnum = z.enum(["DATE_RANGE", "FORTNIGHTLY", "ONGOING", "BACKUP"]);
 export const AvailabilityListingVisibilityEnum = z.enum(["ALL", "CONNECTIONS_ONLY"]);
-export const AvailabilityListingStatusEnum = z.enum(["DRAFT", "ACTIVE", "PAUSED", "EXPIRED"]);
+export const AvailabilityListingStatusEnum = z.enum(["DRAFT", "ACTIVE", "PAUSED", "EXPIRED", "ARCHIVED"]);
 
 export const createAvailabilityListingSchema = z.object({
   listingType:    AvailabilityListingTypeEnum,

@@ -18,6 +18,7 @@ router.get   ("/",                                    blockManagedMarketplaceBro
 router.get   ("/live-dashboard",                      blockManagedMarketplaceBrowse, asyncHandler(ctrl.listLiveDashboardJobs));
 router.get   ("/my",                                  asyncHandler(ctrl.listMyJobs));
 router.get   ("/connections/mine",                    asyncHandler(ctrl.listMyConnections));
+router.get   ("/earnings/mine",                        asyncHandler(ctrl.listMyEarnings));
 router.get   ("/messages/threads",                    asyncHandler(ctrl.listMessageThreads));
 router.patch ("/meet-and-greet/:magId/respond",       asyncHandler(ctrl.respondToMeetAndGreet));
 router.patch ("/change-request/:changeRequestId/respond", asyncHandler(ctrl.respondToJobChange));
@@ -33,6 +34,7 @@ router.patch ("/:id/assign-worker",                   asyncHandler(ctrl.assignWo
 router.patch ("/:id/confirm-assignment",              blockManagedSelfService, asyncHandler(ctrl.confirmAssignment));
 router.patch ("/:id/start",                           asyncHandler(ctrl.startJob));
 router.patch ("/:id/complete",                        asyncHandler(ctrl.completeJob));
+router.patch ("/:id/worker-payment",                   asyncHandler(ctrl.setWorkerPaymentStatus));
 router.patch ("/:id/confirm",                         asyncHandler(ctrl.confirmJob));
 
 // ── Multi-worker roster (additive to assign-worker above) ──────────────────

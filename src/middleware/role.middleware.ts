@@ -16,6 +16,14 @@ export function requireRole(...allowed: UserRole[]) {
   };
 }
 
+// Provider doc section 2: billing is for the Owner, or an Administrator who was separately granted billing access.
+export function requireBillingAccess(req: Request, _res: Response, next: NextFunction): void {
+  if (req.providerAdmin && !req.providerAdmin.billingAccess) {
+    return next(new ForbiddenError("Billing is limited to the organisation Owner and Administrators with billing access."));
+  }
+  next();
+}
+
 export function requireAdmin(req: Request, _res: Response, next: NextFunction): void {
   if (!req.user) return next(new UnauthorizedError());
   if (req.activeRole !== "ADMIN") return next(new ForbiddenError("Admin only"));

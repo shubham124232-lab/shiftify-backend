@@ -3,13 +3,14 @@ import { UnauthorizedError } from "../../lib/errors";
 import { paginated, success } from "../../utils/response";
 import { parse } from "../../utils/validate";
 import * as svc from "./professional-search.service";
+import type { UserRole } from "@prisma/client";
 import { professionalSearchFiltersSchema, inviteFromSearchSchema } from "../../validators/professional-search.schema";
 
 // GET /professional-search — SC-F01-04
 export async function search(req: Request, res: Response): Promise<void> {
   if (!req.user) throw new UnauthorizedError();
   const filters = parse(professionalSearchFiltersSchema, req.query);
-  const { results, total, page, limit } = await svc.searchProfessionals(req.user.id, filters);
+  const { results, total, page, limit } = await svc.searchProfessionals(req.user.id, filters, req.activeRole as UserRole | undefined);
   paginated(res, results, total, page, limit);
 }
 

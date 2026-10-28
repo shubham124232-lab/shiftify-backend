@@ -26,11 +26,15 @@ import coordinatorConnectionRoutes from "./modules/coordinator-connections/coord
 import savedProfessionalRoutes     from "./modules/saved-professionals/saved-professional.routes";
 import jobInviteRoutes             from "./modules/job-invites/job-invite.routes";
 import providerOrgRoutes            from "./modules/provider-org/provider-org.routes";
+import providerWorkspaceRoutes      from "./modules/provider-workspace/provider-workspace.routes";
+import supportTicketRoutes          from "./modules/support-tickets/support-ticket.routes";
+import referEarnRoutes              from "./modules/refer-earn/refer-earn.routes";
 import availabilityListingRoutes    from "./modules/availability-listings/availability-listing.routes";
 import professionalSearchRoutes     from "./modules/professional-search/professional-search.routes";
 import directInquiryRoutes          from "./modules/direct-inquiries/direct-inquiry.routes";
 import publicProfileRoutes          from "./modules/public-profiles/public-profile.routes";
 import publicShiftboardRoutes       from "./modules/public-shiftboard/public-shiftboard.routes";
+import publicHomeRoutes            from "./modules/public-home/public-home.routes";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { requireAuth }    from "./middleware/auth.middleware";
 import { asyncHandler }   from "./utils/async-handler";
@@ -79,6 +83,7 @@ app.get("/api-docs", (_req, res) => {
 // that intentionally never runs requireAuth. Mounted here, not inside the
 // requireAuth-gated /jobs router.
 app.use("/public/shiftboard", publicShiftboardRoutes);
+app.use("/public/home", publicHomeRoutes);
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 // More-specific /users/me/* paths MUST come BEFORE the /users catch-all so
@@ -108,6 +113,9 @@ app.use("/coordinator-connections", coordinatorConnectionRoutes);
 app.use("/saved-professionals",     savedProfessionalRoutes);
 app.use("/job-invites",             jobInviteRoutes);
 app.use("/provider-org",            providerOrgRoutes);
+app.use("/provider-workspace",      providerWorkspaceRoutes);
+app.use("/support-tickets",         supportTicketRoutes);
+app.use("/refer-and-earn",          referEarnRoutes);
 app.use("/availability-listings",   availabilityListingRoutes);
 app.use("/professional-search",     professionalSearchRoutes);
 app.use("/direct-inquiries",         directInquiryRoutes);

@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { asyncHandler } from "../../utils/async-handler";
 import { requireAuth } from "../../middleware/auth.middleware";
-import { activateSubscription, listPlans, getMySubscription, getMyActiveSubscriptions, purchaseShiftPass, cancelSubscription, getIntroductoryAllowance, activateAddOn } from "./subscription.controller";
+import { requireBillingAccess } from "../../middleware/role.middleware";
+import { activateSubscription, listPlans, getMySubscription, getMyActiveSubscriptions, purchaseShiftPass, cancelSubscription, getIntroductoryAllowance, activateAddOn, getBillingHistory } from "./subscription.controller";
 
 const router = Router();
 
@@ -9,12 +10,13 @@ const router = Router();
 router.get("/plans",    asyncHandler(listPlans));
 
 // Authenticated
-router.post("/activate",   requireAuth, asyncHandler(activateSubscription));
+router.post("/activate",   requireAuth, requireBillingAccess, asyncHandler(activateSubscription));
 router.get ("/me",         requireAuth, asyncHandler(getMySubscription));
 router.get ("/me/all",     requireAuth, asyncHandler(getMyActiveSubscriptions));
-router.post("/shift-pass", requireAuth, asyncHandler(purchaseShiftPass));
-router.post("/add-on",    requireAuth, asyncHandler(activateAddOn));
-router.post("/cancel",     requireAuth, asyncHandler(cancelSubscription));
+router.post("/shift-pass", requireAuth, requireBillingAccess, asyncHandler(purchaseShiftPass));
+router.post("/add-on",    requireAuth, requireBillingAccess, asyncHandler(activateAddOn));
+router.post("/cancel",     requireAuth, requireBillingAccess, asyncHandler(cancelSubscription));
+router.get ("/me/history", requireAuth, asyncHandler(getBillingHistory));
 router.get ("/me/allowance", requireAuth, asyncHandler(getIntroductoryAllowance));
 
 export default router;

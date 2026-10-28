@@ -18,6 +18,11 @@ export const updateNotificationPreferenceSchema = z.object({
     serviceFilter:      z.array(z.string().max(80)).max(30).optional(),
     assignedAdminId:    z.string().uuid().nullable().optional(),
     backupAdminId:      z.string().uuid().nullable().optional(),
+    // SW doc Window 46 — per-alert-type on/off and frequency (stored with the other prefs; delivery wiring is separate).
+    workerAlerts:       z.record(
+      z.enum(["RAPID", "URGENT", "LAST_MINUTE", "ROUTINE", "INVITATIONS", "CONNECTIONS", "CONFIRMATIONS"]),
+      z.object({ on: z.boolean(), frequency: z.enum(["INSTANT", "DAILY", "WEEKLY"]) }),
+    ).optional(),
     channelByUrgency:   z.object({
       RAPID:       z.array(z.enum(["PUSH", "SMS", "EMAIL"])).optional(),
       URGENT:      z.array(z.enum(["PUSH", "SMS", "EMAIL"])).optional(),

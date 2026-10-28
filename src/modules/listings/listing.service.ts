@@ -29,6 +29,9 @@ const LISTING_SELECT = {
   serviceCategories: true,
   daysAvailable: true,
   responseExpectation: true,
+  openSlots: true,
+  branchId: true,
+  ownerUserId: true,
   vacancyCategory: true,
   propertyType: true,
   vacancyCount: true,
@@ -56,6 +59,19 @@ async function syncProfileCapacity(providerUserId: string, accepting: "YES" | "L
   });
 }
 
+// Provider demo — a listing may belong to one of the organisation's Branches and be owned by the
+// organisation owner or one of its Administrators.
+async function assertBranchAndOwner(providerUserId: string, branchId?: string | null, ownerUserId?: string | null) {
+  if (branchId) {
+    const branch = await prisma.providerBranch.findUnique({ where: { id: branchId }, select: { providerUserId: true } });
+    if (!branch || branch.providerUserId !== providerUserId) throw new ApiError(400, "BAD_REQUEST", "That Branch does not belong to your organisation.");
+  }
+  if (ownerUserId && ownerUserId !== providerUserId) {
+    const admin = await prisma.providerAdministrator.findUnique({ where: { providerUserId_userId: { providerUserId, userId: ownerUserId } }, select: { id: true } });
+    if (!admin) throw new ApiError(400, "BAD_REQUEST", "The owner must be the organisation owner or one of your Administrators.");
+  }
+}
+
 export async function createListing(providerUserId: string, activeRole: UserRole, input: CreateListingInput) {
   if (!(await subscriptionGated(providerUserId, activeRole))) {
     throw new ApiError(
@@ -67,6 +83,8 @@ export async function createListing(providerUserId: string, activeRole: UserRole
 
   // Pricing V2 §5.2 item 26 — unlimited active listings are included in every
   // paid Provider Organisation plan; no per-tier cap.
+
+  await assertBranchAndOwner(providerUserId, input.branchId, input.ownerUserId);
 
   // acknowledgement is a form-only declaration — not persisted.
   const { acknowledgement: _ack, saveAsDraft, ...data } = input;
@@ -114,6 +132,7 @@ export async function updateListing(providerUserId: string, listingId: string, i
   if (!existing || existing.providerUserId !== providerUserId) {
     throw new ApiError(404, "NOT_FOUND", "Listing not found");
   }
+  await assertBranchAndOwner(providerUserId, input.branchId, input.ownerUserId);
 
   // Publishing a saved Home and Living draft re-runs the registration gate and starts the 30-day package.
   let publishPackage = {};
@@ -226,6 +245,39 @@ export async function purchaseFeaturedListing(providerUserId: string, listingId:
   });
 
   return { listing: updated, priceAud: FEATURED_LISTING_PRICE_AUD, mockReceiptRef };
+}
+
+// Renew a SIL/SDA/Home and Living vacancy for another 30 days (Pricing V2 §7.2). The new term starts when the
+// current one ends (or now, if it already lapsed). A Featured listing renews its Featured term too and keeps
+// its queue position; the Featured package price covers the listing, so it is charged instead of Standard.
+export async function renewHousingListing(providerUserId: string, listingId: string) {
+  const listing = await (prisma as any).providerListing.findUnique({ where: { id: listingId } });
+  if (!listing || listing.providerUserId !== providerUserId) {
+    throw new ApiError(404, "NOT_FOUND", "Listing not found");
+  }
+  if (listing.listingCategory !== "HOUSING") throw new BadRequestError("Only a housing vacancy can be renewed");
+  if (listing.status !== "ACTIVE" && listing.status !== "PAUSED") {
+    throw new BadRequestError("Only a live or paused vacancy can be renewed");
+  }
+
+  const now = new Date();
+  const from = (d: Date | null | undefined) => (d && d > now ? d : now);
+  const listingExpiresAt = new Date(from(listing.listingExpiresAt).getTime() + LISTING_DURATION_MS);
+  const featured = !!listing.isFeatured;
+  const priceAud = featured ? FEATURED_LISTING_PRICE_AUD : STANDARD_LISTING_PRICE_AUD;
+  const mockReceiptRef = `DEV-${randomUUID().toUpperCase()}`;
+
+  const updated = await (prisma as any).providerListing.update({
+    where: { id: listingId },
+    data: {
+      listingExpiresAt,
+      standardPaidAt: now,
+      packageReceiptRef: mockReceiptRef,
+      ...(featured ? { featuredExpiresAt: new Date(from(listing.featuredExpiresAt).getTime() + FEATURED_LISTING_DURATION_MS) } : {}),
+    },
+    select: LISTING_SELECT,
+  });
+  return { listing: updated, priceAud, mockReceiptRef };
 }
 
 // ─── Platinum Tile Sponsorship (Pricing V2 §7) ─────────────────────────────────

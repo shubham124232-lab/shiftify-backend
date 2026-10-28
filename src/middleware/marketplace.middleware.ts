@@ -138,16 +138,16 @@ export async function canAccessMarketplace(
       const browseMissing: string[] = [];
       const applyMissing:  string[] = [];
 
-      if (!hasSuburb && !wp?.serviceAreas)
-        browseMissing.push("Add your suburb or service areas (Profile Step 1)");
+      if (!hasSuburb && !wp?.serviceAreas && !wp?.suburb)
+        browseMissing.push("Add your suburb or service areas (Basic worker setup)");
       if (!wp?.rightToWork)
-        browseMissing.push("Set your right to work (Profile Step 1)");
+        browseMissing.push("Set your right to work (Basic worker setup)");
 
       if (browseMissing.length === 0) {
         if (!wp?.servicesOffered || (wp.servicesOffered as string[]).length === 0)
-          applyMissing.push("Add services you offer (Profile Step 4)");
+          applyMissing.push("Add services you offer (Services and tasks)");
         if (!wp?.experienceLevel)
-          applyMissing.push("Set your experience level (Profile Step 4)");
+          applyMissing.push("Set your experience level (Experience and participant groups)");
         applyMissing.push(...(await missingRequiredDocs(userId, activeRole)));
       }
 

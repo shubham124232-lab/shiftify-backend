@@ -3,6 +3,7 @@ import { UnauthorizedError, ForbiddenError, ValidationError, BadRequestError } f
 import { success } from "../../utils/response";
 import { getUserById, sanitizeUser, updateProfile, computeCompletion, computeProfileStep, updateChildProfile } from "./user.service";
 import { canAccessMarketplace } from "../../middleware/marketplace.middleware";
+import { resolveAdministeredOrgOwner } from "../provider-org/provider-org.service";
 import { updateProfileSchema } from "../../validators/profile.schema";
 import * as profileService from "../profiles/profile.service";
 import * as documentService from "../documents/document.service";
@@ -29,11 +30,13 @@ export async function getMe(req: Request, res: Response): Promise<void> {
   const activeRole = req.activeRole as UserRole | undefined;
   const safe       = sanitizeUser(user);
 
-  const completion        = activeRole ? computeCompletion(user, activeRole) : null;
+  // An invited Administrator works inside the organisation's workspace: its setup and document state apply.
+  const orgOwnerId        = activeRole === "PROVIDER" ? await resolveAdministeredOrgOwner(req.user.id) : null;
+  const completion        = orgOwnerId ? { pct: 100, missing: [] as string[] } : activeRole ? computeCompletion(user, activeRole) : null;
   const profileCompletion = completion?.pct ?? null;
   const completionMissing = completion?.missing ?? [];
   const profileStep       = activeRole ? computeProfileStep(user, activeRole) : 0;
-  const marketplace       = activeRole ? await canAccessMarketplace(req.user.id, activeRole) : null;
+  const marketplace       = activeRole ? await canAccessMarketplace(orgOwnerId ?? req.user.id, activeRole) : null;
 
   success(res, { user: safe, profileCompletion, completionMissing, profileStep, phoneVerified: user.phoneVerified, marketplace });
 }
@@ -58,8 +61,8 @@ export async function patchChild(req: Request, res: Response): Promise<void> {
   const parsed = updateProfileSchema.safeParse(req.body);
   if (!parsed.success) {
     throw new ValidationError(
-      parsed.error.errors[0]?.message ?? "Invalid input",
-      parsed.error.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
+      parsed.error.issues[0]?.message ?? "Invalid input",
+      parsed.error.issues.map((e) => ({ path: e.path.map(String).join("."), message: e.message })),
     );
   }
   const updated = await updateProfile(req.params.id, parsed.data);
@@ -103,14 +106,14 @@ export async function patchChildProfile(req: Request, res: Response): Promise<vo
 
   if (role === "worker") {
     const parsed = workerProfileSchema.safeParse(req.body);
-    if (!parsed.success) throw new ValidationError(parsed.error.errors[0]?.message ?? "Invalid input", []);
+    if (!parsed.success) throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input", []);
     const profile = await profileService.upsertWorkerProfile(req.params.id, parsed.data);
     success(res, { profile }); return;
   }
 
   if (role === "participant") {
     const parsed = participantProfileSchema.safeParse(req.body);
-    if (!parsed.success) throw new ValidationError(parsed.error.errors[0]?.message ?? "Invalid input", []);
+    if (!parsed.success) throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input", []);
     const profile = await profileService.upsertParticipantProfile(req.params.id, parsed.data);
     success(res, { profile }); return;
   }
@@ -139,8 +142,8 @@ export async function patchMe(req: Request, res: Response): Promise<void> {
   const parsed = updateProfileSchema.safeParse(req.body);
   if (!parsed.success) {
     throw new ValidationError(
-      parsed.error.errors[0]?.message ?? "Invalid input",
-      parsed.error.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
+      parsed.error.issues[0]?.message ?? "Invalid input",
+      parsed.error.issues.map((e) => ({ path: e.path.map(String).join("."), message: e.message })),
     );
   }
   const updated = await updateProfile(req.user.id, parsed.data);
@@ -156,8 +159,8 @@ export async function uploadChildDocument(req: Request, res: Response): Promise<
   const parsed = uploadDocumentSchema.safeParse(req.body);
   if (!parsed.success) {
     throw new ValidationError(
-      parsed.error.errors[0]?.message ?? "Invalid input",
-      parsed.error.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
+      parsed.error.issues[0]?.message ?? "Invalid input",
+      parsed.error.issues.map((e) => ({ path: e.path.map(String).join("."), message: e.message })),
     );
   }
 

@@ -13,12 +13,19 @@ export const sendDirectInquirySchema = z.object({
 });
 
 export const INQUIRY_STATUSES = {
-  DIRECT:      ["NEW", "RESPONDED", "FOLLOW_UP", "CONVERTED", "CLOSED"],
-  CAPACITY:    ["NEW", "RESPONDED", "FOLLOW_UP", "CONVERTED", "CLOSED"],
-  HOME_LIVING: ["NEW", "QUALIFIED", "INSPECTION", "IN_PROGRESS", "CLOSED"],
+  DIRECT:      ["NEW", "RESPONDED", "FOLLOW_UP", "ASSESSMENT", "CONFIRMED", "CONVERTED", "UNSUITABLE", "CLOSED", "ARCHIVED"],
+  CAPACITY:    ["NEW", "RESPONDED", "FOLLOW_UP", "ASSESSMENT", "CONFIRMED", "CONVERTED", "UNSUITABLE", "CLOSED", "ARCHIVED"],
+  HOME_LIVING: ["NEW", "QUALIFIED", "INSPECTION", "COMPATIBILITY", "IN_PROGRESS", "CONFIRMED", "UNSUITABLE", "CLOSED", "ARCHIVED"],
 } as const;
 
 export const updateInquiryStatusSchema = z.object({ status: z.string().min(1).max(30) }).strict();
+export const saveIntakeSchema = z.object({
+  ownerUserId:     z.string().uuid().nullable().optional(),
+  internalNote:    z.string().max(2000).optional(),
+  status:          z.string().min(1).max(30).optional(),
+  appointmentAt:   z.string().datetime({ offset: true }).nullable().optional(),
+  appointmentType: z.enum(["INTAKE_CALL", "PROPERTY_INSPECTION", "COMPATIBILITY_MEETING"]).nullable().optional(),
+}).strict();
 export const replyInquirySchema = z.object({ body: z.string().trim().min(1, "Message can't be empty").max(2000) }).strict();
 
 export type SendDirectInquiryInput = z.infer<typeof sendDirectInquirySchema>;

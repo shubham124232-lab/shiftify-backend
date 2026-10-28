@@ -142,13 +142,21 @@ export async function upsertWorkerProfile(userId: string, data: WorkerProfileInp
       throw new ApiError(
         403,
         "SUBSCRIPTION_REQUIRED",
-        "The Available Now add-on is required to mark yourself as available now. Choose a plan on the Subscription page to continue.",
+        "Available Now is a Power Up that needs Shiftify Basic. Choose Basic and add Available Now on the Membership page to continue.",
       );
+    }
+    // A future "Available from" schedules the status instead of switching it on now (the cron starts it).
+    const anSettings = (profileData as { availableNowSettings?: { startsAt?: string | null; scheduledPending?: boolean } | null }).availableNowSettings;
+    if (profileData.isAvailableNow && anSettings?.startsAt && new Date(anSettings.startsAt).getTime() > Date.now()) {
+      anSettings.scheduledPending = true;
+      profileData.isAvailableNow = false;
+    } else if (anSettings) {
+      anSettings.scheduledPending = false;
     }
     (profileData as Record<string, unknown>).availableNowSetAt = profileData.isAvailableNow ? new Date() : null;
     // Window 22 — "Available until" is a user-chosen expiry; turning the toggle
     // off always clears it so a stale time can't leak into the next activation.
-    if (!profileData.isAvailableNow) {
+    if (!profileData.isAvailableNow && !anSettings?.scheduledPending) {
       (profileData as Record<string, unknown>).availableNowUntil = null;
     }
   }

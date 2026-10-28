@@ -10,6 +10,7 @@
 import { prisma } from "../../lib/prisma";
 import { ApiError, ForbiddenError, NotFoundError, BadRequestError, ConflictError } from "../../lib/errors";
 import { cancellationRate } from "../jobs/job-scoring";
+import { workerAudienceWhere, toFirstNameInitial, maskLocation } from "../workers/worker-visibility";
 import { hasActiveAddOn } from "../subscriptions/subscription.service";
 import { missingRequiredDocs } from "../../middleware/marketplace.middleware";
 import { assertCoordinatorPermission } from "../coordinator-connections/coordinator-connection.service";
@@ -165,7 +166,7 @@ async function loadParticipantContext(coordinatorUserId: string, forParticipantU
 
 // ─── SC-F01-04 — search ──────────────────────────────────────────────────────
 
-export async function searchProfessionals(userId: string, filters: ProfessionalSearchFiltersInput) {
+export async function searchProfessionals(userId: string, filters: ProfessionalSearchFiltersInput, viewerRole?: UserRole) {
   await requireGrowthAddOn(userId);
 
   const participant = filters.forParticipantUserId
@@ -176,7 +177,7 @@ export async function searchProfessionals(userId: string, filters: ProfessionalS
   const wantProviders = filters.searchType === "PROVIDER" || filters.searchType === "BOTH";
 
   const [workerResults, workerTotal] = wantWorkers
-    ? await searchWorkers(userId, filters, participant)
+    ? await searchWorkers(userId, filters, participant, viewerRole)
     : [[], 0];
   const [providerResults, providerTotal] = wantProviders
     ? await searchProviders(userId, filters, participant)
@@ -205,10 +206,12 @@ async function searchWorkers(
   viewerUserId: string,
   filters: ProfessionalSearchFiltersInput,
   participant: ParticipantForFit | null,
+  viewerRole?: UserRole,
 ): Promise<[any[], number]> {
   const where: Record<string, unknown> = {
     isPubliclyListed: true,
     user: { blocksMade: { none: { blockedUserId: viewerUserId, hideProfile: true } } },
+    AND: [workerAudienceWhere(viewerRole)],
   };
   if (filters.suburb) where.suburb = { contains: filters.suburb, mode: "insensitive" };
   if (filters.state)  where.state  = { contains: filters.state,  mode: "insensitive" };
@@ -239,6 +242,7 @@ async function searchWorkers(
       languagesSpoken: true, highIntensitySkills: true, availabilityType: true,
       acceptsSleepoverShifts: true, acceptsActiveOvernightShifts: true, isAvailableNow: true,
       totalCompleted: true, totalCancelledByWorker: true, updatedAt: true,
+      postcode: true, locationDisplay: true, nameDisplayMode: true, rateDisplayMode: true,
       user: { select: { id: true, name: true, avatarUrl: true } },
     },
   });
@@ -254,11 +258,15 @@ async function searchWorkers(
   }
 
   const results = await Promise.all(filtered.map(async (w) => {
-    const { userId: wUserId, highIntensitySkills, gender, languagesSpoken, ...rest } = w;
+    const { userId: wUserId, highIntensitySkills, gender, languagesSpoken, postcode, locationDisplay, nameDisplayMode, rateDisplayMode, ...rest } = w;
     const missing = await missingRequiredDocs(wUserId, "SUPPORT_WORKER");
     return {
       kind: "SUPPORT_WORKER" as const,
       ...rest,
+      ...maskLocation({ suburb: w.suburb, state: w.state, postcode, locationDisplay }),
+      // Window 14 — the worker's name and rate display choices apply before a Connect exists.
+      hourlyRate: rateDisplayMode == null || rateDisplayMode === "PUBLIC" ? w.hourlyRate : null,
+      user: { ...w.user, name: nameDisplayMode === "FIRST_NAME_INITIAL" ? toFirstNameInitial(w.user.name) : w.user.name },
       userId: wUserId,
       cancellationRate: cancellationRate(w.totalCompleted, w.totalCancelledByWorker),
       documentStatus: missing.length === 0 ? "COMPLETE" : "INCOMPLETE",

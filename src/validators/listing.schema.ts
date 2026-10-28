@@ -14,6 +14,7 @@ const housingDetailsSchema = z.object({
   costs:                 z.string().max(1000).optional(),
   requiredApprovals:     z.string().max(500).optional(),
   inspectionProcess:     z.string().max(1000).optional(),
+  photoUrls:             z.array(z.string().url().max(500)).max(6).optional(),
 }).strict();
 
 export const createListingSchema = z
@@ -46,10 +47,13 @@ export const createListingSchema = z
     serviceCategories:   z.array(z.string().max(120)).max(30).optional(),
     daysAvailable:       z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).max(7).optional(),
     responseExpectation: z.enum(["SAME_DAY", "WITHIN_48_HOURS", "WITHIN_A_WEEK"]).optional(),
+    openSlots:           z.number().int().min(0).max(999).optional(),
+    branchId:    z.string().uuid().nullable().optional(),
+    ownerUserId: z.string().uuid().nullable().optional(),
 
     // HOUSING vacancies (sil-vacancy form)
     vacancyCategory: z
-      .enum(["SIL", "SDA", "SIL_SDA", "RESPITE", "MEDIUM_TERM", "SHORT_TERM", "OTHER"])
+      .enum(["SIL", "SDA", "SIL_SDA", "RESPITE", "MEDIUM_TERM", "SHORT_TERM", "SUPPORTED_HOUSING", "OTHER"])
       .optional(),
     propertyType: z.string().max(120).optional(),
     vacancyCount: z.number().int().min(1).max(50).optional(),
@@ -119,8 +123,11 @@ export const updateListingSchema = z.object({
   serviceCategories:   z.array(z.string().max(120)).max(30).optional(),
   daysAvailable:       z.array(z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])).max(7).optional(),
   responseExpectation: z.enum(["SAME_DAY", "WITHIN_48_HOURS", "WITHIN_A_WEEK"]).optional(),
+  openSlots:           z.number().int().min(0).max(999).optional(),
+    branchId:    z.string().uuid().nullable().optional(),
+    ownerUserId: z.string().uuid().nullable().optional(),
   vacancyCategory: z
-    .enum(["SIL", "SDA", "SIL_SDA", "RESPITE", "MEDIUM_TERM", "SHORT_TERM", "OTHER"])
+    .enum(["SIL", "SDA", "SIL_SDA", "RESPITE", "MEDIUM_TERM", "SHORT_TERM", "SUPPORTED_HOUSING", "OTHER"])
     .optional(),
   propertyType: z.string().max(120).optional(),
   vacancyCount: z.number().int().min(1).max(50).optional(),

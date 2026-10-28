@@ -69,7 +69,7 @@ export async function notifyMatchingSavedSearches(job: {
       search.workerId,
       "New job matches your saved search",
       job.title,
-      { jobId: job.id, savedSearchId: search.id },
+      { jobId: job.id, savedSearchId: search.id, urgency: job.urgency, suburb: job.suburb, category: job.category },
       "NEW_JOB_NEARBY",
     );
   }

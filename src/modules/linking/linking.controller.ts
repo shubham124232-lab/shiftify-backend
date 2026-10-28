@@ -7,12 +7,12 @@ import * as linkingService from "./linking.service";
 import { success } from "../../utils/response";
 import { UnauthorizedError, BadRequestError, ValidationError, NotFoundError } from "../../lib/errors";
 
-function parseOrThrow<T>(schema: { safeParse: (v: unknown) => { success: boolean; data?: T; error?: { errors: { path: (string | number)[]; message: string }[] } } }, body: unknown): T {
+function parseOrThrow<T>(schema: { safeParse: (v: unknown) => { success: boolean; data?: T; error?: { issues: { path: PropertyKey[]; message: string }[] } } }, body: unknown): T {
   const result = schema.safeParse(body);
   if (!result.success) {
     throw new ValidationError(
-      result.error!.errors[0]?.message ?? "Invalid input",
-      result.error!.errors.map((e) => ({ path: e.path.join("."), message: e.message })),
+      result.error!.issues[0]?.message ?? "Invalid input",
+      result.error!.issues.map((e) => ({ path: e.path.map(String).join("."), message: e.message })),
     );
   }
   return result.data!;

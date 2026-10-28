@@ -198,7 +198,7 @@ export async function login(input: {
   const ok = await verifyPassword(input.password, row.passwordHash);
   if (!ok) throw new UnauthorizedError("Invalid credentials");
   if (row.status === "SUSPENDED") {
-    throw new UnauthorizedError("Account suspended. Contact support.");
+    throw new UnauthorizedError("Your account is suspended. Your records and confirmed arrangements are kept. To ask for a review, contact Shiftify support.");
   }
 
   const roles = row.roles.map((r) => r.role);
@@ -242,7 +242,7 @@ export async function loginVerify(input: {
   await otpService.verifyLoginOtp({ userId, channel, code: input.code });
 
   if (row.status === "SUSPENDED") {
-    throw new UnauthorizedError("Account suspended. Contact support.");
+    throw new UnauthorizedError("Your account is suspended. Your records and confirmed arrangements are kept. To ask for a review, contact Shiftify support.");
   }
 
   const roles = row.roles.map((r) => r.role);
@@ -278,7 +278,7 @@ export async function refresh(refreshToken: string): Promise<AuthResult> {
   }
   if (session.user.status === "SUSPENDED") {
     await prisma.session.deleteMany({ where: { userId: session.userId } });
-    throw new UnauthorizedError("Account suspended. Contact support.");
+    throw new UnauthorizedError("Your account is suspended. Your records and confirmed arrangements are kept. To ask for a review, contact Shiftify support.");
   }
 
   const incomingHash = hashToken(refreshToken);
@@ -351,6 +351,18 @@ export async function addRole(userId: string, role: UserRole): Promise<UserRole[
     orderBy: [{ isActiveDefault: "desc" }, { createdAt: "asc" }],
   });
   return updated.map((r) => r.role);
+}
+
+// Remove a role the account no longer wants. The account must keep at least one role and the role being
+// used right now cannot be removed (switch away first).
+export async function removeRole(userId: string, role: UserRole, activeRole: UserRole | undefined): Promise<UserRole[]> {
+  if (role === activeRole) throw new BadRequestError("Switch to another role before removing this one.");
+  const held = await prisma.userRoleAssignment.findMany({ where: { userId } });
+  if (!held.some((r) => r.role === role)) throw new NotFoundError("You do not hold that role");
+  if (held.length <= 1) throw new BadRequestError("An account must keep at least one role.");
+  if (role === "ADMIN") throw new ForbiddenError("This role cannot be removed here.");
+  await prisma.userRoleAssignment.delete({ where: { userId_role: { userId, role } } });
+  return held.filter((r) => r.role !== role).map((r) => r.role);
 }
 
 export async function checkUsernameAvailable(username: string): Promise<boolean> {

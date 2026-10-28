@@ -30,6 +30,12 @@ const CATEGORY_BY_TYPE: Partial<Record<NotificationType, PreferenceCategory>> = 
   COORDINATOR_CONNECTION_DECLINED: "connectionsAndInvites", COORDINATOR_ENQUIRY_RECEIVED: "connectionsAndInvites",
 };
 
+const WORKER_ALERT_BY_TYPE: Partial<Record<NotificationType, string>> = {
+  JOB_INVITE_RECEIVED: "INVITATIONS", DIRECT_CONNECT_REQUEST: "INVITATIONS",
+  JOB_SHORTLISTED: "CONNECTIONS", JOB_SELECTED: "CONNECTIONS", JOB_APPLICATION_VIEWED: "CONNECTIONS",
+  JOB_ASSIGNMENT_CONFIRMED: "CONFIRMATIONS", JOB_CONFIRMED: "CONFIRMATIONS",
+};
+
 // Bodies carry OTP codes, so they are logged/captured/returned only when the
 // fail-safe flags in config/env.ts allow it (local runtime; staging opt-in for responses).
 const isDev = devCodesEnabled;
@@ -128,7 +134,14 @@ async function sendPushNotification(
         quietHoursEnabled?: boolean; quietStart?: string; quietEnd?: string; urgentExceptions?: boolean;
         locationFilter?: string[]; serviceFilter?: string[];
         channelByUrgency?: Record<string, string[]>;
+        workerAlerts?: Record<string, { on: boolean; frequency: string }>;
       } | null;
+      // SW doc Window 46 — a worker can switch individual alert types off.
+      if (pp?.workerAlerts) {
+        const urgency = ((data ?? {}) as { urgency?: string }).urgency;
+        const alertKey = WORKER_ALERT_BY_TYPE[type] ?? (urgency && ["RAPID", "URGENT", "LAST_MINUTE", "ROUTINE"].includes(urgency) && (type === "NEW_JOB_NEARBY" || type === "EMERGENCY_NEARBY") ? urgency : undefined);
+        if (alertKey && pp.workerAlerts[alertKey]?.on === false) return {};
+      }
       if (pp) {
         const meta = (data ?? {}) as { urgency?: string; suburb?: string; category?: string };
         const fast = meta.urgency === "RAPID" || meta.urgency === "URGENT";

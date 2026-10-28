@@ -34,6 +34,10 @@ const detailedRatesSchema = z.object({
   saturdayRate:  z.number().min(0).max(9999).optional(),
   sundayRate:    z.number().min(0).max(9999).optional(),
   sleepoverRate: z.number().min(0).max(9999).optional(),
+  activeOvernightRate: z.number().min(0).max(9999).optional(),
+  // Window 12 "Rate range" — shown instead of a single hourly rate.
+  rangeMin:      z.number().min(0).max(9999).optional(),
+  rangeMax:      z.number().min(0).max(9999).optional(),
 });
 
 const supportBoundariesSchema = z.object({
@@ -42,14 +46,30 @@ const supportBoundariesSchema = z.object({
   notes:                 z.string().max(1000).optional(),
 });
 
+// Window 10 — provider-employed details.
+const employmentDetailsSchema = z.object({
+  organisationName: z.string().max(160).optional(),
+  inviteCode:       z.string().max(60).optional(),
+});
+
+// Windows 11-13 — standing preferences that have no column of their own.
+const workPreferencesSchema = z.object({
+  transportParticipants: z.enum(["YES", "NO", "DISCUSS"]).optional(),
+  meetAndGreetModes:     z.array(z.enum(["PHONE", "VIDEO", "IN_PERSON"])).optional(),
+  minimumShift:          z.enum(["NONE", "2", "3", "4", "DISCUSS"]).optional(),
+  shiftBoundaries:       z.array(z.string()).optional(),
+  maxShiftHours:         z.number().min(1).max(24).optional(),
+  supportComfort:        z.array(z.string()).optional(),
+});
+
 function applyWorkerRefinements<Shape extends z.ZodRawShape>(schema: z.ZodObject<Shape>) {
-  return schema.strict().superRefine((data, ctx) => {
-    if (data.workType === "CONTRACTOR" && !data.abn) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["abn"], message: "ABN is required for contractors" });
-    }
+  return schema.strict().superRefine((raw, ctx) => {
+    const data = raw as { rightToWork?: string; visaType?: unknown; visaExpiry?: unknown };
+    // The ABN is asked in the "Work and business details" window, after the work setup is saved, so it is no longer
+    // required in the same request as workType.
     if (data.rightToWork === "VISA_HOLDER") {
-      if (!data.visaType) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["visaType"], message: "Visa type is required for visa holders" });
-      if (!data.visaExpiry) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["visaExpiry"], message: "Visa expiry is required for visa holders" });
+      if (!data.visaType) ctx.addIssue({ code: "custom", path: ["visaType"], message: "Visa type is required for visa holders" });
+      if (!data.visaExpiry) ctx.addIssue({ code: "custom", path: ["visaExpiry"], message: "Visa expiry is required for visa holders" });
     }
   });
 }
@@ -66,8 +86,8 @@ const workerProfileBaseSchema = z.object({
   rightToWork:               z.enum(["CITIZEN", "PR", "VISA_HOLDER"]).optional(),
   visaType:                  z.string().max(60).optional(),
   visaExpiry:                z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date").optional(),
-  workType:                  z.enum(["CONTRACTOR", "AGENCY"]).optional(),
-  abn:                       z.string().max(20).optional(),
+  workType:                  z.enum(["CONTRACTOR", "AGENCY", "BOTH"]).optional(),
+  abn:                       z.string().max(20).refine((v) => v.trim() === "" || /^\d{11}$/.test(v.replace(/\s/g, "")), "ABN must be 11 digits").optional(),
   gstRegistered:             z.boolean().optional(),
   // Insurance
   publicLiabilityInsurance:      z.boolean().optional(),
@@ -104,6 +124,10 @@ const workerProfileBaseSchema = z.object({
   nameDisplayMode:           z.enum(["FULL_NAME", "FIRST_NAME_INITIAL"]).optional(),
   rateDisplayMode:           z.enum(["PUBLIC", "AFTER_CONNECT", "HIDDEN"]).optional(),
   contactPreference:         z.enum(["ALLOW_MESSAGES", "INVITATIONS_ONLY"]).optional(),
+  visibleTo:                 z.enum(["ALL", "PARTICIPANTS", "COORDINATORS", "PROVIDERS", "PAUSED"]).optional(),
+  locationDisplay:           z.enum(["SUBURB", "GENERAL_AREA"]).optional(),
+  employmentDetails:         employmentDetailsSchema.optional(),
+  workPreferences:           workPreferencesSchema.optional(),
   canTransportParticipants:  z.boolean().optional(),
   documentsVisibleToParticipants: z.boolean().optional(),
   // Location
@@ -114,16 +138,16 @@ const workerProfileBaseSchema = z.object({
   hasVehicle:                z.boolean().optional(),
   vehicleDetails:            vehicleDetailsSchema.optional(),
   insuranceValid:            z.boolean().optional(),
-  travelMode:                z.enum(["OWN_VEHICLE", "PUBLIC_TRANSPORT", "WALKING", "NONE"]).optional(),
+  travelMode:                z.enum(["OWN_VEHICLE", "PUBLIC_TRANSPORT", "BOTH", "OTHER", "WALKING", "NONE"]).optional(),
   childRestraintAvailable:      z.boolean().optional(),
   wheelchairAccessibleVehicle:  z.boolean().optional(),
   // Financials
   hourlyRate:                z.number().min(0).max(9999).optional(),
-  hourlyRateType:            z.enum(["FIXED", "NDIS_PRICE_GUIDE", "NEGOTIABLE"]).optional(),
+  hourlyRateType:            z.enum(["FIXED", "RANGE", "NDIS_PRICE_GUIDE", "NEGOTIABLE"]).optional(),
   weekendNightRates:         weekendNightRatesSchema.optional(),
   detailedRates:             detailedRatesSchema.optional(),
   meetAndGreetPreference:    z.enum(["REQUIRED", "OPTIONAL", "NOT_NEEDED"]).optional(),
-  travelCharges:             z.enum(["NONE", "INCLUDED", "CHARGED_SEPARATELY"]).optional(),
+  travelCharges:             z.enum(["NONE", "INCLUDED", "CHARGED_SEPARATELY", "DISCUSS"]).optional(),
   // Preferences
   preferredParticipantType:  z.array(z.string()).optional(),
   genderPreference:          z.string().max(40).optional(),
@@ -132,6 +156,21 @@ const workerProfileBaseSchema = z.object({
   preferences:               z.string().max(1000).optional(),
   isAvailableNow:            z.boolean().optional(),
   availableNowUntil:         z.string().datetime().optional().nullable(),
+  availableNowSettings:      z.object({
+    requestTypes:          z.array(z.enum(["RAPID", "URGENT", "LAST_MINUTE", "REPLACEMENT"])).max(4).optional(),
+    areaMode:              z.enum(["SAVED", "TODAY"]).optional(),
+    suburb:                z.string().max(80).optional(),
+    servicesMode:          z.enum(["SAVED", "SELECT"]).optional(),
+    services:              z.array(z.string().max(60)).max(30).optional(),
+    overnight:             z.boolean().optional(),
+    transportParticipants: z.boolean().optional(),
+    maxDistanceKm:         z.number().int().min(1).max(500).optional(),
+    alertsOn:              z.boolean().optional(),
+    paused:                z.boolean().optional(),
+    // SW doc Window 22 "Available from" — a future start; the server sets scheduledPending until it begins.
+    startsAt:              z.string().datetime().optional().nullable(),
+    scheduledPending:      z.boolean().optional(),
+  }).optional().nullable(),
   seekingPlanManager:        z.boolean().optional(),
   // Capacity
   maxWeeklyHours:            z.number().int().min(0).max(168).optional(),

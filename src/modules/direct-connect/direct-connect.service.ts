@@ -16,7 +16,7 @@ import type {
 const DIRECT_CONNECT_FEE_AUD = 9.99;
 
 // ─── Provider sends a Direct Connect invite to a worker ───────────────────────
-// No charge on send — Pricing Spec V2: $9.99 is only taken if the worker accepts.
+// No charge on send. Provider Final handoff: $9.99 is only taken if the worker accepts.
 
 export async function createDirectConnect(
   providerUserId: string,

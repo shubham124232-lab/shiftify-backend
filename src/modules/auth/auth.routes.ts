@@ -18,6 +18,7 @@ router.post("/logout",        asyncHandler(ctrl.logout));
 
 // ── Multi-role (require a valid access token) ──────────────────────────────
 router.post("/roles", requireAuth, asyncHandler(ctrl.addRole));
+router.delete("/roles/:role", requireAuth, asyncHandler(ctrl.removeRole));
 router.post("/switch-role", requireAuth, asyncHandler(ctrl.switchRole));
 
 // ── OTP / email+phone verification (authenticated) ────────────────────────

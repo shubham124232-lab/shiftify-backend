@@ -83,7 +83,50 @@ export async function listReceivedInquiries(userId: string) {
     orderBy: { createdAt: "desc" },
     include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
   });
-  return withListingTitles(rows);
+  // Private intake handling (owner, internal note, appointment) for the Provider's own enquiries only.
+  // Until the EnquiryIntake migration is applied the table is missing; the list must still load.
+  const intakes = rows.length ? await prisma.enquiryIntake.findMany({ where: { inquiryId: { in: rows.map((r) => r.id) } } }).catch(() => []) : [];
+  const byId = new Map(intakes.map((i) => [i.inquiryId, i]));
+  const owners = new Map(
+    (await prisma.user.findMany({ where: { id: { in: intakes.map((i) => i.ownerUserId).filter((x): x is string => !!x) } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]),
+  );
+  const withIntake = rows.map((r) => {
+    const i = byId.get(r.id);
+    return { ...r, intake: i ? { ownerUserId: i.ownerUserId, ownerName: i.ownerUserId ? owners.get(i.ownerUserId) ?? null : null, internalNote: i.internalNote, appointmentAt: i.appointmentAt, appointmentType: i.appointmentType } : null };
+  });
+  return withListingTitles(withIntake);
+}
+
+// Provider doc P65: assign an intake owner, keep a private note, schedule a call or inspection and set the handling status.
+// Free: handling a direct enquiry never uses a Provider Action, and a status here never confirms support.
+export async function saveEnquiryIntake(
+  inquiryId: string, userId: string,
+  input: { ownerUserId?: string | null; internalNote?: string; status?: string; appointmentAt?: string | null; appointmentType?: string | null },
+) {
+  const inquiry = await prisma.directInquiry.findUnique({ where: { id: inquiryId } });
+  if (!inquiry) throw new NotFoundError("Inquiry not found");
+  if (inquiry.recipientUserId !== userId) throw new ForbiddenError("Only the recipient can handle this enquiry");
+  if (inquiry.parentInquiryId) throw new BadRequestError("Intake handling belongs to the first message of the enquiry");
+
+  if (input.ownerUserId) {
+    const ok = input.ownerUserId === userId || (await prisma.providerAdministrator.count({ where: { providerUserId: userId, userId: input.ownerUserId, status: "ACTIVE" } })) > 0;
+    if (!ok) throw new BadRequestError("The intake owner must be you or one of your active administrators.");
+  }
+  if (input.status) {
+    const allowed = (INQUIRY_STATUSES as Record<string, readonly string[]>)[inquiry.kind] ?? INQUIRY_STATUSES.DIRECT;
+    if (!allowed.includes(input.status)) throw new BadRequestError(`Status must be one of: ${allowed.join(", ")}`);
+  }
+  const data = {
+    ...(input.ownerUserId !== undefined ? { ownerUserId: input.ownerUserId } : {}),
+    ...(input.internalNote !== undefined ? { internalNote: input.internalNote || null } : {}),
+    ...(input.appointmentAt !== undefined ? { appointmentAt: input.appointmentAt ? new Date(input.appointmentAt) : null } : {}),
+    ...(input.appointmentType !== undefined ? { appointmentType: input.appointmentType } : {}),
+  };
+  const [intake] = await prisma.$transaction([
+    prisma.enquiryIntake.upsert({ where: { inquiryId }, create: { inquiryId, providerUserId: userId, ...data }, update: data }),
+    prisma.directInquiry.update({ where: { id: inquiryId }, data: { ...(input.status ? { status: input.status } : {}), readAt: inquiry.readAt ?? new Date() } }),
+  ]);
+  return intake;
 }
 
 // A recipient-side status change (PR-M02). Answering or progressing a direct enquiry never uses a Provider Action.
@@ -131,4 +174,19 @@ export async function markInquiryRead(inquiryId: string, userId: string) {
     where: { id: inquiryId },
     data: { readAt: new Date() },
   });
+}
+
+// PR-M03 — report a message thread to Shiftify administrators (no job needed). The reporter must be a party.
+export async function reportInquiry(inquiryId: string, userId: string, reason: string) {
+  const inq = await prisma.directInquiry.findUnique({ where: { id: inquiryId }, select: { id: true, senderUserId: true, recipientUserId: true, parentInquiryId: true } });
+  if (!inq) throw new NotFoundError("Message not found");
+  if (inq.senderUserId !== userId && inq.recipientUserId !== userId) throw new ForbiddenError("You are not part of this conversation.");
+  const reportedUserId = inq.senderUserId === userId ? inq.recipientUserId : inq.senderUserId;
+  const admins = await prisma.user.findMany({ where: { roles: { some: { role: "ADMIN" } } }, select: { id: true } });
+  for (const a of admins) {
+    await notify.sendPushNotification(a.id, "Conversation reported",
+      `A user reported a conversation: ${reason.slice(0, 300)}`,
+      { inquiryId: inq.parentInquiryId ?? inq.id, reporterUserId: userId, reportedUserId }, "INCIDENT_REPORTED");
+  }
+  return { reported: true, notifiedAdmins: admins.length };
 }

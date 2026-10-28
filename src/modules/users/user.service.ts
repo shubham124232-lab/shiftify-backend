@@ -459,6 +459,13 @@ export async function updateProfile(userId: string, input: UpdateProfileInput) {
   if (scalar.defaultState  !== undefined) scalarData.defaultState  = scalar.defaultState;
   if (scalar.defaultPostcode !== undefined) scalarData.defaultPostcode = scalar.defaultPostcode;
 
+  // A new phone number or email address is not verified just because the old one was.
+  if (scalar.phone !== undefined || scalar.email !== undefined) {
+    const current = await prisma.user.findUnique({ where: { id: userId }, select: { phone: true, email: true } });
+    if (scalar.phone !== undefined && current && !phoneVariants(scalar.phone).includes(current.phone ?? "")) scalarData.phoneVerified = false;
+    if (scalar.email !== undefined && current && scalar.email.toLowerCase() !== (current.email ?? "").toLowerCase()) scalarData.emailVerified = false;
+  }
+
   await prisma.user.update({ where: { id: userId }, data: scalarData });
 
   if (address) {

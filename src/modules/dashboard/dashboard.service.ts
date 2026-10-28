@@ -4,6 +4,7 @@
 import { prisma } from "../../lib/prisma";
 import type { UserRole } from "@prisma/client";
 import type { JobStatus } from "@prisma/client";
+import { providerServiceCategories } from "../../lib/provider-categories";
 
 const JOB_SUMMARY = {
   id: true, title: true, category: true, urgency: true,
@@ -268,6 +269,30 @@ async function coordinatorDashboard(userId: string) {
     prisma.notification.count({ where: { userId, read: false } }),
   ]);
 
+  // SC-D03 / SC-D05 — connected participants, new responses, confirmed support, and the latest responses.
+  const [connectedParticipants, newResponses, confirmedSupport, recentResponseRows] = await Promise.all([
+    prisma.coordinatorParticipantConnection.count({ where: { coordinatorUserId: userId, status: "ACCEPTED" } }),
+    prisma.jobApplication.count({ where: { job: { postedByUserId: userId, status: "OPEN" }, status: "INTERESTED" } }),
+    prisma.supportRequest.count({ where: { postedByUserId: userId, status: "CONFIRMED" } }),
+    prisma.jobApplication.findMany({
+      where: { job: { postedByUserId: userId, status: { in: ["OPEN", "ASSIGNED"] } }, status: { in: ["INTERESTED", "SHORTLISTED"] } },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: {
+        id: true, jobId: true, status: true, proposedRate: true, introduction: true, createdAt: true,
+        job: { select: { title: true } },
+        applicant: { select: { id: true, name: true, avatarUrl: true, roles: { select: { role: true } } } },
+      },
+    }),
+  ]);
+  const recentResponses = recentResponseRows.map((a) => ({
+    id: a.id, jobId: a.jobId, jobTitle: a.job.title, status: a.status,
+    proposedRate: a.proposedRate != null ? Number(a.proposedRate) : null,
+    message: a.introduction ?? null, createdAt: a.createdAt,
+    applicant: { id: a.applicant.id, name: a.applicant.name, avatarUrl: a.applicant.avatarUrl },
+    applicantType: a.applicant.roles.some((r) => r.role === "PROVIDER") ? "Provider" : "Support worker",
+  }));
+
   const [draftCount, urgentCount, unfilledCount] = await Promise.all([
     prisma.supportRequest.count({ where: { postedByUserId: userId, status: "DRAFT" } }),
     prisma.supportRequest.count({ where: { postedByUserId: userId, urgency: "RAPID", status: "OPEN" } }),
@@ -284,8 +309,12 @@ async function coordinatorDashboard(userId: string) {
       upcomingShifts:       upcomingCount,
       awaitingConfirmation: awaitingCount,
       managedParticipants:  managedParticipantCount,
+      connectedParticipants,
+      newResponses,
+      confirmedSupport,
       unreadMessages,
     },
+    recentResponses,
     openJobs,
     upcomingShifts,
     awaitingConfirmation,
@@ -328,6 +357,10 @@ async function providerDashboard(userId: string) {
     replacementNeeded,
     expiryProfile,
     expiringListings,
+    serviceListings,
+    recentEnquiries,
+    recentConfirmed,
+    newInquiryCount,
   ] = await Promise.all([
     prisma.jobApplication.findMany({
       where: incoming,
@@ -346,7 +379,7 @@ async function providerDashboard(userId: string) {
     prisma.supportRequest.count({ where: { postedByUserId: userId, applications: { some: { status: incoming.status } } } }),
     prisma.jobApplication.findMany({ where: { applicantUserId: userId, status: "INTERESTED" }, include: { job: { select: JOB_SUMMARY } }, orderBy: { createdAt: "desc" }, take: 5 }),
     prisma.jobApplication.count({ where: { applicantUserId: userId, status: "INTERESTED" } }),
-    prisma.supportRequest.findMany({ where: active, select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
+    prisma.supportRequest.findMany({ where: active, select: { ...JOB_SUMMARY, selectedApplicant: { select: { name: true } } }, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
     prisma.supportRequest.findMany({ where: awaitingAllocation, select: JOB_SUMMARY, orderBy: { scheduledStartAt: "asc" }, take: 5 }),
     prisma.supportRequest.count({ where: awaitingAllocation }),
     prisma.supportRequest.count({ where: { selectedApplicantUserId: userId, status: { in: ["CONFIRMED", "COMPLETED"] } } }),
@@ -365,7 +398,57 @@ async function providerDashboard(userId: string) {
       where: { providerUserId: userId, listingCategory: "HOUSING", status: "ACTIVE", listingExpiresAt: { not: null, lte: new Date(now.getTime() + 14 * 86400000) } },
       select: { id: true, title: true, listingExpiresAt: true },
     }),
+    // Live service listings → the categories this Provider can service (drives Relevant opportunities).
+    prisma.providerListing.findMany({
+      where: { providerUserId: userId, listingCategory: "SERVICE", status: "ACTIVE" },
+      select: { serviceCategory: true, serviceCategories: true },
+    }),
+    // Recent activity feed: enquiries received and confirmed starts (applications come from workerResponses).
+    prisma.directInquiry.findMany({
+      where: { recipientUserId: userId, parentInquiryId: null },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+      select: { id: true, createdAt: true, kind: true, sender: { select: { name: true } } },
+    }),
+    prisma.supportRequest.findMany({
+      where: { selectedApplicantUserId: userId, status: { in: ["CONFIRMED", "COMPLETED"] } },
+      orderBy: { updatedAt: "desc" },
+      take: 3,
+      select: { id: true, title: true, updatedAt: true },
+    }),
+    // Direct/capacity/housing enquiries still waiting for a first response.
+    prisma.directInquiry.count({ where: { recipientUserId: userId, parentInquiryId: null, status: "NEW" } }),
   ]);
+
+  // Relevant opportunities — other people's open, upcoming requests in a category this Provider services.
+  const serviceCategoryValues = providerServiceCategories(serviceListings);
+  const relevantOpportunities = serviceCategoryValues.length === 0 ? [] : await prisma.supportRequest.findMany({
+    where: {
+      status: "OPEN",
+      postedByUserId: { not: userId },
+      scheduledStartAt: { gt: now },
+      category: { in: serviceCategoryValues },
+    },
+    select: JOB_SUMMARY,
+    orderBy: { scheduledStartAt: "asc" },
+    take: 4,
+  });
+
+  // Recent activity — newest first across applications, enquiries and confirmations.
+  const recentActivity = [
+    ...workerResponses.map((a) => ({
+      id: `app-${a.id}`, type: "APPLICATION" as const, at: a.createdAt,
+      text: `${a.applicant.name ?? "A worker"} applied to ${a.job.title}`,
+    })),
+    ...recentEnquiries.map((e) => ({
+      id: `enq-${e.id}`, type: "ENQUIRY" as const, at: e.createdAt,
+      text: `New ${e.kind === "HOME_LIVING" ? "housing" : e.kind === "CAPACITY" ? "service" : ""} enquiry from ${e.sender.name ?? "a user"}`.replace("  ", " "),
+    })),
+    ...recentConfirmed.map((r) => ({
+      id: `conf-${r.id}`, type: "CONFIRMATION" as const, at: r.updatedAt,
+      text: `${r.title} confirmed`,
+    })),
+  ].sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, 6);
 
   // PR-D03 — insurance (30 days) and Home and Living listing (14 days) expiries needing attention.
   const soon = new Date(now.getTime() + 30 * 86400000);
@@ -391,6 +474,7 @@ async function providerDashboard(userId: string) {
       openRequests:          openRequestCount,
       responsesReceived:     workerResponseCount,
       outgoingPendingApplications: outgoingPendingCount,
+      newInquiries:          newInquiryCount,
     },
     // Responses to the Provider's own requests (what the "Worker responses" card shows).
     workerResponses: workerResponses.map((a) => ({
@@ -407,6 +491,14 @@ async function providerDashboard(userId: string) {
     activeShifts,
     unassignedAccepted,
     unreadNotifications,
+    // Provider demo — Service pipeline strip, Relevant opportunities and Recent activity cards.
+    pipeline: {
+      awaitingAcceptance: outgoingPendingCount,
+      awaitingIntake:     unassignedCount,
+      startConfirmed:     confirmedIntakesCount,
+    },
+    relevantOpportunities,
+    recentActivity,
   };
 }
 
