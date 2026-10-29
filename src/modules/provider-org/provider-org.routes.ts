@@ -23,6 +23,9 @@ router.get("/branches/:id", asyncHandler(ctrl.getBranch));
 router.patch("/branches/:id", asyncHandler(ctrl.updateBranch));
 router.delete("/branches/:id", asyncHandler(ctrl.deleteBranch));
 
+router.get("/service-lines", asyncHandler(ctrl.listServiceLines));
+router.put("/service-lines/:category", asyncHandler(ctrl.saveServiceLine));
+
 router.post("/administrators", asyncHandler(ctrl.createAdministrator));
 router.get("/administrators", asyncHandler(ctrl.listAdministrators));
 router.patch("/administrators/:id", asyncHandler(ctrl.updateAdministrator));

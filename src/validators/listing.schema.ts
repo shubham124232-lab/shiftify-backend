@@ -15,7 +15,22 @@ const housingDetailsSchema = z.object({
   requiredApprovals:     z.string().max(500).optional(),
   inspectionProcess:     z.string().max(1000).optional(),
   photoUrls:             z.array(z.string().url().max(500)).max(6).optional(),
+  // Provider demo housing wizard (additive).
+  privateAddress:        z.string().max(300).optional(),
+  bedrooms:              z.number().int().min(0).max(50).optional(),
+  bathrooms:             z.number().int().min(0).max(50).optional(),
+  photoVisibility:       z.string().max(60).optional(),
+  placementDuration:     z.string().max(60).optional(),
+  staffContinuity:       z.string().max(80).optional(),
+  relevantCapabilities:  z.array(z.string().max(80)).max(30).optional(),
+  assessment:            z.string().max(1000).optional(),
+  addressVisibility:     z.string().max(60).optional(),
+  internalNotes:         z.string().max(2000).optional(),
+  packageTier:           z.enum(["STANDARD", "FEATURED"]).optional(),
 }).strict();
+
+// Provider demo service/capacity wizard details (free-form, bounded).
+const serviceDetailsSchema = z.record(z.string().max(60), z.union([z.string().max(2000), z.number(), z.boolean(), z.array(z.string().max(120)).max(30)])).refine((o) => Object.keys(o).length <= 40, "Too many service details");
 
 export const createListingSchema = z
   .object({
@@ -65,6 +80,7 @@ export const createListingSchema = z
       .optional(),
 
     housingDetails: housingDetailsSchema.optional(),
+    serviceDetails: serviceDetailsSchema.optional(),
 
     // Sent by the Web forms; accepted but not persisted.
     acknowledgement: z.boolean().optional(),
@@ -100,6 +116,7 @@ export type ListListingsQuery = z.infer<typeof listListingsQuerySchema>;
 export const updateListingSchema = z.object({
   status:          z.enum(["ACTIVE", "PAUSED", "FILLED", "CLOSED"]).optional(),
   housingDetails:  housingDetailsSchema.optional(),
+  serviceDetails:  serviceDetailsSchema.optional(),
   title:           z.string().min(5).max(200).optional(),
   description:     z.string().min(10).max(5000).optional(),
   suburb:          z.string().min(2).max(120).optional(),

@@ -3,6 +3,7 @@ import { prisma } from "../../lib/prisma";
 import { NotFoundError, ForbiddenError, ConflictError, BadRequestError } from "../../lib/errors";
 import { notify } from "../../lib/notify";
 import { computeApplicationScore } from "../jobs/job-scoring";
+import { getCapacitySummary } from "../provider-org/provider-org.service";
 import type { UserRole } from "@prisma/client";
 import type { CreateJobInviteInput, RespondJobInviteInput } from "../../validators/job-invite.schema";
 
@@ -12,8 +13,8 @@ const INCLUDE = {
   job:         { select: { id: true, title: true, status: true, postedByUserId: true, urgency: true, category: true, suburb: true, state: true, scheduledStartAt: true, totalHours: true, budgetPerHour: true, isRecurring: true, applicationDeadlineAt: true } },
 } as const;
 
-// Provider Final handoff — a Provider's Direct Connect invite is a conditional $9.99 charge, only taken if the worker accepts.
-// A Coordinator's SC-F01-06 invite is free.
+// A Provider's Direct Connect invite is included in a paid Provider plan (recorded as $0.00). Without a paid plan it is a
+// conditional $9.99 charge, only taken if the worker accepts. A Coordinator's SC-F01-06 invite is free.
 const PROVIDER_DIRECT_CONNECT_PRICE_AUD = 9.99;
 
 // ─── Poster invites one specific worker/provider to their job (free for a ─────
@@ -46,7 +47,10 @@ export async function createInvite(
     throw new NotFoundError("That user isn't a support worker or provider");
   }
 
-  const amountAud = activeRole === "PROVIDER" ? PROVIDER_DIRECT_CONNECT_PRICE_AUD : null;
+  let amountAud: number | null = null;
+  if (activeRole === "PROVIDER") {
+    amountAud = (await getCapacitySummary(invitedByUserId)) ? 0 : PROVIDER_DIRECT_CONNECT_PRICE_AUD;
+  }
 
   const existing = await prisma.jobInvite.findUnique({
     where: { jobId_invitedUserId: { jobId, invitedUserId: input.invitedUserId } },
@@ -157,7 +161,7 @@ export async function respondToInvite(
     throw new BadRequestError("The response window for this request has closed");
   }
 
-  const mockReceiptRef = invite.amountAud != null ? `DEV-${randomUUID().toUpperCase()}` : null;
+  const mockReceiptRef = invite.amountAud != null && Number(invite.amountAud) > 0 ? `DEV-${randomUUID().toUpperCase()}` : null;
 
   const [updated] = await prisma.$transaction([
     prisma.jobInvite.update({

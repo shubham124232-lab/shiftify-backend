@@ -772,6 +772,8 @@ model ProviderProfile {
 
   // Step 5 — Services (structured SIL/SDA)
   coreServices        Json?
+  // Provider demo "Service lines" (additive): per-category capability and limits, competencies, branch coverage and manager.
+  serviceLineDetails  Json?
   offersSil           Boolean  @default(false)
   silType             String? // SHARED | INDIVIDUAL
   silSupportLevel     String? // FULL_TIME | DROP_IN
@@ -2162,6 +2164,9 @@ model ProviderListing {
   // Provider doc PR-HL02 — dwelling category, accessibility, vacancy dates, household, roster,
   // compatibility, costs/approvals and inspection process (additive).
   housingDetails Json?
+
+  // Provider demo service/capacity wizard (additive): workforce model, capabilities, schedule, rates, intake and visibility.
+  serviceDetails Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
